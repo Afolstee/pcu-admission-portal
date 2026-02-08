@@ -1,0 +1,88 @@
+import jwt
+import hashlib
+import os
+from datetime import datetime, timedelta
+from config import Config
+from functools import wraps
+from flask import request, jsonify
+
+class AuthHandler:
+    """Handles authentication and JWT token management"""
+    
+    @staticmethod
+    def hash_password(password):
+        """Hash password using SHA256 (in production, use bcrypt)"""
+        return hashlib.sha256(password.encode()).hexdigest()
+    
+    @staticmethod
+    def verify_password(password, password_hash):
+        """Verify password against hash"""
+        return AuthHandler.hash_password(password) == password_hash
+    
+    @staticmethod
+    def generate_token(user_id, role, expires_in=86400):
+        """Generate JWT token (valid for 24 hours by default)"""
+        payload = {
+            'user_id': user_id,
+            'role': role,
+            'iat': datetime.utcnow(),
+            'exp': datetime.utcnow() + timedelta(seconds=expires_in)
+        }
+        token = jwt.encode(payload, Config.JWT_SECRET, algorithm='HS256')
+        return token
+    
+    @staticmethod
+    def verify_token(token):
+        """Verify and decode JWT token"""
+        try:
+            payload = jwt.decode(token, Config.JWT_SECRET, algorithms=['HS256'])
+            return payload
+        except jwt.ExpiredSignatureError:
+            return {'error': 'Token expired'}
+        except jwt.InvalidTokenError:
+            return {'error': 'Invalid token'}
+    
+    @staticmethod
+    def token_required(f):
+        """Decorator to protect routes with JWT token"""
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            token = None
+            
+            # Check for token in headers
+            if 'Authorization' in request.headers:
+                auth_header = request.headers['Authorization']
+                try:
+                    token = auth_header.split(" ")[1]
+                except IndexError:
+                    return jsonify({'message': 'Invalid token format'}), 401
+            
+            if not token:
+                return jsonify({'message': 'Token is missing'}), 401
+            
+            payload = AuthHandler.verify_token(token)
+            if 'error' in payload:
+                return jsonify({'message': payload['error']}), 401
+            
+            return f(payload, *args, **kwargs)
+        
+        return decorated
+    
+    @staticmethod
+    def admin_required(f):
+        """Decorator to protect admin routes"""
+        @wraps(f)
+        def decorated(payload, *args, **kwargs):
+            if payload.get('role') != 'admin':
+                return jsonify({'message': 'Admin access required'}), 403
+            return f(payload, *args, **kwargs)
+        
+        return decorated
+
+
+hash_password = AuthHandler.hash_password
+verify_password = AuthHandler.verify_password
+generate_token = AuthHandler.generate_token
+verify_token = AuthHandler.verify_token
+token_required = AuthHandler.token_required
+admin_required = AuthHandler.admin_required

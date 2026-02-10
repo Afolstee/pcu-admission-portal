@@ -54,7 +54,7 @@ CREATE TABLE application_forms (
     id INT PRIMARY KEY AUTO_INCREMENT,
     applicant_id INT NOT NULL UNIQUE,
     program_id INT NOT NULL,
-    -- Mock form fields for now - can be expanded
+    -- Mock form fields for now 
     full_name VARCHAR(255),
     date_of_birth DATE,
     nationality VARCHAR(100),
@@ -87,7 +87,7 @@ CREATE TABLE documents (
     INDEX (application_form_id)
 );
 
--- Admission letters table
+-- Admission letters table 
 CREATE TABLE admission_letters (
     id INT PRIMARY KEY AUTO_INCREMENT,
     applicant_id INT NOT NULL,
@@ -103,7 +103,7 @@ CREATE TABLE admission_letters (
     FOREIGN KEY (applicant_id) REFERENCES applicants(id) ON DELETE CASCADE
 );
 
--- Letter templates table
+-- Letter templates table (we need more samples from admission)
 CREATE TABLE letter_templates (
     id INT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(100) NOT NULL UNIQUE,
@@ -117,7 +117,7 @@ CREATE TABLE letter_templates (
     FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
--- Insert default letter template
+-- default letter template
 INSERT INTO letter_templates (name, subject, header_text, body_text, footer_text) VALUES 
     ('Default', 'Admission Letter', 'ADMISSION LETTER', 'Dear [APPLICANT_NAME],\n\nCongratulations! We are pleased to inform you that your application for admission to our institution has been accepted.\n\nProgram: [PROGRAM]\nAdmission Date: [ADMISSION_DATE]\n\nPlease proceed with your acceptance by paying the acceptance fee within the stipulated time.\n\nBest regards,\nAdmissions Office', 'This letter is auto-generated and does not require a signature.');
 
@@ -135,7 +135,7 @@ CREATE TABLE application_reviews (
     FOREIGN KEY (recommended_program_id) REFERENCES programs(id)
 );
 
--- Payment transactions table (for future use)
+-- Payment transactions table 
 CREATE TABLE payment_transactions (
     id INT PRIMARY KEY AUTO_INCREMENT,
     applicant_id INT NOT NULL,

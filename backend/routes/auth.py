@@ -44,10 +44,11 @@ def signup():
     if not user_id:
         return jsonify({'message': 'Failed to create account'}), 500
     
-    # Create applicant record
+    # Create applicant record WITHOUT a selected program.
+    # The applicant MUST explicitly choose a program in the portal.
     Database.execute_update(
         'INSERT INTO applicants (user_id, program_id) VALUES (%s, %s)',
-        (user_id, 1)  # Default to first program initially
+        (user_id, None)
     )
     
     # Generate token

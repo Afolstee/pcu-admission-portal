@@ -9,9 +9,8 @@ const _geist = Geist({ subsets: ['latin'] })
 const _geistMono = Geist_Mono({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Admission Portal',
-  description: 'University Admission Portal - Apply for Admission',
-  generator: 'v0.app',
+  title: 'PCU Admission Portal',
+  description: 'PCU Admission Portal - Apply for Admission',
 }
 
 export const viewport: Viewport = {

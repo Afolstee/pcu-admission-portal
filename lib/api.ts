@@ -108,11 +108,33 @@ export class ApiClient {
   }
 
   static async submitForm(formData: any) {
-    const { data } = await this.fetch('/applicant/submit-form', {
-      method: 'POST',
-      body: JSON.stringify(formData),
-      headers: {} as any, // Override to not set JSON content type for form data
+    // Backend expects standard form fields via request.form,
+    // so we must send a FormData/multipart request (NOT JSON).
+    const fd = new FormData();
+    Object.entries(formData).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        fd.append(key, String(value));
+      }
     });
+
+    const token = this.getToken();
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/applicant/submit-form`, {
+      method: 'POST',
+      headers,
+      body: fd,
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to save application form');
+    }
+
     return data;
   }
 

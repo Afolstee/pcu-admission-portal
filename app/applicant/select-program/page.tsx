@@ -17,7 +17,7 @@ interface Program {
 
 export default function SelectProgramPage() {
   const router = useRouter();
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, refreshStatus } = useAuth();
   const [programs, setPrograms] = useState<Program[]>([]);
   const [selectedProgram, setSelectedProgram] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,7 +56,10 @@ export default function SelectProgramPage() {
 
     try {
       await ApiClient.selectProgram(selectedProgram);
-      router.push('/applicant/dashboard');
+      // Refresh applicant status so guards see the newly selected program
+      await refreshStatus();
+      // After selecting a program, go straight to the application form
+      router.push('/applicant/application');
     } catch (err) {
       setError('Failed to select program. Please try again.');
       console.error(err);

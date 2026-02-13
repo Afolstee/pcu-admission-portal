@@ -1,14 +1,28 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/context/AuthContext';
-import { ApiClient } from '@/lib/api';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { BookOpen, LogOut, FileText, DollarSign, Download, Settings } from 'lucide-react';
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import { ApiClient } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  BookOpen,
+  LogOut,
+  FileText,
+  DollarSign,
+  Download,
+  Settings,
+} from "lucide-react";
+import { useProgramGuard } from "@/hooks/useProgramGuard";
 
 interface ApplicantStatus {
   id: number;
@@ -22,18 +36,18 @@ interface ApplicantStatus {
 }
 
 const statusColors: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-800',
-  submitted: 'bg-blue-100 text-blue-800',
-  under_review: 'bg-purple-100 text-purple-800',
-  accepted: 'bg-green-100 text-green-800',
-  rejected: 'bg-red-100 text-red-800',
-  recommended: 'bg-orange-100 text-orange-800',
+  pending: "bg-yellow-100 text-yellow-800",
+  submitted: "bg-blue-100 text-blue-800",
+  under_review: "bg-purple-100 text-purple-800",
+  accepted: "bg-green-100 text-green-800",
+  rejected: "bg-red-100 text-red-800",
+  recommended: "bg-orange-100 text-orange-800",
 };
 
 const admissionStatusColors: Record<string, string> = {
-  not_admitted: 'bg-gray-100 text-gray-800',
-  admitted: 'bg-green-100 text-green-800',
-  admission_revoked: 'bg-red-100 text-red-800',
+  not_admitted: "bg-gray-100 text-gray-800",
+  admitted: "bg-green-100 text-green-800",
+  admission_revoked: "bg-red-100 text-red-800",
 };
 
 export default function ApplicantDashboard() {
@@ -41,30 +55,28 @@ export default function ApplicantDashboard() {
   const { user, applicant, isAuthenticated, logout, refreshStatus } = useAuth();
   const [status, setStatus] = useState<ApplicantStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  useProgramGuard();
 
   useEffect(() => {
-    if (!isAuthenticated || user?.role !== 'applicant') {
-      router.replace('/auth/login');
-      return;
-    }
+    if (!isAuthenticated) return;
 
     const loadStatus = async () => {
       try {
         const response = await ApiClient.getApplicantStatus();
         setStatus(response.applicant);
       } catch (err) {
-        console.error('Error loading status:', err);
+        console.error("Error loading status:", err);
       } finally {
         setLoading(false);
       }
     };
 
     loadStatus();
-  }, [isAuthenticated, user, router]);
+  }, [isAuthenticated]);
 
   const handleLogout = async () => {
     await logout();
-    router.replace('/');
+    router.replace("/");
   };
 
   if (loading) {
@@ -85,7 +97,7 @@ export default function ApplicantDashboard() {
     accepted: 3,
     rejected: 1,
     recommended: 2,
-  }[status?.application_status || 'pending'];
+  }[status?.application_status || "pending"];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">
@@ -136,8 +148,12 @@ export default function ApplicantDashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <Badge className={statusColors[status?.application_status || 'pending']}>
-                {status?.application_status?.replace('_', ' ').toUpperCase()}
+              <Badge
+                className={
+                  statusColors[status?.application_status || "pending"]
+                }
+              >
+                {status?.application_status?.replace("_", " ").toUpperCase()}
               </Badge>
             </CardContent>
           </Card>
@@ -150,9 +166,13 @@ export default function ApplicantDashboard() {
             </CardHeader>
             <CardContent>
               <Badge
-                className={admissionStatusColors[status?.admission_status || 'not_admitted']}
+                className={
+                  admissionStatusColors[
+                    status?.admission_status || "not_admitted"
+                  ]
+                }
               >
-                {status?.admission_status?.replace('_', ' ').toUpperCase()}
+                {status?.admission_status?.replace("_", " ").toUpperCase()}
               </Badge>
             </CardContent>
           </Card>
@@ -162,15 +182,19 @@ export default function ApplicantDashboard() {
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>Your Application Steps</CardTitle>
-            <CardDescription>Track your progress through the application process</CardDescription>
+            <CardDescription>
+              Track your progress through the application process
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               {/* Step 1: Application Form */}
               <div className="flex items-start gap-4">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${
-                  applicationStep >= 1 ? 'bg-primary' : 'bg-gray-300'
-                }`}>
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${
+                    applicationStep >= 1 ? "bg-primary" : "bg-gray-300"
+                  }`}
+                >
                   1
                 </div>
                 <div className="flex-1">
@@ -180,8 +204,14 @@ export default function ApplicantDashboard() {
                   </p>
                   {applicationStep >= 1 && (
                     <Link href="/applicant/application">
-                      <Button size="sm" variant={applicationStep === 1 ? 'default' : 'outline'} className="mt-2">
-                        {status?.application_status === 'pending' ? 'Start Application' : 'View Application'}
+                      <Button
+                        size="sm"
+                        variant={applicationStep === 1 ? "default" : "outline"}
+                        className="mt-2"
+                      >
+                        {status?.application_status === "pending"
+                          ? "Start Application"
+                          : "View Application"}
                       </Button>
                     </Link>
                   )}
@@ -190,9 +220,11 @@ export default function ApplicantDashboard() {
 
               {/* Step 2: Review & Wait */}
               <div className="flex items-start gap-4">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${
-                  applicationStep >= 2 ? 'bg-primary' : 'bg-gray-300'
-                }`}>
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${
+                    applicationStep >= 2 ? "bg-primary" : "bg-gray-300"
+                  }`}
+                >
                   2
                 </div>
                 <div className="flex-1">
@@ -202,7 +234,8 @@ export default function ApplicantDashboard() {
                   </p>
                   {status?.submitted_at && (
                     <p className="text-xs text-muted-foreground mt-1">
-                      Submitted on {new Date(status.submitted_at).toLocaleDateString()}
+                      Submitted on{" "}
+                      {new Date(status.submitted_at).toLocaleDateString()}
                     </p>
                   )}
                 </div>
@@ -210,9 +243,11 @@ export default function ApplicantDashboard() {
 
               {/* Step 3: Acceptance & Payment */}
               <div className="flex items-start gap-4">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${
-                  applicationStep >= 3 ? 'bg-primary' : 'bg-gray-300'
-                }`}>
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${
+                    applicationStep >= 3 ? "bg-primary" : "bg-gray-300"
+                  }`}
+                >
                   3
                 </div>
                 <div className="flex-1">
@@ -223,23 +258,39 @@ export default function ApplicantDashboard() {
                   {applicationStep >= 3 && (
                     <div className="space-y-2 mt-2">
                       {!status?.has_paid_acceptance_fee && (
-                        <Button size="sm" variant="outline" className="w-full gap-2 bg-transparent" disabled>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full gap-2 bg-transparent"
+                          disabled
+                        >
                           <DollarSign className="h-4 w-4" />
                           Pay Acceptance Fee
                         </Button>
                       )}
                       {!status?.has_paid_tuition && (
-                        <Button size="sm" variant="outline" className="w-full gap-2 bg-transparent" disabled>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full gap-2 bg-transparent"
+                          disabled
+                        >
                           <DollarSign className="h-4 w-4" />
                           Pay Tuition
                         </Button>
                       )}
-                      {status?.has_paid_acceptance_fee && status?.has_paid_tuition && (
-                        <Button size="sm" variant="outline" className="w-full gap-2 bg-transparent" disabled>
-                          <Download className="h-4 w-4" />
-                          Print Admission Documents
-                        </Button>
-                      )}
+                      {status?.has_paid_acceptance_fee &&
+                        status?.has_paid_tuition && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="w-full gap-2 bg-transparent"
+                            disabled
+                          >
+                            <Download className="h-4 w-4" />
+                            Print Admission Documents
+                          </Button>
+                        )}
                     </div>
                   )}
                 </div>
@@ -247,47 +298,6 @@ export default function ApplicantDashboard() {
             </div>
           </CardContent>
         </Card>
-
-        {/* Quick Actions */}
-        <div className="grid md:grid-cols-2 gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <FileText className="h-5 w-5" />
-                Application Form
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-4">
-                {status?.application_status === 'pending'
-                  ? 'Start filling out your application form'
-                  : 'View or update your application'}
-              </p>
-              <Link href="/applicant/application">
-                <Button size="sm" className="w-full">
-                  {status?.application_status === 'pending' ? 'Start' : 'View'} Form
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Settings className="h-5 w-5" />
-                Account Settings
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-4">
-                Update your profile information
-              </p>
-              <Button size="sm" variant="outline" className="w-full bg-transparent" disabled>
-                Coming Soon
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
       </div>
     </div>
   );

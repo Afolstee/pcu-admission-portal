@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { BookOpen, LogOut, Upload, Save, Send, AlertCircle } from 'lucide-react';
 import ApplicationFormComponent from '@/components/ApplicationForm';
+import { useProgramGuard } from '@/hooks/useProgramGuard';
 
 export default function ApplicationPage() {
   const router = useRouter();
@@ -18,6 +19,7 @@ export default function ApplicationPage() {
   const [formTemplate, setFormTemplate] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  useProgramGuard();
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== 'applicant') {

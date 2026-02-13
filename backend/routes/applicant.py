@@ -35,25 +35,29 @@ def select_program(payload):
     if not programs:
         return jsonify({'message': 'Invalid program'}), 400
     
-    # Get applicant
+    # Get applicant; if not present, create one for this user
     applicants = Database.execute_query(
         'SELECT id FROM applicants WHERE user_id = %s',
         (user_id,)
     )
     
     if not applicants:
-        return jsonify({'message': 'Applicant record not found'}), 404
-    
-    applicant_id = applicants[0]['id']
-    
-    # Update program
-    success = Database.execute_update(
-        'UPDATE applicants SET program_id = %s WHERE id = %s',
-        (program_id, applicant_id)
-    )
-    
-    if not success:
-        return jsonify({'message': 'Failed to select program'}), 500
+        # Create applicant record tied to this user with the selected program
+        applicant_id = Database.execute_update(
+            'INSERT INTO applicants (user_id, program_id) VALUES (%s, %s)',
+            (user_id, program_id)
+        )
+        if not applicant_id:
+            return jsonify({'message': 'Failed to create applicant record'}), 500
+    else:
+        applicant_id = applicants[0]['id']
+        # Update program on existing applicant record
+        success = Database.execute_update(
+            'UPDATE applicants SET program_id = %s WHERE id = %s',
+            (program_id, applicant_id)
+        )
+        if not success:
+            return jsonify({'message': 'Failed to select program'}), 500
     
     return jsonify({
         'message': 'Program selected successfully',

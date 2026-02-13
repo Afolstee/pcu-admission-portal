@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
@@ -12,20 +12,26 @@ import { AlertCircle } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, isLoading, error, isAuthenticated, user } = useAuth();
+  const { login, isLoading, error, isAuthenticated, user, applicant } = useAuth();
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [localError, setLocalError] = useState('');
 
   // Redirect if already authenticated
-  React.useEffect(() => {
-    if (isAuthenticated && user) {
-      if (user.role === 'admin') {
-        router.replace('/admin/dashboard');
-      } else {
-        router.replace('/applicant/dashboard');
-      }
+  useEffect(() => {
+    if (!isAuthenticated || !user) return;
+
+    if (user.role === 'admin') {
+      router.replace('/admin/dashboard');
+      return;
     }
-  }, [isAuthenticated, user, router]);
+
+    // Applicant: must select a program before accessing dashboard/application
+    if (!applicant?.program_id) {
+      router.replace('/applicant/select-program');
+    } else {
+      router.replace('/applicant/dashboard');
+    }
+  }, [isAuthenticated, user, applicant, router]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;

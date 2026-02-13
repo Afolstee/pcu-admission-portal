@@ -178,6 +178,26 @@ export class ApiClient {
     return data;
   }
 
+  static async previewAdmissionLetter(applicantId: number, admissionDate?: string, templateId?: number) {
+    const token = this.getToken()
+    const res = await fetch(`${API_BASE_URL}/admin/preview-admission-letter`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ applicant_id: applicantId, admission_date: admissionDate, template_id: templateId })
+    })
+
+    if (!res.ok) {
+      const txt = await res.text()
+      throw new Error(`Preview request failed: ${res.status} ${txt}`)
+    }
+
+    const blob = await res.blob()
+    return blob
+  }
+
   static async getApplicantStatus() {
     const { data } = await this.fetch('/applicant/get-applicant-status');
     return data;

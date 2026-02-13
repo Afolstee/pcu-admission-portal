@@ -36,6 +36,11 @@ interface SendResult {
   failed: Array<{ applicant_id: number; error: string }>;
 }
 
+interface LetterTemplate {
+  id: number;
+  name: string;
+}
+
 export default function SendLettersPage() {
   const router = useRouter();
   const { user, isAuthenticated, logout } = useAuth();
@@ -47,7 +52,8 @@ export default function SendLettersPage() {
   const [admissionDate, setAdmissionDate] = useState(
     new Date().toISOString().split('T')[0]
   );
-  const [templateId, setTemplateId] = useState('1');
+  const [templateId, setTemplateId] = useState<string>('');
+  const [templates, setTemplates] = useState<LetterTemplate[]>([]);
   const [sendResult, setSendResult] = useState<SendResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,6 +64,7 @@ export default function SendLettersPage() {
     }
 
     loadApplications();
+    loadTemplates();
   }, [isAuthenticated, user, router]);
 
   const loadApplications = async () => {
@@ -69,6 +76,19 @@ export default function SendLettersPage() {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadTemplates = async () => {
+    try {
+      const response = await ApiClient.getLetterTemplates();
+      const list: LetterTemplate[] = response.templates || [];
+      setTemplates(list);
+      if (list.length > 0 && !templateId) {
+        setTemplateId(String(list[0].id));
+      }
+    } catch (err) {
+      console.error('Error loading letter templates:', err);
     }
   };
 
@@ -96,6 +116,11 @@ export default function SendLettersPage() {
       return;
     }
 
+    if (!templateId) {
+      setError('Please choose a letter template');
+      return;
+    }
+
     setSending(true);
     setError(null);
     setSendResult(null);
@@ -113,6 +138,31 @@ export default function SendLettersPage() {
       setError(message);
     } finally {
       setSending(false);
+    }
+  };
+
+  const handlePreview = async () => {
+    setError(null);
+    if (selectedApplicants.size !== 1) {
+      setError('Please select exactly one applicant to preview the letter');
+      return;
+    }
+
+    if (!templateId) {
+      setError('Please choose a letter template');
+      return;
+    }
+
+    const applicantId = Array.from(selectedApplicants)[0];
+
+    try {
+      const blob = await ApiClient.previewAdmissionLetter(applicantId, admissionDate, parseInt(templateId));
+      const url = URL.createObjectURL(blob as Blob);
+      window.open(url, '_blank');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to generate preview';
+      setError(message);
+      console.error(err);
     }
   };
 
@@ -223,12 +273,16 @@ export default function SendLettersPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="template">Letter Template</Label>
-                <Select value={templateId} onValueChange={setTemplateId} disabled={sending}>
+                <Select value={templateId} onValueChange={setTemplateId} disabled={sending || templates.length === 0}>
                   <SelectTrigger id="template">
-                    <SelectValue />
+                    <SelectValue placeholder={templates.length === 0 ? 'No templates available' : 'Select template'} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="1">Default Template</SelectItem>
+                    {templates.map((tpl) => (
+                      <SelectItem key={tpl.id} value={String(tpl.id)}>
+                        {tpl.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -242,16 +296,26 @@ export default function SendLettersPage() {
                 </div>
               </div>
 
-              <Button
-                onClick={handleSendLetters}
-                disabled={sending || selectedApplicants.size === 0}
-                className="w-full gap-2 mt-6"
-              >
-                <Mail className="h-4 w-4" />
-                {sending
-                  ? 'Sending Letters...'
-                  : `Send to ${selectedApplicants.size} Applicant${selectedApplicants.size !== 1 ? 's' : ''}`}
-              </Button>
+              <div className="flex gap-3 mt-6">
+                <Button
+                  variant="outline"
+                  onClick={handlePreview}
+                  disabled={sending || selectedApplicants.size !== 1 || !templateId}
+                  className="gap-2"
+                >
+                  Preview
+                </Button>
+                <Button
+                  onClick={handleSendLetters}
+                  disabled={sending || selectedApplicants.size === 0}
+                  className="flex-1 gap-2"
+                >
+                  <Mail className="h-4 w-4" />
+                  {sending
+                    ? 'Sending Letters...'
+                    : `Send to ${selectedApplicants.size} Applicant${selectedApplicants.size !== 1 ? 's' : ''}`}
+                </Button>
+              </div>
             </CardContent>
           </Card>
 

@@ -1,19 +1,15 @@
-from flask import Flask, app
+from flask import Flask
 from flask_cors import CORS
 from config import config
 import os
-from flask_cors import CORS
 
 def create_app(config_name='development'):
 
     app = Flask(__name__)
     app.config.from_object(config[config_name])
 
-    from flask_cors import CORS
     CORS(app,
-         resources={r"/api/*": {"origins": [
-             "http://localhost:3000"
-         ]}},
+         resources={r"/api/*": {"origins": ["http://localhost:3000"]}},
          supports_credentials=True)
 
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
@@ -33,7 +29,8 @@ def create_app(config_name='development'):
 
     return app
 
+
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 5000))
+    app = create_app()
     app.run(host="0.0.0.0", port=port)

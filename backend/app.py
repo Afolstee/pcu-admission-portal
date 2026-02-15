@@ -2,10 +2,15 @@ from flask import Flask, app
 from flask_cors import CORS
 from config import config
 import os
+from flask_cors import CORS
 
 def create_app(config_name='development'):
 
     app = Flask(__name__)
+    CORS(app, origins=[
+    "http://localhost:3000",
+    "https://admission-portal-pcu.onrender.com"
+])
     
     
     app.config.from_object(config[config_name])

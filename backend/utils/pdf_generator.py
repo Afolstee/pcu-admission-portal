@@ -8,10 +8,38 @@ from typing import Optional
 class PDFGenerator:
     """Handles PDF generation from HTML templates using pdfkit/wkhtmltopdf"""
     
-    # Configure pdfkit with wkhtmltopdf path
-    _config = pdfkit.configuration(
-        wkhtmltopdf=r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
-    )
+    # Configure pdfkit with wkhtmltopdf path - make it flexible for different environments
+    @staticmethod
+    def _get_wkhtmltopdf_path():
+        """Get the wkhtmltopdf path based on environment"""
+        # Check environment variable first
+        env_path = os.getenv('WKHTMLTOPDF_PATH')
+        if env_path:
+            return env_path
+        
+        # Windows path
+        if os.name == 'nt':
+            windows_path = r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
+            if os.path.exists(windows_path):
+                return windows_path
+        
+        # Linux/Unix - just use the command name (assumes it's in PATH)
+        return 'wkhtmltopdf'
+    
+    _config = None
+    
+    @classmethod
+    def _get_config(cls):
+        """Lazy-load pdfkit configuration"""
+        if cls._config is None:
+            try:
+                cls._config = pdfkit.configuration(
+                    wkhtmltopdf=cls._get_wkhtmltopdf_path()
+                )
+            except Exception as e:
+                print(f"Warning: pdfkit configuration failed: {e}")
+                cls._config = None
+        return cls._config
     
     @staticmethod
     def _load_template():
@@ -208,7 +236,7 @@ class PDFGenerator:
         try:
             # Convert image paths to base64 data URLs for wkhtmltopdf compatibility
             html_with_embedded_images = PDFGenerator._convert_image_to_base64(html_content)
-            pdf_bytes = pdfkit.from_string(html_with_embedded_images, False, configuration=PDFGenerator._config)
+            pdf_bytes = pdfkit.from_string(html_with_embedded_images, False, configuration=PDFGenerator._get_config())
             return pdf_bytes
         except Exception as e:
             raise Exception(f"PDF generation failed: {str(e)}")

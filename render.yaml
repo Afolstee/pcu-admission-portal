@@ -1,0 +1,13 @@
+# Render deployment configuration
+services:
+  - type: web
+    name: pcu-admission-api
+    runtime: python
+    buildCommand: |
+      apt-get update && apt-get install -y wkhtmltopdf && pip install -r backend/requirements.txt
+    startCommand: cd backend && gunicorn app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: FLASK_ENV
+        value: production

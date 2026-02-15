@@ -2,9 +2,10 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { ApiClient } from "@/lib/api";
+import { ApiClient, ApplicantStatus, AdmissionLetterData } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -15,25 +16,15 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
-  BookOpen,
   LogOut,
   FileText,
   DollarSign,
   Download,
   Settings,
+  Printer,
 } from "lucide-react";
 import { useProgramGuard } from "@/hooks/useProgramGuard";
-
-interface ApplicantStatus {
-  id: number;
-  program_id: number;
-  program_name: string;
-  application_status: string;
-  admission_status: string;
-  has_paid_acceptance_fee: boolean;
-  has_paid_tuition: boolean;
-  submitted_at: string | null;
-}
+import FsmsAdmissionLetter from "@/components/FsmsAdmissionLetter";
 
 const statusColors: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800",
@@ -55,7 +46,37 @@ export default function ApplicantDashboard() {
   const { user, applicant, isAuthenticated, logout, refreshStatus } = useAuth();
   const [status, setStatus] = useState<ApplicantStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [admissionLetter, setAdmissionLetter] =
+    useState<AdmissionLetterData | null>(null);
+  const [showLetter, setShowLetter] = useState(false);
+  const [printLoading, setPrintLoading] = useState(false);
   useProgramGuard();
+
+  const handlePrintPDF = async () => {
+    try {
+      setPrintLoading(true);
+      const pdfBlob = await ApiClient.printAdmissionLetterPDF();
+
+      // Create a temporary URL for the blob
+      const url = URL.createObjectURL(pdfBlob);
+
+      // Create a temporary link element and trigger download
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `admission_letter_${admissionLetter?.reference || "letter"}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+
+      // Cleanup
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Error generating PDF:", err);
+      alert("Failed to generate PDF. Please try again.");
+    } finally {
+      setPrintLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -64,6 +85,16 @@ export default function ApplicantDashboard() {
       try {
         const response = await ApiClient.getApplicantStatus();
         setStatus(response.applicant);
+
+        // If admitted, fetch admission letter data
+        if (response.applicant.admission_status === "admitted") {
+          try {
+            const letterResponse = await ApiClient.getAdmissionLetter();
+            setAdmissionLetter(letterResponse);
+          } catch (err) {
+            console.error("Error loading admission letter:", err);
+          }
+        }
       } catch (err) {
         console.error("Error loading status:", err);
       } finally {
@@ -90,14 +121,16 @@ export default function ApplicantDashboard() {
     );
   }
 
-  const applicationStep = {
-    pending: 1,
-    submitted: 2,
-    under_review: 2,
-    accepted: 3,
-    rejected: 1,
-    recommended: 2,
-  }[status?.application_status || "pending"];
+  const applicationStep = status
+    ? {
+        pending: 1,
+        submitted: 2,
+        under_review: 2,
+        accepted: 3,
+        rejected: 1,
+        recommended: 2,
+      }[status.application_status] || 1
+    : 1;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">
@@ -105,7 +138,13 @@ export default function ApplicantDashboard() {
       <nav className="bg-background border-b border-border sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <BookOpen className="h-6 w-6 text-primary" />
+            <Image
+              src="/images/logo new.png"
+              alt="PCU Logo"
+              width={28}
+              height={28}
+              className="object-contain"
+            />
             <span className="font-bold text-lg">Admission Portal</span>
           </div>
           <div className="flex items-center gap-4">
@@ -298,6 +337,49 @@ export default function ApplicantDashboard() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Admission Letter */}
+        {status?.admission_status === "admitted" && admissionLetter && (
+          <Card className="mb-8">
+            <CardHeader>
+              <CardTitle>Admission Letter</CardTitle>
+              <CardDescription>
+                Congratulations! Your admission letter is ready.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  You have been admitted to {status.program_name}. Click below
+                  to view your admission letter.
+                </p>
+                <div className="flex gap-2 flex-wrap">
+                  <Button
+                    onClick={() => setShowLetter(!showLetter)}
+                    className="gap-2"
+                  >
+                    <FileText className="h-4 w-4" />
+                    {showLetter ? "Hide" : "View"} Admission Letter
+                  </Button>
+                  <Button
+                    onClick={handlePrintPDF}
+                    variant="outline"
+                    className="gap-2"
+                    disabled={printLoading}
+                  >
+                    <Printer className="h-4 w-4" />
+                    {printLoading ? "Generating PDF..." : "Download as PDF"}
+                  </Button>
+                </div>
+                {showLetter && (
+                  <div className="mt-4 border rounded-lg p-4 bg-white">
+                    <FsmsAdmissionLetter {...admissionLetter} />
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

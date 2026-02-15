@@ -1,14 +1,21 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/context/AuthContext';
-import { ApiClient } from '@/lib/api';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { BookOpen, LogOut, FileText, Mail, BarChart3 } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import Link from "next/link";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import { ApiClient } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { LogOut, FileText, Mail, BarChart3 } from "lucide-react";
 
 interface Statistics {
   total_applications: number;
@@ -24,8 +31,8 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!isAuthenticated || user?.role !== 'admin') {
-      router.replace('/auth/login');
+    if (!isAuthenticated || user?.role !== "admin") {
+      router.replace("/auth/login");
       return;
     }
 
@@ -34,7 +41,7 @@ export default function AdminDashboard() {
         const response = await ApiClient.getStatistics();
         setStats(response);
       } catch (err) {
-        console.error('Error loading statistics:', err);
+        console.error("Error loading statistics:", err);
       } finally {
         setLoading(false);
       }
@@ -45,7 +52,7 @@ export default function AdminDashboard() {
 
   const handleLogout = async () => {
     await logout();
-    router.replace('/');
+    router.replace("/");
   };
 
   if (loading) {
@@ -65,8 +72,16 @@ export default function AdminDashboard() {
       <nav className="bg-background border-b border-border sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <BookOpen className="h-6 w-6 text-primary" />
-            <span className="font-bold text-lg">PCU Admission Portal - Admin</span>
+            <Image
+              src="/images/logo new.png"
+              alt="PCU Logo"
+              width={28}
+              height={28}
+              className="object-contain"
+            />
+            <span className="font-bold text-lg">
+              PCU Admission Portal - Admin
+            </span>
           </div>
           <div className="flex items-center gap-4">
             <div className="text-sm">
@@ -90,8 +105,12 @@ export default function AdminDashboard() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground mb-2">Admin Dashboard</h1>
-          <p className="text-muted-foreground">Manage applications and admissions</p>
+          <h1 className="text-3xl font-bold text-foreground mb-2">
+            Admin Dashboard
+          </h1>
+          <p className="text-muted-foreground">
+            Manage applications and admissions
+          </p>
         </div>
 
         {/* Statistics */}
@@ -103,7 +122,9 @@ export default function AdminDashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-bold">{stats?.total_applications || 0}</p>
+              <p className="text-3xl font-bold">
+                {stats?.total_applications || 0}
+              </p>
             </CardContent>
           </Card>
 
@@ -114,7 +135,9 @@ export default function AdminDashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-bold text-green-600">{stats?.total_admitted || 0}</p>
+              <p className="text-3xl font-bold text-green-600">
+                {stats?.total_admitted || 0}
+              </p>
             </CardContent>
           </Card>
 
@@ -126,7 +149,9 @@ export default function AdminDashboard() {
             </CardHeader>
             <CardContent>
               <p className="text-3xl font-bold text-blue-600">
-                {stats?.by_status?.find((s) => s.application_status === 'under_review')?.count || 0}
+                {stats?.by_status?.find(
+                  (s) => s.application_status === "under_review",
+                )?.count || 0}
               </p>
             </CardContent>
           </Card>
@@ -139,7 +164,9 @@ export default function AdminDashboard() {
             </CardHeader>
             <CardContent>
               <p className="text-3xl font-bold text-yellow-600">
-                {stats?.by_status?.find((s) => s.application_status === 'pending')?.count || 0}
+                {stats?.by_status?.find(
+                  (s) => s.application_status === "pending",
+                )?.count || 0}
               </p>
             </CardContent>
           </Card>
@@ -160,7 +187,10 @@ export default function AdminDashboard() {
                   Review and approve submitted applications
                 </p>
                 <Badge variant="outline">
-                  {stats?.by_status?.find((s) => s.application_status === 'submitted')?.count || 0} pending
+                  {stats?.by_status?.find(
+                    (s) => s.application_status === "submitted",
+                  )?.count || 0}{" "}
+                  pending
                 </Badge>
               </CardContent>
             </Card>
@@ -179,7 +209,10 @@ export default function AdminDashboard() {
                   Generate and send admission letters to candidates
                 </p>
                 <Badge variant="outline">
-                  {stats?.by_status?.find((s) => s.application_status === 'accepted')?.count || 0} to process
+                  {stats?.by_status?.find(
+                    (s) => s.application_status === "accepted",
+                  )?.count || 0}{" "}
+                  to process
                 </Badge>
               </CardContent>
             </Card>
@@ -210,9 +243,12 @@ export default function AdminDashboard() {
             </CardHeader>
             <CardContent className="space-y-3">
               {stats?.by_status?.map((status) => (
-                <div key={status.application_status} className="flex items-center justify-between">
+                <div
+                  key={status.application_status}
+                  className="flex items-center justify-between"
+                >
                   <span className="text-sm font-medium capitalize">
-                    {status.application_status.replace('_', ' ')}
+                    {status.application_status.replace("_", " ")}
                   </span>
                   <Badge variant="secondary">{status.count}</Badge>
                 </div>
@@ -226,7 +262,10 @@ export default function AdminDashboard() {
             </CardHeader>
             <CardContent className="space-y-3">
               {stats?.by_program?.map((program) => (
-                <div key={program.name} className="flex items-center justify-between">
+                <div
+                  key={program.name}
+                  className="flex items-center justify-between"
+                >
                   <span className="text-sm font-medium">{program.name}</span>
                   <Badge variant="secondary">{program.count}</Badge>
                 </div>

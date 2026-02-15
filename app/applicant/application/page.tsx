@@ -1,17 +1,24 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/context/AuthContext';
-import { ApiClient } from '@/lib/api';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { BookOpen, LogOut, Upload, Save, Send, AlertCircle } from 'lucide-react';
-import ApplicationFormComponent from '@/components/ApplicationForm';
-import { useProgramGuard } from '@/hooks/useProgramGuard';
+import React, { useState, useEffect } from "react";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import { ApiClient } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { LogOut, Upload, Save, Send, AlertCircle } from "lucide-react";
+import ApplicationFormComponent from "@/components/ApplicationForm";
+import { useProgramGuard } from "@/hooks/useProgramGuard";
 
 export default function ApplicationPage() {
   const router = useRouter();
@@ -22,21 +29,21 @@ export default function ApplicationPage() {
   useProgramGuard();
 
   useEffect(() => {
-    if (!isAuthenticated || user?.role !== 'applicant') {
-      router.replace('/auth/login');
+    if (!isAuthenticated || user?.role !== "applicant") {
+      router.replace("/auth/login");
       return;
     }
 
     const loadFormTemplate = async () => {
       try {
         if (!applicant?.program_id) {
-          router.replace('/applicant/select-program');
+          router.replace("/applicant/select-program");
           return;
         }
         const response = await ApiClient.getFormTemplate(applicant.program_id);
         setFormTemplate(response);
       } catch (err) {
-        setError('Failed to load application form. Please try again.');
+        setError("Failed to load application form. Please try again.");
         console.error(err);
       } finally {
         setLoading(false);
@@ -48,7 +55,7 @@ export default function ApplicationPage() {
 
   const handleLogout = async () => {
     await logout();
-    router.replace('/');
+    router.replace("/");
   };
 
   if (loading) {
@@ -68,7 +75,13 @@ export default function ApplicationPage() {
       <nav className="bg-background border-b border-border sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <BookOpen className="h-6 w-6 text-primary" />
+            <Image
+              src="/images/logo new.png"
+              alt="PCU Logo"
+              width={28}
+              height={28}
+              className="object-contain"
+            />
             <span className="font-bold text-lg">Admission Portal</span>
           </div>
           <div className="flex items-center gap-4">
@@ -101,7 +114,7 @@ export default function ApplicationPage() {
             ← Back
           </Button>
           <h1 className="text-3xl font-bold text-foreground mb-2">
-            Application Form - {formTemplate?.program || 'Loading...'}
+            Application Form - {formTemplate?.program || "Loading..."}
           </h1>
           <p className="text-muted-foreground">
             Complete all required fields and upload the necessary documents
@@ -123,7 +136,7 @@ export default function ApplicationPage() {
             applicantId={applicant?.id}
             programId={applicant?.program_id}
             onSuccess={() => {
-              router.push('/applicant/dashboard');
+              router.push("/applicant/dashboard");
             }}
           />
         )}

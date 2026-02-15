@@ -1,11 +1,12 @@
-'use client';
+"use client";
 
-import React, { useEffect } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/context/AuthContext';
-import { Button } from '@/components/ui/button';
-import { BookOpen, FileText, CheckCircle2, Users } from 'lucide-react';
+import React, { useEffect } from "react";
+import Link from "next/link";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import { Button } from "@/components/ui/button";
+import { FileText, CheckCircle2, Users } from "lucide-react";
 
 export default function Home() {
   const router = useRouter();
@@ -13,10 +14,10 @@ export default function Home() {
 
   useEffect(() => {
     if (isAuthenticated && user && !isLoading) {
-      if (user.role === 'admin') {
-        router.replace('/admin/dashboard');
+      if (user.role === "admin") {
+        router.replace("/admin/dashboard");
       } else {
-        router.replace('/applicant/dashboard');
+        router.replace("/applicant/dashboard");
       }
     }
   }, [isAuthenticated, user, isLoading, router]);
@@ -26,8 +27,14 @@ export default function Home() {
       {/* Navigation */}
       <nav className="fixed top-0 w-full bg-background/80 backdrop-blur-sm border-b border-border z-50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <BookOpen className="h-6 w-6 text-primary" />
+          <div className="flex items-center gap-3">
+            <Image
+              src="/images/logo new.png"
+              alt="PCU Logo"
+              width={40}
+              height={40}
+              className="object-contain"
+            />
             <span className="font-bold text-lg">PCU Admission Portal</span>
           </div>
           <div className="flex gap-3">
@@ -49,7 +56,8 @@ export default function Home() {
               Start Your Academic Journey
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-               Submit your application, upload documents, and track your admission status.
+              Submit your application, upload documents, and track your
+              admission status.
             </p>
           </div>
 
@@ -60,7 +68,11 @@ export default function Home() {
               </Button>
             </Link>
             <Link href="/auth/login">
-              <Button size="lg" variant="outline" className="w-full sm:w-auto bg-transparent">
+              <Button
+                size="lg"
+                variant="outline"
+                className="w-full sm:w-auto bg-transparent"
+              >
                 Already Applying?
               </Button>
             </Link>
@@ -72,27 +84,25 @@ export default function Home() {
       <section className="py-20 px-4 sm:px-6 lg:px-8">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">Our Programs</h2>
+            <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">
+              Our Programs
+            </h2>
             <p className="text-lg text-muted-foreground">
               Choose the program that best fits your goals
             </p>
           </div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-4">
-            {[
-              'Undergraduate',
-              'Postgraduate',
-              'HND',
-              'Part time',
-              'Jupeb',
-            ].map((program, index) => (
-              <div
-                key={index}
-                className="p-4 rounded-lg border border-primary/20 bg-primary/5 text-center hover:bg-primary/10 transition-colors"
-              >
-                <p className="font-medium text-foreground">{program}</p>
-              </div>
-            ))}
+            {["Undergraduate", "Postgraduate", "HND", "Part time", "Jupeb"].map(
+              (program, index) => (
+                <div
+                  key={index}
+                  className="p-4 rounded-lg border border-primary/20 bg-primary/5 text-center hover:bg-primary/10 transition-colors"
+                >
+                  <p className="font-medium text-foreground">{program}</p>
+                </div>
+              ),
+            )}
           </div>
         </div>
       </section>

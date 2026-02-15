@@ -8,4 +8,5 @@ Pillow==10.1.0
 python-magic==0.4.27
 email-validator==2.1.0
 reportlab==4.2.5
-xhtml2pdf==0.2.16
+pdfkit==1.0.0
+

@@ -8,7 +8,6 @@ class Database:
     
     @staticmethod
     def get_connection():
-        """Create and return a database connection"""
         try:
             connection = MySQLdb.connect(
                 host=Config.MYSQL_HOST,

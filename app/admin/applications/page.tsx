@@ -1,21 +1,28 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/context/AuthContext';
-import { ApiClient } from '@/lib/api';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { BookOpen, LogOut, ChevronRight } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import Link from "next/link";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import { ApiClient } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { LogOut, ChevronRight } from "lucide-react";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from "@/components/ui/select";
 
 interface Application {
   id: number;
@@ -31,12 +38,12 @@ interface Application {
 }
 
 const statusColors: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-800',
-  submitted: 'bg-blue-100 text-blue-800',
-  under_review: 'bg-purple-100 text-purple-800',
-  accepted: 'bg-green-100 text-green-800',
-  rejected: 'bg-red-100 text-red-800',
-  recommended: 'bg-orange-100 text-orange-800',
+  pending: "bg-yellow-100 text-yellow-800",
+  submitted: "bg-blue-100 text-blue-800",
+  under_review: "bg-purple-100 text-purple-800",
+  accepted: "bg-green-100 text-green-800",
+  rejected: "bg-red-100 text-red-800",
+  recommended: "bg-orange-100 text-orange-800",
 };
 
 export default function ApplicationsPage() {
@@ -44,11 +51,11 @@ export default function ApplicationsPage() {
   const { user, isAuthenticated, logout } = useAuth();
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState<string>('submitted');
+  const [status, setStatus] = useState<string>("submitted");
 
   useEffect(() => {
-    if (!isAuthenticated || user?.role !== 'admin') {
-      router.replace('/auth/login');
+    if (!isAuthenticated || user?.role !== "admin") {
+      router.replace("/auth/login");
       return;
     }
 
@@ -61,7 +68,7 @@ export default function ApplicationsPage() {
       const response = await ApiClient.getApplications(status);
       setApplications(response.applications || []);
     } catch (err) {
-      console.error('Error loading applications:', err);
+      console.error("Error loading applications:", err);
     } finally {
       setLoading(false);
     }
@@ -69,7 +76,7 @@ export default function ApplicationsPage() {
 
   const handleLogout = async () => {
     await logout();
-    router.replace('/');
+    router.replace("/");
   };
 
   return (
@@ -78,7 +85,13 @@ export default function ApplicationsPage() {
       <nav className="bg-background border-b border-border sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <BookOpen className="h-6 w-6 text-primary" />
+            <Image
+              src="/images/logo new.png"
+              alt="PCU Logo"
+              width={28}
+              height={28}
+              className="object-contain"
+            />
             <span className="font-bold text-lg">Admission Portal - Admin</span>
           </div>
           <div className="flex items-center gap-4">
@@ -104,11 +117,18 @@ export default function ApplicationsPage() {
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <div>
-            <Link href="/admin/dashboard" className="text-primary hover:underline text-sm mb-2 block">
+            <Link
+              href="/admin/dashboard"
+              className="text-primary hover:underline text-sm mb-2 block"
+            >
               ← Back to Dashboard
             </Link>
-            <h1 className="text-3xl font-bold text-foreground mb-2">Applications</h1>
-            <p className="text-muted-foreground">Review and manage applicant submissions</p>
+            <h1 className="text-3xl font-bold text-foreground mb-2">
+              Applications
+            </h1>
+            <p className="text-muted-foreground">
+              Review and manage applicant submissions
+            </p>
           </div>
           <Select value={status} onValueChange={setStatus}>
             <SelectTrigger className="w-48">
@@ -133,7 +153,9 @@ export default function ApplicationsPage() {
         ) : applications.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
-              <p className="text-muted-foreground">No applications found for this status</p>
+              <p className="text-muted-foreground">
+                No applications found for this status
+              </p>
             </CardContent>
           </Card>
         ) : (
@@ -146,25 +168,41 @@ export default function ApplicationsPage() {
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
                           <h3 className="font-semibold text-lg">{app.name}</h3>
-                          <Badge className={statusColors[app.application_status]}>
-                            {app.application_status.replace('_', ' ')}
+                          <Badge
+                            className={statusColors[app.application_status]}
+                          >
+                            {app.application_status.replace("_", " ")}
                           </Badge>
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-muted-foreground">
                           <div>
-                            <p className="text-xs uppercase tracking-wide">Email</p>
-                            <p className="font-medium text-foreground">{app.email}</p>
+                            <p className="text-xs uppercase tracking-wide">
+                              Email
+                            </p>
+                            <p className="font-medium text-foreground">
+                              {app.email}
+                            </p>
                           </div>
                           <div>
-                            <p className="text-xs uppercase tracking-wide">Phone</p>
-                            <p className="font-medium text-foreground">{app.phone_number}</p>
+                            <p className="text-xs uppercase tracking-wide">
+                              Phone
+                            </p>
+                            <p className="font-medium text-foreground">
+                              {app.phone_number}
+                            </p>
                           </div>
                           <div>
-                            <p className="text-xs uppercase tracking-wide">Program</p>
-                            <p className="font-medium text-foreground">{app.program_name}</p>
+                            <p className="text-xs uppercase tracking-wide">
+                              Program
+                            </p>
+                            <p className="font-medium text-foreground">
+                              {app.program_name}
+                            </p>
                           </div>
                           <div>
-                            <p className="text-xs uppercase tracking-wide">Submitted</p>
+                            <p className="text-xs uppercase tracking-wide">
+                              Submitted
+                            </p>
                             <p className="font-medium text-foreground">
                               {new Date(app.submitted_at).toLocaleDateString()}
                             </p>

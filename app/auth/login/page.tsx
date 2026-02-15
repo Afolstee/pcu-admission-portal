@@ -1,54 +1,62 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/context/AuthContext';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import Link from "next/link";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { AlertCircle } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, isLoading, error, isAuthenticated, user, applicant } = useAuth();
-  const [formData, setFormData] = useState({ email: '', password: '' });
-  const [localError, setLocalError] = useState('');
+  const { login, isLoading, error, isAuthenticated, user, applicant } =
+    useAuth();
+  const [formData, setFormData] = useState({ email: "", password: "" });
+  const [localError, setLocalError] = useState("");
 
   // Redirect if already authenticated
   useEffect(() => {
     if (!isAuthenticated || !user) return;
 
-    if (user.role === 'admin') {
-      router.replace('/admin/dashboard');
+    if (user.role === "admin") {
+      router.replace("/admin/dashboard");
       return;
     }
 
     // Applicant: must select a program before accessing dashboard/application
     if (!applicant?.program_id) {
-      router.replace('/applicant/select-program');
+      router.replace("/applicant/select-program");
     } else {
-      router.replace('/applicant/dashboard');
+      router.replace("/applicant/dashboard");
     }
   }, [isAuthenticated, user, applicant, router]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
-    setLocalError('');
+    setLocalError("");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLocalError('');
+    setLocalError("");
 
-    if (!formData.email.includes('@')) {
-      setLocalError('Valid email is required');
+    if (!formData.email.includes("@")) {
+      setLocalError("Valid email is required");
       return;
     }
     if (!formData.password) {
-      setLocalError('Password is required');
+      setLocalError("Password is required");
       return;
     }
 
@@ -64,9 +72,19 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
-        <CardHeader className="space-y-2">
-          <CardTitle className="text-2xl">Welcome Back</CardTitle>
-          <CardDescription>Log in to your admission portal account</CardDescription>
+        <CardHeader className="space-y-4 text-center">
+          <div className="flex justify-center">
+            <Image
+              src="/images/logo new.png"
+              alt="University Logo"
+              width={120}
+              height={120}
+              className="object-contain"
+            />
+          </div>
+          <CardDescription>
+            Log in to your admission portal account
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -104,13 +122,18 @@ export default function LoginPage() {
             </div>
 
             <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? 'Logging in...' : 'Log In'}
+              {isLoading ? "Logging in..." : "Log In"}
             </Button>
           </form>
 
           <div className="mt-6 text-center text-sm">
-            <span className="text-muted-foreground">Don't have an account? </span>
-            <Link href="/auth/signup" className="text-primary font-medium hover:underline">
+            <span className="text-muted-foreground">
+              Don't have an account?{" "}
+            </span>
+            <Link
+              href="/auth/signup"
+              className="text-primary font-medium hover:underline"
+            >
               Create one
             </Link>
           </div>

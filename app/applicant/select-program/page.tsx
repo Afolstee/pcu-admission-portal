@@ -1,13 +1,20 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/context/AuthContext';
-import { ApiClient } from '@/lib/api';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { BookOpen, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import { ApiClient } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { ArrowRight } from "lucide-react";
 
 interface Program {
   id: number;
@@ -25,8 +32,8 @@ export default function SelectProgramPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated || user?.role !== 'applicant') {
-      router.replace('/auth/login');
+    if (!isAuthenticated || user?.role !== "applicant") {
+      router.replace("/auth/login");
       return;
     }
 
@@ -35,7 +42,7 @@ export default function SelectProgramPage() {
         const response = await ApiClient.getPrograms();
         setPrograms(response.programs || []);
       } catch (err) {
-        setError('Failed to load programs. Please try again.');
+        setError("Failed to load programs. Please try again.");
         console.error(err);
       } finally {
         setLoading(false);
@@ -47,7 +54,7 @@ export default function SelectProgramPage() {
 
   const handleSelectProgram = async () => {
     if (!selectedProgram) {
-      setError('Please select a program');
+      setError("Please select a program");
       return;
     }
 
@@ -59,9 +66,9 @@ export default function SelectProgramPage() {
       // Refresh applicant status so guards see the newly selected program
       await refreshStatus();
       // After selecting a program, go straight to the application form
-      router.push('/applicant/application');
+      router.push("/applicant/application");
     } catch (err) {
-      setError('Failed to select program. Please try again.');
+      setError("Failed to select program. Please try again.");
       console.error(err);
       setSubmitting(false);
     }
@@ -84,11 +91,18 @@ export default function SelectProgramPage() {
       <div className="bg-background border-b border-border">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <BookOpen className="h-6 w-6 text-primary" />
+            <Image
+              src="/images/logo new.png"
+              alt="PCU Logo"
+              width={28}
+              height={28}
+              className="object-contain"
+            />
             <span className="font-bold text-lg">Admission Portal</span>
           </div>
           <div className="text-sm text-muted-foreground">
-            Welcome, <span className="font-medium text-foreground">{user?.name}</span>
+            Welcome,{" "}
+            <span className="font-medium text-foreground">{user?.name}</span>
           </div>
         </div>
       </div>
@@ -96,7 +110,9 @@ export default function SelectProgramPage() {
       {/* Main Content */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="mb-12 text-center">
-          <h1 className="text-4xl font-bold text-foreground mb-4">Select Your Program</h1>
+          <h1 className="text-4xl font-bold text-foreground mb-4">
+            Select Your Program
+          </h1>
           <p className="text-lg text-muted-foreground">
             Choose the program that best aligns with your academic goals
           </p>
@@ -116,8 +132,8 @@ export default function SelectProgramPage() {
               key={program.id}
               className={`cursor-pointer transition-all ${
                 selectedProgram === program.id
-                  ? 'ring-2 ring-primary border-primary'
-                  : 'hover:border-primary/50'
+                  ? "ring-2 ring-primary border-primary"
+                  : "hover:border-primary/50"
               }`}
               onClick={() => setSelectedProgram(program.id)}
             >
@@ -132,8 +148,8 @@ export default function SelectProgramPage() {
                   <div
                     className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
                       selectedProgram === program.id
-                        ? 'bg-primary border-primary'
-                        : 'border-gray-300'
+                        ? "bg-primary border-primary"
+                        : "border-gray-300"
                     }`}
                   >
                     {selectedProgram === program.id && (
@@ -143,7 +159,9 @@ export default function SelectProgramPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-muted-foreground">{program.description}</p>
+                <p className="text-sm text-muted-foreground">
+                  {program.description}
+                </p>
               </CardContent>
             </Card>
           ))}
@@ -152,7 +170,7 @@ export default function SelectProgramPage() {
         <div className="flex gap-4 justify-between">
           <Button
             variant="outline"
-            onClick={() => router.push('/')}
+            onClick={() => router.push("/")}
             disabled={submitting}
           >
             Back Home
@@ -162,7 +180,7 @@ export default function SelectProgramPage() {
             disabled={!selectedProgram || submitting}
             className="gap-2"
           >
-            {submitting ? 'Selecting Program...' : 'Continue'}
+            {submitting ? "Selecting Program..." : "Continue"}
             <ArrowRight className="h-4 w-4" />
           </Button>
         </div>

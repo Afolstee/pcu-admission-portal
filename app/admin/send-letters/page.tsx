@@ -1,65 +1,53 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/context/AuthContext';
-import { ApiClient } from '@/lib/api';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { BookOpen, LogOut, Mail, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { Checkbox } from '@/components/ui/checkbox';
+import React, { useState, useEffect } from "react";
+import Link from "next/link";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import { ApiClient, Application, LetterTemplate, SendResult } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { LogOut, Mail, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-
-interface Application {
-  id: number;
-  name: string;
-  email: string;
-  program_name: string;
-  application_status: string;
-}
-
-interface SendResult {
-  total_requested: number;
-  letters_created: number;
-  errors: number;
-  created: Array<{ applicant_id: number; letter_id: number }>;
-  failed: Array<{ applicant_id: number; error: string }>;
-}
-
-interface LetterTemplate {
-  id: number;
-  name: string;
-}
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export default function SendLettersPage() {
   const router = useRouter();
   const { user, isAuthenticated, logout } = useAuth();
 
   const [applications, setApplications] = useState<Application[]>([]);
-  const [selectedApplicants, setSelectedApplicants] = useState<Set<number>>(new Set());
+  const [selectedApplicants, setSelectedApplicants] = useState<Set<number>>(
+    new Set(),
+  );
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [admissionDate, setAdmissionDate] = useState(
-    new Date().toISOString().split('T')[0]
+    new Date().toISOString().split("T")[0],
   );
-  const [templateId, setTemplateId] = useState<string>('');
+  const [templateId, setTemplateId] = useState<string>("");
   const [templates, setTemplates] = useState<LetterTemplate[]>([]);
   const [sendResult, setSendResult] = useState<SendResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated || user?.role !== 'admin') {
-      router.replace('/auth/login');
+    if (!isAuthenticated || user?.role !== "admin") {
+      router.replace("/auth/login");
       return;
     }
 
@@ -69,10 +57,10 @@ export default function SendLettersPage() {
 
   const loadApplications = async () => {
     try {
-      const response = await ApiClient.getApplications('accepted');
+      const response = await ApiClient.getApplications("accepted");
       setApplications(response.applications || []);
     } catch (err) {
-      setError('Failed to load applications. Please try again.');
+      setError("Failed to load applications. Please try again.");
       console.error(err);
     } finally {
       setLoading(false);
@@ -88,7 +76,7 @@ export default function SendLettersPage() {
         setTemplateId(String(list[0].id));
       }
     } catch (err) {
-      console.error('Error loading letter templates:', err);
+      console.error("Error loading letter templates:", err);
     }
   };
 
@@ -112,12 +100,12 @@ export default function SendLettersPage() {
 
   const handleSendLetters = async () => {
     if (selectedApplicants.size === 0) {
-      setError('Please select at least one applicant');
+      setError("Please select at least one applicant");
       return;
     }
 
     if (!templateId) {
-      setError('Please choose a letter template');
+      setError("Please choose a letter template");
       return;
     }
 
@@ -129,12 +117,13 @@ export default function SendLettersPage() {
       const result = await ApiClient.sendBatchLetters(
         Array.from(selectedApplicants),
         admissionDate,
-        parseInt(templateId)
+        templateId as any,
       );
       setSendResult(result);
       setSelectedApplicants(new Set());
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to send letters';
+      const message =
+        err instanceof Error ? err.message : "Failed to send letters";
       setError(message);
     } finally {
       setSending(false);
@@ -144,23 +133,28 @@ export default function SendLettersPage() {
   const handlePreview = async () => {
     setError(null);
     if (selectedApplicants.size !== 1) {
-      setError('Please select exactly one applicant to preview the letter');
+      setError("Please select exactly one applicant to preview the letter");
       return;
     }
 
     if (!templateId) {
-      setError('Please choose a letter template');
+      setError("Please choose a letter template");
       return;
     }
 
     const applicantId = Array.from(selectedApplicants)[0];
 
     try {
-      const blob = await ApiClient.previewAdmissionLetter(applicantId, admissionDate, parseInt(templateId));
+      const blob = await ApiClient.previewAdmissionLetter(
+        applicantId,
+        admissionDate,
+        templateId as any,
+      );
       const url = URL.createObjectURL(blob as Blob);
-      window.open(url, '_blank');
+      window.open(url, "_blank");
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to generate preview';
+      const message =
+        err instanceof Error ? err.message : "Failed to generate preview";
       setError(message);
       console.error(err);
     }
@@ -168,10 +162,10 @@ export default function SendLettersPage() {
 
   const handleLogout = async () => {
     await logout();
-    router.replace('/');
+    router.replace("/");
   };
 
-  if (!isAuthenticated || user?.role !== 'admin') {
+  if (!isAuthenticated || user?.role !== "admin") {
     return null;
   }
 
@@ -181,7 +175,13 @@ export default function SendLettersPage() {
       <nav className="bg-background border-b border-border sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <BookOpen className="h-6 w-6 text-primary" />
+            <Image
+              src="/images/logo new.png"
+              alt="PCU Logo"
+              width={28}
+              height={28}
+              className="object-contain"
+            />
             <span className="font-bold text-lg">Admission Portal - Admin</span>
           </div>
           <div className="flex items-center gap-4">
@@ -206,10 +206,15 @@ export default function SendLettersPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">
-          <Link href="/admin/dashboard" className="text-primary hover:underline text-sm mb-2 block">
+          <Link
+            href="/admin/dashboard"
+            className="text-primary hover:underline text-sm mb-2 block"
+          >
             ← Back to Dashboard
           </Link>
-          <h1 className="text-3xl font-bold text-foreground mb-2">Send Admission Letters</h1>
+          <h1 className="text-3xl font-bold text-foreground mb-2">
+            Send Admission Letters
+          </h1>
           <p className="text-muted-foreground">
             Generate and send admission letters to accepted candidates
           </p>
@@ -230,16 +235,21 @@ export default function SendLettersPage() {
               <div className="flex gap-3 mb-4">
                 <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
                 <div className="flex-1">
-                  <p className="font-semibold text-green-900">Letters Sent Successfully</p>
+                  <p className="font-semibold text-green-900">
+                    Letters Sent Successfully
+                  </p>
                   <p className="text-sm text-green-800">
-                    {sendResult.letters_created} letters created, {sendResult.errors} failed
+                    {sendResult.letters_created} letters created,{" "}
+                    {sendResult.errors} failed
                   </p>
                 </div>
               </div>
 
               {sendResult.failed.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-green-200">
-                  <p className="font-medium text-sm text-green-900 mb-2">Failed Recipients:</p>
+                  <p className="font-medium text-sm text-green-900 mb-2">
+                    Failed Recipients:
+                  </p>
                   <ul className="text-sm text-green-800 space-y-1">
                     {sendResult.failed.map((fail) => (
                       <li key={fail.applicant_id}>
@@ -273,9 +283,19 @@ export default function SendLettersPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="template">Letter Template</Label>
-                <Select value={templateId} onValueChange={setTemplateId} disabled={sending || templates.length === 0}>
+                <Select
+                  value={templateId}
+                  onValueChange={setTemplateId}
+                  disabled={sending || templates.length === 0}
+                >
                   <SelectTrigger id="template">
-                    <SelectValue placeholder={templates.length === 0 ? 'No templates available' : 'Select template'} />
+                    <SelectValue
+                      placeholder={
+                        templates.length === 0
+                          ? "No templates available"
+                          : "Select template"
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {templates.map((tpl) => (
@@ -300,7 +320,9 @@ export default function SendLettersPage() {
                 <Button
                   variant="outline"
                   onClick={handlePreview}
-                  disabled={sending || selectedApplicants.size !== 1 || !templateId}
+                  disabled={
+                    sending || selectedApplicants.size !== 1 || !templateId
+                  }
                   className="gap-2"
                 >
                   Preview
@@ -312,8 +334,8 @@ export default function SendLettersPage() {
                 >
                   <Mail className="h-4 w-4" />
                   {sending
-                    ? 'Sending Letters...'
-                    : `Send to ${selectedApplicants.size} Applicant${selectedApplicants.size !== 1 ? 's' : ''}`}
+                    ? "Sending Letters..."
+                    : `Send to ${selectedApplicants.size} Applicant${selectedApplicants.size !== 1 ? "s" : ""}`}
                 </Button>
               </div>
             </CardContent>
@@ -325,17 +347,23 @@ export default function SendLettersPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>Accepted Applicants</CardTitle>
-                  <CardDescription>Select applicants to send letters to</CardDescription>
+                  <CardDescription>
+                    Select applicants to send letters to
+                  </CardDescription>
                 </div>
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={(e) =>
-                    handleSelectAll(selectedApplicants.size !== applications.length)
+                    handleSelectAll(
+                      selectedApplicants.size !== applications.length,
+                    )
                   }
                   disabled={sending}
                 >
-                  {selectedApplicants.size === applications.length ? 'Deselect All' : 'Select All'}
+                  {selectedApplicants.size === applications.length
+                    ? "Deselect All"
+                    : "Select All"}
                 </Button>
               </div>
             </CardHeader>
@@ -348,7 +376,9 @@ export default function SendLettersPage() {
               ) : applications.length === 0 ? (
                 <div className="text-center py-12">
                   <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground">No accepted applications found</p>
+                  <p className="text-muted-foreground">
+                    No accepted applications found
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-3 max-h-96 overflow-y-auto">

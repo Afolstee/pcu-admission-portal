@@ -1,8 +1,10 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response
 from database import Database
 from utils.auth import AuthHandler
 from utils.document_handler import DocumentHandler
+from utils.pdf_generator import PDFGenerator
 from config import Config
+from datetime import datetime
 import os
 
 applicant_bp = Blueprint('applicant', __name__)
@@ -358,3 +360,168 @@ def get_applicant_status(payload):
     return jsonify({
         'applicant': applicant[0]
     }), 200
+
+@applicant_bp.route('/admission-letter', methods=['GET'])
+@AuthHandler.token_required
+def get_admission_letter(payload):
+    """Get admission letter data for the authenticated applicant"""
+    user_id = payload['user_id']
+
+    # Get applicant details
+    applicant = Database.execute_query(
+        '''SELECT a.id, a.program_id, a.admission_status, u.name, p.name as program_name
+           FROM applicants a
+           JOIN users u ON a.user_id = u.id
+           LEFT JOIN programs p ON a.program_id = p.id
+           WHERE a.user_id = %s AND a.admission_status = %s''',
+        (user_id, 'admitted')
+    )
+
+    if not applicant:
+        return jsonify({'message': 'Admission letter not available'}), 404
+
+    applicant_data = applicant[0]
+
+    # Look up program fees
+    fees = Database.execute_query(
+        'SELECT acceptance_fee, tuition_fee, other_fees FROM program_fees WHERE program_id = %s',
+        (applicant_data['program_id'],)
+    )
+
+    acceptance_fee = 0
+    tuition_fee = 0
+    other_fees = 0
+    if fees:
+        acceptance_fee = fees[0]['acceptance_fee'] or 0
+        tuition_fee = fees[0]['tuition_fee'] or 0
+        other_fees = fees[0]['other_fees'] or 0
+
+    # Get program details for letter
+    program_details = Database.execute_query(
+        '''SELECT faculty, department, level, mode, session, resumption_date
+           FROM programs WHERE id = %s''',
+        (applicant_data['program_id'],)
+    )
+
+    faculty = 'N/A'
+    department = 'N/A'
+    level = '100 Level'
+    mode = 'Full-Time'
+    session = '2025/2026'
+    resumption_date = ''
+
+    if program_details:
+        pd = program_details[0]
+        faculty = pd['faculty'] or 'N/A'
+        department = pd['department'] or 'N/A'
+        level = pd['level'] or '100 Level'
+        mode = pd['mode'] or 'Full-Time'
+        session = pd['session'] or '2025/2026'
+        resumption_date = pd['resumption_date'] or ''
+
+    # Generate reference number
+    ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_data['id']:04d}"
+
+    return jsonify({
+        'candidateName': applicant_data['name'],
+        'programme': applicant_data['program_name'] or '',
+        'level': level,
+        'department': department,
+        'faculty': faculty,
+        'session': session,
+        'mode': mode,
+        'date': datetime.now().strftime('%d %B, %Y'),
+        'resumptionDate': resumption_date,
+        'acceptanceFee': f"₦{acceptance_fee:,.2f}",
+        'tuition': f"₦{tuition_fee:,.2f}",
+        'otherFees': f"₦{other_fees:,.2f}",
+        'reference': ref_no
+    }), 200
+@applicant_bp.route('/print-admission-letter', methods=['POST'])
+@AuthHandler.token_required
+def print_admission_letter(payload):
+    """Generate and download admission letter as PDF"""
+    user_id = payload['user_id']
+
+    # Get applicant details
+    applicant = Database.execute_query(
+        '''SELECT a.id, a.program_id, a.admission_status, u.name, p.name as program_name
+           FROM applicants a
+           JOIN users u ON a.user_id = u.id
+           LEFT JOIN programs p ON a.program_id = p.id
+           WHERE a.user_id = %s AND a.admission_status = %s''',
+        (user_id, 'admitted')
+    )
+
+    if not applicant:
+        return jsonify({'message': 'Admission letter not available'}), 404
+
+    applicant_data = applicant[0]
+
+    # Look up program fees
+    fees = Database.execute_query(
+        'SELECT acceptance_fee, tuition_fee, other_fees FROM program_fees WHERE program_id = %s',
+        (applicant_data['program_id'],)
+    )
+
+    acceptance_fee_str = ''
+    tuition_fee_str = ''
+    other_fees_str = ''
+    if fees:
+        acceptance_fee = fees[0]['acceptance_fee'] or 0
+        tuition_fee = fees[0]['tuition_fee'] or 0
+        other_fees = fees[0]['other_fees'] or 0
+        acceptance_fee_str = f"₦{acceptance_fee:,.2f}"
+        tuition_fee_str = f"₦{tuition_fee:,.2f}"
+        other_fees_str = f"₦{other_fees:,.2f}"
+
+    # Get program details for letter
+    program_details = Database.execute_query(
+        '''SELECT faculty, department, level, mode, session, resumption_date
+           FROM programs WHERE id = %s''',
+        (applicant_data['program_id'],)
+    )
+
+    faculty = 'N/A'
+    department = 'N/A'
+    level = '100 Level'
+    mode = 'Full-Time'
+    session = '2025/2026'
+    resumption_date = ''
+
+    if program_details:
+        pd = program_details[0]
+        faculty = pd['faculty'] or 'N/A'
+        department = pd['department'] or 'N/A'
+        level = pd['level'] or '100 Level'
+        mode = pd['mode'] or 'Full-Time'
+        session = pd['session'] or '2025/2026'
+        resumption_date = pd['resumption_date'] or ''
+
+    # Generate reference number
+    ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_data['id']:04d}"
+
+    # Generate PDF
+    pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
+        applicant_name=applicant_data['name'],
+        program=applicant_data['program_name'] or '',
+        level=level,
+        department=department,
+        faculty=faculty,
+        session=session,
+        mode=mode,
+        admission_date=datetime.now().strftime('%d %B, %Y'),
+        acceptance_fee=acceptance_fee_str,
+        tuition_fee=tuition_fee_str,
+        other_fees=other_fees_str,
+        resumption_date=resumption_date,
+        reference=ref_no,
+        body_html=''
+    )
+
+    # Return PDF as downloadable file
+    return Response(
+        pdf_bytes,
+        mimetype='application/pdf',
+        headers={'Content-Disposition': f'attachment;filename=admission_letter_{applicant_data["id"]}.pdf'}
+    )

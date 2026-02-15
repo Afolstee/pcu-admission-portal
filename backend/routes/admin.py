@@ -4,6 +4,7 @@ from utils.auth import AuthHandler
 from datetime import datetime
 from email_utils import send_email
 from utils.pdf_generator import PDFGenerator
+from utils.letter_templates import get_template_by_id, get_all_templates
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -138,8 +139,6 @@ def review_application(payload, admin_id=None):
         (new_status, applicant_id)
     )
     
-    # TODO: Send email to applicant based on recommendation
-    
     return jsonify({
         'message': 'Application reviewed successfully',
         'review_id': review_id,
@@ -150,19 +149,31 @@ def review_application(payload, admin_id=None):
 @AuthHandler.token_required
 @AuthHandler.admin_required
 def send_admission_letter(payload):
-    """Send admission letter to single applicant"""
-    admin_id = payload['user_id']
+    """Send admission letter to single applicant using the selected template"""
     data = request.get_json()
     
     if not data or 'applicant_id' not in data:
         return jsonify({'message': 'applicant_id is required'}), 400
     
     applicant_id = data['applicant_id']
-    admission_date = data.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
+    # Get date in YYYY-MM-DD format from frontend or use today
+    admission_date_db = data.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
+    # Convert to display format for the letter (e.g., "15 February, 2026")
+    try:
+        date_obj = datetime.strptime(admission_date_db, '%Y-%m-%d')
+        admission_date_display = date_obj.strftime('%d %B, %Y')
+    except:
+        admission_date_display = admission_date_db
+    template_id = data.get('template_id', 'default')  # Get template selection, default to 'default'
     
-    # Get applicant details (including program_id)
+    # Generate reference number
+    ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id:04d}"
+    
+    # Get applicant details with all program info
     applicant = Database.execute_query(
-        '''SELECT u.id, u.name, u.email, a.program_id, p.name as program_name
+        '''SELECT u.id, u.name, u.email, a.program_id, 
+           p.name as program_name, p.level, p.department, p.faculty, 
+           p.mode, p.session, p.resumption_date
            FROM applicants a
            JOIN users u ON a.user_id = u.id
            LEFT JOIN programs p ON a.program_id = p.id
@@ -175,60 +186,39 @@ def send_admission_letter(payload):
     
     applicant_data = applicant[0]
     
-    # Look up program fees (if configured)
+    # Look up program fees
     fees = Database.execute_query(
-        'SELECT acceptance_fee, tuition_fee FROM program_fees WHERE program_id = %s',
+        'SELECT acceptance_fee, tuition_fee, other_fees FROM program_fees WHERE program_id = %s',
         (applicant_data['program_id'],)
     )
     acceptance_fee_str = ''
     tuition_fee_str = ''
+    other_fees_str = ''
     if fees:
         acceptance_fee = fees[0]['acceptance_fee']
         tuition_fee = fees[0]['tuition_fee']
-        acceptance_fee_str = f"{acceptance_fee:,.2f}"
-        tuition_fee_str = f"{tuition_fee:,.2f}"
+        other_fees = fees[0].get('other_fees', 0)
+        acceptance_fee_str = f"₦{acceptance_fee:,.2f}"
+        tuition_fee_str = f"₦{tuition_fee:,.2f}"
+        other_fees_str = f"₦{other_fees:,.2f}"
     
-    # Get letter template - first try program-specific, then default
-    template = Database.execute_query(
-        'SELECT * FROM letter_templates WHERE program_id = %s LIMIT 1',
-        (applicant_data['program_id'],)
-    )
-    
-    if not template:
-        # Fallback to default template
-        template = Database.execute_query(
-            'SELECT * FROM letter_templates WHERE program_id IS NULL LIMIT 1'
-        )
-    
-    if not template:
-        return jsonify({'message': 'Letter template not found'}), 404
-    
-    template_data = template[0]
-    
-    # Generate PDF
+    # Generate PDF using the selected template
     pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
-        header_text=template_data['header_text'] or '',
-        body_html=template_data['body_html'] or '',
-        footer_text=template_data['footer_text'] or '',
         applicant_name=applicant_data['name'],
         program=applicant_data['program_name'] or '',
-        admission_date=admission_date,
+        level=applicant_data.get('level') or '100 Level',
+        department=applicant_data.get('department') or '',
+        faculty=applicant_data.get('faculty') or '',
+        session=applicant_data.get('session') or '2025/2026',
+        mode=applicant_data.get('mode') or 'Full-Time',
+        admission_date=admission_date_display,
         acceptance_fee=acceptance_fee_str,
-        tuition_fee=tuition_fee_str
+        tuition_fee=tuition_fee_str,
+        other_fees=other_fees_str,
+        resumption_date=applicant_data.get('resumption_date') or '',
+        reference=ref_no,
+        body_html=''
     )
-    
-    # Save letter record
-    letter_id = Database.execute_update(
-        '''INSERT INTO admission_letters
-           (applicant_id, letter_template_id, recipient_email, recipient_name, program, 
-            admission_date, letter_content, status)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
-        (applicant_id, template_data['id'], applicant_data['email'], applicant_data['name'],
-         applicant_data['program_name'] or '', admission_date, 'PDF generated', 'generated')
-    )
-    
-    if not letter_id:
-        return jsonify({'message': 'Failed to generate letter'}), 500
     
     # Update admission status
     Database.execute_update(
@@ -237,9 +227,8 @@ def send_admission_letter(payload):
     )
     
     # Send email with PDF attachment
-    subject = template_data.get('subject') or 'Admission Letter'
+    subject = 'Provisional Admission Letter'
     body_text = f"Dear {applicant_data['name']},\n\nPlease find attached your admission letter.\n\nBest regards,\nAdmissions Office"
-    
     attachments = [('admission_letter.pdf', pdf_bytes)]
     
     email_sent = send_email(
@@ -249,39 +238,40 @@ def send_admission_letter(payload):
         attachments=attachments
     )
     
-    if email_sent:
-        # Update letter status
-        Database.execute_update(
-            'UPDATE admission_letters SET status = %s, sent_at = NOW() WHERE id = %s',
-            ('sent', letter_id)
-        )
-    
     return jsonify({
-        'message': 'Admission letter generated and sent successfully' if email_sent else 'Admission letter generated but email failed',
-        'letter_id': letter_id,
+        'message': 'Admission letter sent successfully' if email_sent else 'Failed to send admission letter',
         'recipient_email': applicant_data['email'],
         'email_sent': email_sent
-    }), 201
+    }), 201 if email_sent else 500
 
 
 @admin_bp.route('/preview-admission-letter', methods=['POST'])
 @AuthHandler.token_required
 @AuthHandler.admin_required
 def preview_admission_letter(payload):
-    """Generate admission letter PDF and return it for preview (no DB save, no email)."""
+    """Generate and return admission letter PDF for preview (no DB save, no email)"""
     data = request.get_json() or {}
     if 'applicant_id' not in data:
         return jsonify({'message': 'applicant_id is required'}), 400
 
     applicant_id = data['applicant_id']
-    admission_date = data.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
+    # Get date in YYYY-MM-DD format from frontend or use today
+    admission_date_db = data.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
+    # Convert to display format for the letter (e.g., "15 February, 2026")
+    try:
+        date_obj = datetime.strptime(admission_date_db, '%Y-%m-%d')
+        admission_date_display = date_obj.strftime('%d %B, %Y')
+    except:
+        admission_date_display = admission_date_db
+    template_id = data.get('template_id', 'default')  # Get template selection, default to 'default'
 
     # Generate reference number
     ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id:04d}"
 
-    # Get applicant details
+    # Get applicant details with all program info
     applicant = Database.execute_query(
-        '''SELECT u.id, u.name, u.email, a.program_id, p.name as program_name
+        '''SELECT u.id, u.name, u.email, a.program_id, p.name as program_name,
+                  p.level, p.department, p.faculty, p.mode, p.session, p.resumption_date
            FROM applicants a
            JOIN users u ON a.user_id = u.id
            LEFT JOIN programs p ON a.program_id = p.id
@@ -294,55 +284,42 @@ def preview_admission_letter(payload):
 
     applicant_data = applicant[0]
 
-    # Look up program fees (if configured)
+    # Look up program fees
     fees = Database.execute_query(
-        'SELECT acceptance_fee, tuition_fee FROM program_fees WHERE program_id = %s',
+        'SELECT acceptance_fee, tuition_fee, other_fees FROM program_fees WHERE program_id = %s',
         (applicant_data['program_id'],)
     )
+
     acceptance_fee_str = ''
     tuition_fee_str = ''
+    other_fees_str = ''
     if fees:
         acceptance_fee = fees[0]['acceptance_fee']
         tuition_fee = fees[0]['tuition_fee']
+        other_fees = fees[0].get('other_fees', 0)
         acceptance_fee_str = f"₦{acceptance_fee:,.2f}"
         tuition_fee_str = f"₦{tuition_fee:,.2f}"
+        other_fees_str = f"₦{other_fees:,.2f}"
 
-    # Get letter template - first try program-specific, then default
-    template = Database.execute_query(
-        'SELECT * FROM letter_templates WHERE program_id = %s LIMIT 1',
-        (applicant_data['program_id'],)
-    )
-
-    if not template:
-        template = Database.execute_query(
-            'SELECT * FROM letter_templates WHERE program_id IS NULL LIMIT 1'
-        )
-
-    if not template:
-        return jsonify({'message': 'Letter template not found'}), 404
-
-    template_data = template[0]
-
-    # Generate PDF bytes for preview
+    # Generate PDF using selected template (default to 'default' if not specified)
     pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
-        header_text=template_data.get('header_text') or '',
-        body_html=template_data.get('body_html') or template_data.get('body_text') or '',
-        footer_text=template_data.get('footer_text') or '',
         applicant_name=applicant_data['name'],
         program=applicant_data['program_name'] or '',
-        admission_date=admission_date,
+        level=applicant_data.get('level') or '100 Level',
+        department=applicant_data.get('department') or '',
+        faculty=applicant_data.get('faculty') or '',
+        session=applicant_data.get('session') or '2025/2026',
+        mode=applicant_data.get('mode') or 'Full-Time',
+        admission_date=admission_date_display,
         acceptance_fee=acceptance_fee_str,
         tuition_fee=tuition_fee_str,
-        ref_no=ref_no,
-        session=data.get('session', '2025/2026'),
-        level=data.get('level', '100 Level'),
-        department=data.get('department', 'N/A'),
-        faculty=data.get('faculty', 'N/A'),
-        other_fees=data.get('other_fees', ''),
-        resumption_date=data.get('resumption_date', '')
+        other_fees=other_fees_str,
+        resumption_date=applicant_data.get('resumption_date') or '',
+        reference=ref_no,
+        body_html=''
     )
 
-    # Return PDF for inline preview
+    # Return PDF as preview (no database save, no email)
     return Response(pdf_bytes, mimetype='application/pdf', headers={
         'Content-Disposition': 'inline; filename=admission_preview.pdf'
     })
@@ -351,15 +328,22 @@ def preview_admission_letter(payload):
 @AuthHandler.token_required
 @AuthHandler.admin_required
 def send_batch_letters(payload):
-    """Send admission letters to multiple applicants"""
-    admin_id = payload['user_id']
+    """Send admission letters to multiple applicants using the selected template"""
     data = request.get_json()
     
     if not data or 'applicant_ids' not in data:
         return jsonify({'message': 'applicant_ids is required'}), 400
     
     applicant_ids = data['applicant_ids']
-    admission_date = data.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
+    # Get date in YYYY-MM-DD format from frontend or use today
+    admission_date_db = data.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
+    # Convert to display format for the letter (e.g., "15 February, 2026")
+    try:
+        date_obj = datetime.strptime(admission_date_db, '%Y-%m-%d')
+        admission_date_display = date_obj.strftime('%d %B, %Y')
+    except:
+        admission_date_display = admission_date_db
+    template_id = data.get('template_id', 'default')  # Get template selection, default to 'default'
     
     if not isinstance(applicant_ids, list) or len(applicant_ids) == 0:
         return jsonify({'message': 'applicant_ids must be a non-empty list'}), 400
@@ -369,9 +353,14 @@ def send_batch_letters(payload):
     
     for applicant_id in applicant_ids:
         try:
-            # Get applicant details (including program_id)
+            # Generate reference number
+            ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id:04d}"
+            
+            # Get applicant details with all program info
             applicant = Database.execute_query(
-                '''SELECT u.id, u.name, u.email, a.program_id, p.name as program_name
+                '''SELECT u.id, u.name, u.email, a.program_id, 
+                   p.name as program_name, p.level, p.department, p.faculty, 
+                   p.mode, p.session, p.resumption_date
                    FROM applicants a
                    JOIN users u ON a.user_id = u.id
                    LEFT JOIN programs p ON a.program_id = p.id
@@ -385,86 +374,60 @@ def send_batch_letters(payload):
             
             applicant_data = applicant[0]
             
-            # Look up program fees (if configured)
+            # Look up program fees
             fees = Database.execute_query(
-                'SELECT acceptance_fee, tuition_fee FROM program_fees WHERE program_id = %s',
+                'SELECT acceptance_fee, tuition_fee, other_fees FROM program_fees WHERE program_id = %s',
                 (applicant_data['program_id'],)
             )
             acceptance_fee_str = ''
             tuition_fee_str = ''
+            other_fees_str = ''
             if fees:
                 acceptance_fee = fees[0]['acceptance_fee']
                 tuition_fee = fees[0]['tuition_fee']
-                acceptance_fee_str = f"{acceptance_fee:,.2f}"
-                tuition_fee_str = f"{tuition_fee:,.2f}"
+                other_fees = fees[0].get('other_fees', 0)
+                acceptance_fee_str = f"₦{acceptance_fee:,.2f}"
+                tuition_fee_str = f"₦{tuition_fee:,.2f}"
+                other_fees_str = f"₦{other_fees:,.2f}"
             
-            # Get letter template - first try program-specific, then default
-            template = Database.execute_query(
-                'SELECT * FROM letter_templates WHERE program_id = %s LIMIT 1',
-                (applicant_data['program_id'],)
-            )
-            
-            if not template:
-                # Fallback to default template
-                template = Database.execute_query(
-                    'SELECT * FROM letter_templates WHERE program_id IS NULL LIMIT 1'
-                )
-            
-            if not template:
-                errors.append({'applicant_id': applicant_id, 'error': 'No template found'})
-                continue
-            
-            template_data = template[0]
-            
-            # Generate PDF
+            # Generate PDF using the selected template
             pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
-                header_text=template_data['header_text'] or '',
-                body_html=template_data['body_html'] or '',
-                footer_text=template_data['footer_text'] or '',
                 applicant_name=applicant_data['name'],
                 program=applicant_data['program_name'] or '',
-                admission_date=admission_date,
+                level=applicant_data.get('level') or '100 Level',
+                department=applicant_data.get('department') or '',
+                faculty=applicant_data.get('faculty') or '',
+                session=applicant_data.get('session') or '2025/2026',
+                mode=applicant_data.get('mode') or 'Full-Time',
+                admission_date=admission_date_display,
                 acceptance_fee=acceptance_fee_str,
-                tuition_fee=tuition_fee_str
+                tuition_fee=tuition_fee_str,
+                other_fees=other_fees_str,
+                resumption_date=applicant_data.get('resumption_date') or '',
+                reference=ref_no,
+                body_html=''
             )
             
-            # Save letter record
-            letter_id = Database.execute_update(
-                '''INSERT INTO admission_letters
-                   (applicant_id, letter_template_id, recipient_email, recipient_name, program,
-                    admission_date, letter_content, status)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
-                (applicant_id, template_data['id'], applicant_data['email'], applicant_data['name'],
-                 applicant_data['program_name'] or '', admission_date, 'PDF generated', 'generated')
+            # Update admission status
+            Database.execute_update(
+                'UPDATE applicants SET admission_status = %s WHERE id = %s',
+                ('admitted', applicant_id)
             )
+            letters_created.append({'applicant_id': applicant_id})
             
-            if letter_id:
-                Database.execute_update(
-                    'UPDATE applicants SET admission_status = %s WHERE id = %s',
-                    ('admitted', applicant_id)
-                )
-                letters_created.append({'applicant_id': applicant_id, 'letter_id': letter_id})
-                
-                # Try to send email with PDF attachment
-                subject = template_data.get('subject') or 'Admission Letter'
-                body_text = f"Dear {applicant_data['name']},\n\nPlease find attached your admission letter.\n\nBest regards,\nAdmissions Office"
-                attachments = [('admission_letter.pdf', pdf_bytes)]
-                
-                email_ok = send_email(
-                    to_email=applicant_data['email'],
-                    subject=subject,
-                    body_text=body_text,
-                    attachments=attachments
-                )
-                if email_ok:
-                    Database.execute_update(
-                        'UPDATE admission_letters SET status = %s, sent_at = NOW() WHERE id = %s',
-                        ('sent', letter_id)
-                    )
-                else:
-                    errors.append({'applicant_id': applicant_id, 'error': 'Email send failed'})
-            else:
-                errors.append({'applicant_id': applicant_id, 'error': 'Failed to save letter'})
+            # Send email with PDF attachment
+            subject = 'Provisional Admission Letter'
+            body_text = f"Dear {applicant_data['name']},\n\nPlease find attached your admission letter.\n\nBest regards,\nAdmissions Office"
+            attachments = [('admission_letter.pdf', pdf_bytes)]
+            
+            email_ok = send_email(
+                to_email=applicant_data['email'],
+                subject=subject,
+                body_text=body_text,
+                attachments=attachments
+            )
+            if not email_ok:
+                errors.append({'applicant_id': applicant_id, 'error': 'Email send failed'})
         
         except Exception as e:
             errors.append({'applicant_id': applicant_id, 'error': str(e)})
@@ -483,7 +446,6 @@ def send_batch_letters(payload):
 @AuthHandler.admin_required
 def revoke_admission(payload):
     """Revoke admission for an applicant"""
-    admin_id = payload['user_id']
     data = request.get_json()
     
     if not data or 'applicant_id' not in data:
@@ -499,8 +461,6 @@ def revoke_admission(payload):
     
     if not success:
         return jsonify({'message': 'Failed to revoke admission'}), 500
-    
-    # TODO: Send email to applicant about revocation
     
     return jsonify({
         'message': 'Admission revoked successfully'
@@ -549,128 +509,6 @@ def get_statistics(payload):
 @AuthHandler.token_required
 @AuthHandler.admin_required
 def get_letter_templates(payload):
-    """Get all letter templates"""
-    templates = Database.execute_query(
-        '''SELECT lt.id, lt.name, lt.subject, lt.program_id, p.name as program_name
-           FROM letter_templates lt
-           LEFT JOIN programs p ON lt.program_id = p.id
-           ORDER BY lt.program_id IS NULL DESC, p.name, lt.name'''
-    )
-    return jsonify({'templates': templates or []}), 200
-
-@admin_bp.route('/letter-template/<int:template_id>', methods=['GET'])
-@AuthHandler.token_required
-@AuthHandler.admin_required
-def get_letter_template(payload, template_id):
-    """Get specific letter template"""
-    template = Database.execute_query(
-        '''SELECT lt.*, p.name as program_name
-           FROM letter_templates lt
-           LEFT JOIN programs p ON lt.program_id = p.id
-           WHERE lt.id = %s''',
-        (template_id,)
-    )
-    
-    if not template:
-        return jsonify({'message': 'Template not found'}), 404
-    
-    return jsonify({'template': template[0]}), 200
-
-@admin_bp.route('/letter-templates', methods=['POST'])
-@AuthHandler.token_required
-@AuthHandler.admin_required
-def create_letter_template(payload):
-    """Create a new letter template"""
-    admin_id = payload['user_id']
-    data = request.get_json()
-    
-    if not data or 'name' not in data or 'body_html' not in data:
-        return jsonify({'message': 'name and body_html are required'}), 400
-    
-    name = data['name']
-    program_id = data.get('program_id')  # Can be None for default
-    subject = data.get('subject', 'Admission Letter')
-    header_text = data.get('header_text', '')
-    body_html = data['body_html']
-    footer_text = data.get('footer_text', '')
-    
-    # Check if program exists if specified
-    if program_id:
-        program = Database.execute_query('SELECT id FROM programs WHERE id = %s', (program_id,))
-        if not program:
-            return jsonify({'message': 'Invalid program_id'}), 400
-    
-    template_id = Database.execute_update(
-        '''INSERT INTO letter_templates
-           (name, program_id, subject, header_text, body_html, footer_text, created_by)
-           VALUES (%s, %s, %s, %s, %s, %s, %s)''',
-        (name, program_id, subject, header_text, body_html, footer_text, admin_id)
-    )
-    
-    if not template_id:
-        return jsonify({'message': 'Failed to create template'}), 500
-    
-    return jsonify({
-        'message': 'Template created successfully',
-        'template_id': template_id
-    }), 201
-
-@admin_bp.route('/letter-template/<int:template_id>', methods=['PUT'])
-@AuthHandler.token_required
-@AuthHandler.admin_required
-def update_letter_template(payload, template_id):
-    """Update a letter template"""
-    data = request.get_json()
-    
-    if not data:
-        return jsonify({'message': 'No data provided'}), 400
-    
-    # Check if template exists
-    existing = Database.execute_query('SELECT id FROM letter_templates WHERE id = %s', (template_id,))
-    if not existing:
-        return jsonify({'message': 'Template not found'}), 404
-    
-    # Build update query dynamically
-    update_fields = []
-    params = []
-    
-    allowed_fields = ['name', 'program_id', 'subject', 'header_text', 'body_html', 'footer_text']
-    for field in allowed_fields:
-        if field in data:
-            update_fields.append(f'{field} = %s')
-            params.append(data[field])
-    
-    if not update_fields:
-        return jsonify({'message': 'No valid fields to update'}), 400
-    
-    params.append(template_id)
-    query = f'UPDATE letter_templates SET {", ".join(update_fields)}, updated_at = NOW() WHERE id = %s'
-    
-    success = Database.execute_update(query, tuple(params))
-    
-    if not success:
-        return jsonify({'message': 'Failed to update template'}), 500
-    
-    return jsonify({'message': 'Template updated successfully'}), 200
-
-@admin_bp.route('/letter-template/<int:template_id>', methods=['DELETE'])
-@AuthHandler.token_required
-@AuthHandler.admin_required
-def delete_letter_template(payload, template_id):
-    """Delete a letter template"""
-    # Check if template exists
-    existing = Database.execute_query('SELECT id FROM letter_templates WHERE id = %s', (template_id,))
-    if not existing:
-        return jsonify({'message': 'Template not found'}), 404
-    
-    # Check if template is being used
-    used = Database.execute_query('SELECT id FROM admission_letters WHERE letter_template_id = %s LIMIT 1', (template_id,))
-    if used:
-        return jsonify({'message': 'Cannot delete template that has been used to generate letters'}), 400
-    
-    success = Database.execute_update('DELETE FROM letter_templates WHERE id = %s', (template_id,))
-    
-    if not success:
-        return jsonify({'message': 'Failed to delete template'}), 500
-    
-    return jsonify({'message': 'Template deleted successfully'}), 200
+    """Get all available admission letter templates"""
+    templates = get_all_templates()
+    return jsonify({'templates': templates}), 200

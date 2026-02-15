@@ -7,23 +7,22 @@ from flask_cors import CORS
 def create_app(config_name='development'):
 
     app = Flask(__name__)
-    CORS(app, origins=[
-    "http://localhost:3000",
-    "https://admission-portal-pcu.onrender.com"
-])
-    
-    
     app.config.from_object(config[config_name])
 
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
-  
+    from flask_cors import CORS
+    CORS(app,
+         resources={r"/api/*": {"origins": [
+             "http://localhost:3000"
+         ]}},
+         supports_credentials=True)
+
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
 
     from routes.auth import auth_bp
     from routes.applicant import applicant_bp
     from routes.admin import admin_bp
-    
+
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(applicant_bp, url_prefix='/api/applicant')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
@@ -31,7 +30,7 @@ def create_app(config_name='development'):
     @app.route('/api/health', methods=['GET'])
     def health():
         return {'status': 'ok'}, 200
-    
+
     return app
 
 if __name__ == "__main__":

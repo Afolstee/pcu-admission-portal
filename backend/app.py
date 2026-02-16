@@ -9,8 +9,11 @@ def create_app(config_name='development'):
     app.config.from_object(config[config_name])
 
     CORS(app,
-         resources={r"/api/*": {"origins": ["http://localhost:3000"]}},
-         supports_credentials=True)
+     resources={r"/api/*": {"origins": [
+         "http://localhost:3000", 
+         "https://admission-portal-pcu.onrender.com"
+     ]}},
+     supports_credentials=True)
 
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])

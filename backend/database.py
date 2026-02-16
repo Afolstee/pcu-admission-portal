@@ -1,20 +1,18 @@
+import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from config import Config
 from contextlib import contextmanager
-
 
 class Database:
     """Handles PostgreSQL database connections"""
 
-    class Database:
-     @staticmethod
-     def get_connection():
+    @staticmethod
+    def get_connection():
         try:
             connection = psycopg2.connect(
-                os.getenv("DATABASE_URL"),
+                os.getenv("DATABASE_URL"),  # make sure DATABASE_URL is set in Render
                 cursor_factory=RealDictCursor,
-                sslmode="require"   # VERY important for Render
+                sslmode="require"   # important for Render
             )
             return connection
         except psycopg2.Error as e:
@@ -56,10 +54,8 @@ class Database:
         try:
             with Database.get_cursor() as cursor:
                 cursor.execute(query, params or ())
-                
                 if return_id:
                     return cursor.fetchone()["id"]
-                
                 return True
         except psycopg2.Error as e:
             print(f"Update execution error: {e}")

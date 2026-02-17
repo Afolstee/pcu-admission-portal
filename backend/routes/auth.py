@@ -38,18 +38,16 @@ def signup():
     # Insert new user
     user_id = Database.execute_update(
         'INSERT INTO users (name, email, password_hash, phone_number, role) VALUES (%s, %s, %s, %s, %s)',
-        (data['name'], data['email'], password_hash, data['phone_number'], 'admin')
+        (data['name'], data['email'], password_hash, data['phone_number'], 'applicant')
     )
     
     if not user_id:
         return jsonify({'message': 'Failed to create account'}), 500
-    
-    # Create applicant record WITHOUT a selected program.
-    # The applicant MUST explicitly choose a program in the portal.
-    # Database.execute_update(
-        #'INSERT INTO applicants (user_id, program_id) VALUES (%s, %s)',
-       # (user_id, None)
-    #)
+ 
+    Database.execute_update(
+        'INSERT INTO applicants (user_id, program_id) VALUES (%s, %s)',
+        (user_id, None)
+    )
     
     # Generate token
     token = AuthHandler.generate_token(user_id, 'applicant')

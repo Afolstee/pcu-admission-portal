@@ -301,12 +301,18 @@ def get_form(payload, applicant_id):
     )
     
     documents = Database.execute_query(
-        '''SELECT id, document_type, original_filename, file_size, compressed_size, is_compressed
-           FROM documents d
-           JOIN application_forms af ON d.application_form_id = af.id
-           WHERE af.applicant_id = %s''',
-        (applicant_id,)
-    )
+    '''SELECT 
+           d.id AS document_id,
+           d.document_type,
+           d.original_filename,
+           d.file_size,
+           d.compressed_size,
+           d.is_compressed
+       FROM documents d
+       JOIN application_forms af ON d.application_form_id = af.id
+       WHERE af.applicant_id = %s''',
+    (applicant_id,)
+)
     
     return jsonify({
         'form': form[0] if form else None,

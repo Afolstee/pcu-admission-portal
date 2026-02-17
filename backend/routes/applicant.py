@@ -244,18 +244,26 @@ def upload_document(payload):
     if not stored_filename:
         return jsonify({'message': 'Failed to save document'}), 500
     
+    try:
+        form_id_int = int(form_id)                 
+        is_compressed_bool = bool(is_compressed)  
+        original_size_int = int(original_size)    
+        compressed_size_int = int(compressed_size)
+    except (TypeError, ValueError):
+        return jsonify({'message': 'Invalid file metadata'}), 400
+    
     # Store document metadata in database
     file_path = os.path.join(upload_folder, stored_filename)
     mime_type = DocumentHandler.get_mime_type(file.filename)
     
     doc_id = Database.execute_update(
-        '''INSERT INTO documents 
-           (application_form_id, document_type, original_filename, stored_filename, file_path, 
-            file_size, compressed_size, mime_type, is_compressed)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)''',
-        (form_id, document_type, file.filename, stored_filename, file_path,
-         original_size, compressed_size, mime_type, is_compressed)
-    )
+    '''INSERT INTO documents 
+       (application_form_id, document_type, original_filename, stored_filename, file_path, 
+        file_size, compressed_size, mime_type, is_compressed)
+       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+    (form_id_int, document_type, file.filename, stored_filename, file_path,
+     original_size_int, compressed_size_int, mime_type, is_compressed_bool)
+)
     
     if not doc_id:
         DocumentHandler.delete_document(file_path)

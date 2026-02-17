@@ -11,7 +11,7 @@ def create_app(config_name='development'):
     CORS(app,
      resources={r"/api/*": {"origins": [
          "http://localhost:3000", 
-         "https://admission-portal-pcu.onrender.com"
+         "https://admission-portal-pcu.onrender.com",
          "https://pcu-admission-portal.vercel.app"
      ]}},
      supports_credentials=True)

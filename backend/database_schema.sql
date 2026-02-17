@@ -39,14 +39,6 @@ CREATE TABLE program_fees (
     FOREIGN KEY (program_id) REFERENCES programs(id)
 );
 
--- Insert programs
-INSERT INTO programs (name, description, faculty, department, level, mode, session, resumption_date) VALUES
-    ('Mass Communication (Part-Time)', 'Bachelor degree in Mass Communication', 'Faculty of Social and Management Sciences', 'Mass Communication', '200 Level', 'Part-Time', '2025/2026', 'Sunday, 19 October, 2025'),
-    ('Computer Science (Full-Time)', 'Bachelor degree in Computer Science', 'Faculty of Natural Sciences', 'Computer Science', '100 Level', 'Full-Time', '2025/2026', 'Monday, 20 October, 2025'),
-    ('Business Administration (Part-Time)', 'Bachelor degree in Business Administration', 'Faculty of Social and Management Sciences', 'Business Administration', '100 Level', 'Part-Time', '2025/2026', 'Sunday, 19 October, 2025'),
-    ('Law (Full-Time)', 'Bachelor degree in Law', 'Faculty of Law', 'Law', '100 Level', 'Full-Time', '2025/2026', 'Monday, 20 October, 2025'),
-    ('Nursing (Full-Time)', 'Bachelor degree in Nursing', 'Faculty of Health Sciences', 'Nursing', '100 Level', 'Full-Time', '2025/2026', 'Monday, 20 October, 2025');
-
 -- Insert program fees
 INSERT INTO program_fees (program_id, acceptance_fee, tuition_fee, other_fees) VALUES
     (1, 20000.00, 177000.00, 123000.00),  -- Mass Communication (Part-Time)

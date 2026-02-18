@@ -29,6 +29,19 @@ export default function SignupPage() {
   });
   const [localError, setLocalError] = useState("");
 
+  // Valid email providers
+  const validEmailProviders = [
+    "gmail.com",
+    "yahoo.com",
+    "outlook.com",
+    "hotmail.com",
+    "icloud.com",
+    "mail.com",
+    "protonmail.com",
+    "zoho.com",
+    "aol.com",
+  ];
+
   // Redirect if already authenticated
   if (isAuthenticated) {
     router.replace("/applicant/dashboard");
@@ -38,6 +51,11 @@ export default function SignupPage() {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
     setLocalError("");
+  };
+
+  const isValidEmailProvider = (email: string): boolean => {
+    const emailDomain = email.split("@")[1]?.toLowerCase();
+    return validEmailProviders.includes(emailDomain);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -51,6 +69,12 @@ export default function SignupPage() {
     }
     if (!formData.email.includes("@")) {
       setLocalError("Valid email is required");
+      return;
+    }
+    if (!isValidEmailProvider(formData.email)) {
+      setLocalError(
+        "Please use a valid email provider (Gmail, Yahoo, Outlook, Hotmail, iCloud, etc.)"
+      );
       return;
     }
     if (formData.password.length < 6) {

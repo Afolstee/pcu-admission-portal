@@ -64,12 +64,13 @@ export default function SignupPage() {
     router.replace("/applicant/dashboard");
   }
 
+
   useEffect(() => {
     setShowError(false);
     setLocalError("");
   }, []);
 
-  // Auto-hide error after 5 seconds
+
   useEffect(() => {
     if (showError) {
       const timer = setTimeout(() => {

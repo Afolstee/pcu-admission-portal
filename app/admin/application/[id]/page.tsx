@@ -71,7 +71,7 @@ export default function ApplicationDetailPage() {
   const loadApplicationDetail = async () => {
     try {
       const response = await ApiClient.getApplicationDetails(applicantId);
-      setApplication(response);
+      setApplication(response as ApplicationDetail);
     } catch (err) {
       setError("Failed to load application. Please try again.");
       console.error(err);
@@ -83,7 +83,7 @@ export default function ApplicationDetailPage() {
   const loadPrograms = async () => {
     try {
       const response = await ApiClient.getPrograms();
-      setPrograms(response.programs || []);
+      setPrograms((response as any).programs || []);
     } catch (err) {
       console.error("Error loading programs:", err);
     }

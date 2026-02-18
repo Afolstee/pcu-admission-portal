@@ -48,6 +48,7 @@ export default function LoginPage() {
     setLocalError("");
   }, []);
 
+
   // Redirect if already authenticated
   useEffect(() => {
     if (!isAuthenticated || !user) return;
@@ -64,6 +65,16 @@ export default function LoginPage() {
       router.replace("/applicant/dashboard");
     }
   }, [isAuthenticated, user, applicant, router]);
+
+  // Auto-hide error after 5 seconds
+  useEffect(() => {
+    if (showError) {
+      const timer = setTimeout(() => {
+        setShowError(false);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [showError]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;

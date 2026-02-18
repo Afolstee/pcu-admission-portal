@@ -10,9 +10,9 @@ class Database:
     def get_connection():
         try:
             connection = psycopg2.connect(
-                os.getenv("DATABASE_URL"),  # make sure DATABASE_URL is set in Render
+                os.getenv("DATABASE_URL"),  
                 cursor_factory=RealDictCursor,
-                sslmode="require"   # important for Render
+                sslmode="require"   # 
             )
             return connection
         except psycopg2.Error as e:

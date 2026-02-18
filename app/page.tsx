@@ -1,16 +1,20 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
+import { ProgramModal } from "@/components/ProgramModal";
 import { FileText, CheckCircle2, Users } from "lucide-react";
+
+const programs = ["Undergraduate", "Postgraduate", "HND", "Part time", "Jupeb"];
 
 export default function Home() {
   const router = useRouter();
   const { isAuthenticated, user, isLoading } = useAuth();
+  const [selectedProgram, setSelectedProgram] = useState<string | null>(null);
 
   useEffect(() => {
     if (isAuthenticated && user && !isLoading) {
@@ -93,16 +97,15 @@ export default function Home() {
           </div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-4">
-            {["Undergraduate", "Postgraduate", "HND", "Part time", "Jupeb"].map(
-              (program, index) => (
-                <div
-                  key={index}
-                  className="p-4 rounded-lg border border-primary/20 bg-primary/5 text-center hover:bg-primary/10 transition-colors"
-                >
-                  <p className="font-medium text-foreground">{program}</p>
-                </div>
-              ),
-            )}
+            {programs.map((program) => (
+              <button
+                key={program}
+                onClick={() => setSelectedProgram(program)}
+                className="p-4 rounded-lg border border-primary/20 bg-primary/5 text-center hover:bg-primary/10 transition-colors cursor-pointer hover:border-primary/40"
+              >
+                <p className="font-medium text-foreground">{program}</p>
+              </button>
+            ))}
           </div>
         </div>
       </section>
@@ -113,6 +116,15 @@ export default function Home() {
           <p>&copy; PCU Admission Portal. All rights reserved.</p>
         </div>
       </footer>
+
+      {/* Program Modal */}
+      {selectedProgram && (
+        <ProgramModal
+          isOpen={!!selectedProgram}
+          onClose={() => setSelectedProgram(null)}
+          program={selectedProgram}
+        />
+      )}
     </div>
   );
 }

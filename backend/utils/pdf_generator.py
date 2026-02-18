@@ -2,10 +2,14 @@ import os
 import re
 import io
 import base64
-from weasyprint import HTML, CSS
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 class PDFGenerator:
-    """Generate PDFs from HTML using WeasyPrint (cross-platform)."""
+    """Generate PDFs from HTML using ReportLab (cross-platform, no system dependencies)."""
 
     @staticmethod
     def _load_template():
@@ -19,32 +23,6 @@ class PDFGenerator:
         return "<p>No template found</p>"
 
     @staticmethod
-    def _convert_image_to_base64(html_content: str) -> str:
-        pattern = r'src=["\']([^"\']+)["\']'
-
-        def replace(match):
-            src_path = match.group(1)
-            if src_path.startswith("data:"):
-                return match.group(0)
-
-            resolved_path = os.path.join(os.path.dirname(__file__), src_path)
-            if os.path.exists(resolved_path):
-                with open(resolved_path, "rb") as img:
-                    img_data = base64.b64encode(img.read()).decode()
-                    ext = os.path.splitext(resolved_path)[1].lower()
-                    mime = {
-                        ".png": "image/png",
-                        ".jpg": "image/jpeg",
-                        ".jpeg": "image/jpeg",
-                        ".gif": "image/gif",
-                        ".svg": "image/svg+xml",
-                    }.get(ext, "image/png")
-                    return f'src="data:{mime};base64,{img_data}"'
-            return match.group(0)
-
-        return re.sub(pattern, replace, html_content)
-
-    @staticmethod
     def generate_admission_letter_pdf(body_html: str = "", **kwargs) -> bytes:
         # Load template if no HTML provided
         if not body_html.strip():
@@ -55,28 +33,27 @@ class PDFGenerator:
             pattern = r"\{\{\s*" + re.escape(key) + r"\s*\}\}"
             body_html = re.sub(pattern, str(value or ""), body_html, flags=re.IGNORECASE)
 
-        # Wrap in minimal HTML if needed
-        if not re.search(r"<\s*html", body_html, re.IGNORECASE):
-            body_html = f"""
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Admission Letter</title>
-<style>
-body {{ font-family: "Times New Roman", serif; font-size:14px; line-height:1.6; }}
-p {{ margin: 10px 0; }}
-</style>
-</head>
-<body>
-{body_html}
-</body>
-</html>
-"""
-
-        # Convert images to base64
-        html_with_images = PDFGenerator._convert_image_to_base64(body_html)
-
-        # Generate PDF with WeasyPrint
-        pdf_bytes = HTML(string=html_with_images).write_pdf()
-        return pdf_bytes
+        # Create PDF document in memory
+        pdf_buffer = io.BytesIO()
+        doc = SimpleDocTemplate(pdf_buffer, pagesize=letter,
+                                rightMargin=72, leftMargin=72,
+                                topMargin=72, bottomMargin=18)
+        
+        # Build story
+        story = []
+        styles = getSampleStyleSheet()
+        
+        # Strip HTML tags and convert to plain text for reportlab
+        plain_text = re.sub(r'<[^>]+>', '\n', body_html)
+        plain_text = plain_text.replace('&nbsp;', ' ').replace('&#160;', ' ')
+        
+        # Add content as paragraphs
+        for paragraph in plain_text.split('\n'):
+            if paragraph.strip():
+                story.append(Paragraph(paragraph.strip(), styles['Normal']))
+                story.append(Spacer(1, 0.2*inch))
+        
+        # Build PDF
+        doc.build(story)
+        pdf_buffer.seek(0)
+        return pdf_buffer.getvalue()

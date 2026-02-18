@@ -2,33 +2,10 @@ import os
 import re
 import io
 import base64
-import pdfkit
+from weasyprint import HTML, CSS
 
 class PDFGenerator:
-    """Generate PDFs from HTML using pdfkit + wkhtmltopdf."""
-
-    @staticmethod
-    def _get_wkhtmltopdf_path():
-        # Look for environment variable first
-        env_path = os.getenv("WKHTMLTOPDF_PATH")
-        if env_path and os.path.exists(env_path):
-            return env_path
-
-        # Common Windows path
-        default_path = r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
-        if os.path.exists(default_path):
-            return default_path
-
-        # Fallback: assume it's in PATH (Linux/Render)
-        return "wkhtmltopdf"
-
-    _config = None
-
-    @classmethod
-    def _get_config(cls):
-        if cls._config is None:
-            cls._config = pdfkit.configuration(wkhtmltopdf=cls._get_wkhtmltopdf_path())
-        return cls._config
+    """Generate PDFs from HTML using WeasyPrint (cross-platform)."""
 
     @staticmethod
     def _load_template():
@@ -69,10 +46,11 @@ class PDFGenerator:
 
     @staticmethod
     def generate_admission_letter_pdf(body_html: str = "", **kwargs) -> bytes:
+        # Load template if no HTML provided
         if not body_html.strip():
             body_html = PDFGenerator._load_template()
 
-        # Replace placeholders
+        # Replace placeholders in the template
         for key, value in kwargs.items():
             pattern = r"\{\{\s*" + re.escape(key) + r"\s*\}\}"
             body_html = re.sub(pattern, str(value or ""), body_html, flags=re.IGNORECASE)
@@ -99,8 +77,6 @@ p {{ margin: 10px 0; }}
         # Convert images to base64
         html_with_images = PDFGenerator._convert_image_to_base64(body_html)
 
-        # Generate PDF
-        pdf_bytes = pdfkit.from_string(
-            html_with_images, False, configuration=PDFGenerator._get_config()
-        )
+        # Generate PDF with WeasyPrint
+        pdf_bytes = HTML(string=html_with_images).write_pdf()
         return pdf_bytes

@@ -245,19 +245,26 @@ def send_admission_letter(payload):
     }), 201 if email_sent else 500
 
 
-@admin_bp.route('/preview-admission-letter', methods=['POST'])
+@admin_bp.route(
+    '/preview-admission-letter',
+    methods=['POST', 'OPTIONS']
+)
 @AuthHandler.token_required
 @AuthHandler.admin_required
 def preview_admission_letter(payload):
+
+    if request.method == 'OPTIONS':
+        return '', 200
+    
     """Generate and return admission letter PDF for preview (no DB save, no email)"""
     data = request.get_json() or {}
     if 'applicant_id' not in data:
         return jsonify({'message': 'applicant_id is required'}), 400
 
     applicant_id = data['applicant_id']
-    # Get date in YYYY-MM-DD format from frontend or use today
+
     admission_date_db = data.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
-    # Convert to display format for the letter (e.g., "15 February, 2026")
+
     try:
         date_obj = datetime.strptime(admission_date_db, '%Y-%m-%d')
         admission_date_display = date_obj.strftime('%d %B, %Y')

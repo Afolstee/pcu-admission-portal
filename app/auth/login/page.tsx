@@ -15,7 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, X } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -23,6 +23,30 @@ export default function LoginPage() {
     useAuth();
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [localError, setLocalError] = useState("");
+  const [showError, setShowError] = useState(false);
+
+  // Show error from auth context (e.g., invalid credentials)
+  useEffect(() => {
+    if (error) {
+      setLocalError(error);
+      setShowError(true);
+    }
+  }, [error]);
+
+  // Auto-hide error after 5 seconds
+  useEffect(() => {
+    if (showError) {
+      const timer = setTimeout(() => {
+        setShowError(false);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [showError]);
+
+  useEffect(() => {
+    setShowError(false);
+    setLocalError("");
+  }, []);
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -44,19 +68,22 @@ export default function LoginPage() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
-    setLocalError("");
+    setShowError(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLocalError("");
+    setShowError(false);
 
     if (!formData.email.includes("@")) {
       setLocalError("Valid email is required");
+      setShowError(true);
       return;
     }
     if (!formData.password) {
       setLocalError("Password is required");
+      setShowError(true);
       return;
     }
 
@@ -71,6 +98,68 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      {/* Toast Error Notification */}
+      {showError && displayError && (
+        <div
+          className="fixed top-6 right-6 max-w-sm animate-in slide-in-from-top-2 fade-in duration-300 z-50"
+          style={{
+            animation: showError
+              ? "slideInDown 0.4s ease-out forwards"
+              : "slideOutUp 0.4s ease-out forwards",
+          }}
+        >
+          <style>{`
+            @keyframes slideInDown {
+              from {
+                opacity: 0;
+                transform: translateY(-20px);
+              }
+              to {
+                opacity: 1;
+                transform: translateY(0);
+              }
+            }
+            @keyframes slideOutUp {
+              from {
+                opacity: 1;
+                transform: translateY(0);
+              }
+              to {
+                opacity: 0;
+                transform: translateY(-20px);
+              }
+            }
+          `}</style>
+          <div className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg shadow-lg overflow-hidden">
+            <div className="flex items-start gap-3 p-4">
+              <div className="flex-shrink-0 mt-0.5">
+                <div className="flex items-center justify-center h-6 w-6 rounded-full bg-red-400">
+                  <AlertCircle className="h-4 w-4" />
+                </div>
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-sm">Error</p>
+                <p className="text-sm mt-1 opacity-95">{displayError}</p>
+              </div>
+              <button
+                onClick={() => setShowError(false)}
+                className="flex-shrink-0 text-red-200 hover:text-white transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            {/* Animated progress bar */}
+            <div
+              className="h-1 bg-red-400 opacity-50"
+              style={{
+                animation: "slideOutLeft 5s linear forwards",
+                transformOrigin: "left",
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-4 text-center">
           <div className="flex justify-center">
@@ -82,19 +171,13 @@ export default function LoginPage() {
               className="object-contain"
             />
           </div>
+          <CardTitle className="text-2xl">Welcome Back</CardTitle>
           <CardDescription>
             Log in to your admission portal account
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            {displayError && (
-              <div className="flex gap-3 p-3 bg-destructive/10 border border-destructive rounded-lg">
-                <AlertCircle className="h-5 w-5 text-destructive flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-destructive">{displayError}</p>
-              </div>
-            )}
-
             <div className="space-y-2">
               <Label htmlFor="email">Email Address</Label>
               <Input

@@ -481,13 +481,12 @@ def get_statistics(payload):
     
     stats = {}
     
-    # Total applications
     total = Database.execute_query(
-        'SELECT COUNT(*) as count FROM applicants WHERE application_status IN ("submitted", "under_review", "accepted", "rejected")'
+        "SELECT COUNT(*) as count FROM applicants WHERE application_status IN ('submitted', 'under_review', 'accepted', 'rejected')"
     )
     stats['total_applications'] = total[0]['count'] if total else 0
     
-    # By status
+
     by_status = Database.execute_query(
         '''SELECT application_status, COUNT(*) as count
            FROM applicants
@@ -495,7 +494,7 @@ def get_statistics(payload):
     )
     stats['by_status'] = by_status or []
     
-    # By program
+
     by_program = Database.execute_query(
         '''SELECT p.name, COUNT(*) as count
            FROM applicants a
@@ -504,9 +503,8 @@ def get_statistics(payload):
     )
     stats['by_program'] = by_program or []
     
-    # Admission status
     admitted = Database.execute_query(
-        'SELECT COUNT(*) as count FROM applicants WHERE admission_status = "admitted"'
+        "SELECT COUNT(*) as count FROM applicants WHERE admission_status = 'admitted'"
     )
     stats['total_admitted'] = admitted[0]['count'] if admitted else 0
     

@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, app
 from flask_cors import CORS
 from config import config
 import os
@@ -8,14 +8,15 @@ def create_app(config_name='development'):
     app = Flask(__name__)
     app.config.from_object(config[config_name])
 
-    CORS(app,
-     resources={r"/api/*": {"origins": [
-         "http://localhost:3000", 
-         "https://admission-portal-pcu.onrender.com",
-         "https://pcu-admission-portal.vercel.app"
-     ]}},
-     supports_credentials=True)
-
+    CORS(app, resources={
+        r"/api/*": {
+            "origins": ["https://pcu-admission-portal.vercel.app"],
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization"],
+            "supports_credentials": True
+        }
+    })
+    
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
 
@@ -30,7 +31,7 @@ def create_app(config_name='development'):
     @app.route('/api/health', methods=['GET'])
     def health():
         return {'status': 'ok'}, 200
-
+    
     return app
 
 

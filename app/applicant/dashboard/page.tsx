@@ -322,7 +322,7 @@ export default function ApplicantDashboard() {
                             size="sm"
                             variant="outline"
                             className="w-full gap-2"
-                            disabled
+                            
                           >
                             <Download className="h-4 w-4" />
                             Print Admission Documents

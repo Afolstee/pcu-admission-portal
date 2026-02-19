@@ -256,7 +256,6 @@ export default function ApplicantDashboard() {
                   )}
                 </div>
               </div>
-
               {/* Step 2: Review & Wait */}
               <div className="flex items-start gap-4">
                 <div
@@ -279,7 +278,6 @@ export default function ApplicantDashboard() {
                   )}
                 </div>
               </div>
-
               {/* Step 3: Acceptance & Payment */}
               <div className="flex items-start gap-4">
                 <div
@@ -300,8 +298,8 @@ export default function ApplicantDashboard() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="w-full gap-2 bg-transparent"
-                          
+                          className="w-full gap-2"
+                          onClick={() => router.push("/applicant/payment")}
                         >
                           <DollarSign className="h-4 w-4" />
                           Pay Acceptance Fee
@@ -311,8 +309,8 @@ export default function ApplicantDashboard() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="w-full gap-2 bg-transparent"
-                          
+                          className="w-full gap-2"
+                          onClick={() => router.push("/applicant/payment")}
                         >
                           <DollarSign className="h-4 w-4" />
                           Pay Tuition
@@ -323,7 +321,7 @@ export default function ApplicantDashboard() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="w-full gap-2 bg-transparent"
+                            className="w-full gap-2"
                             disabled
                           >
                             <Download className="h-4 w-4" />

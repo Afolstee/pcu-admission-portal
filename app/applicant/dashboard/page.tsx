@@ -301,7 +301,7 @@ export default function ApplicantDashboard() {
                           size="sm"
                           variant="outline"
                           className="w-full gap-2 bg-transparent"
-                          disabled
+                          
                         >
                           <DollarSign className="h-4 w-4" />
                           Pay Acceptance Fee
@@ -312,7 +312,7 @@ export default function ApplicantDashboard() {
                           size="sm"
                           variant="outline"
                           className="w-full gap-2 bg-transparent"
-                          disabled
+                          
                         >
                           <DollarSign className="h-4 w-4" />
                           Pay Tuition

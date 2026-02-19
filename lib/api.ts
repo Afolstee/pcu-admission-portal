@@ -72,6 +72,7 @@ export interface PaymentTransaction {
 export interface PaymentResponse {
   message: string;
   transaction_id: string;
+  transaction_db_id: number;
   applicant_id: number;
   payment_type: string;
   amount: number;
@@ -371,6 +372,27 @@ export class ApiClient {
 
     if (!response.ok) {
       throw new Error("Failed to download payment receipt");
+    }
+
+    return await response.blob();
+  }
+
+  static async downloadDocument(document_id: number): Promise<Blob> {
+    const token = this.getToken();
+    const headers: Record<string, string> = {
+      ...(token && { Authorization: `Bearer ${token}` }),
+    };
+
+    const response = await fetch(
+      `${API_BASE_URL}/applicant/download-document/${document_id}`,
+      {
+        method: "GET",
+        headers,
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error("Failed to download document");
     }
 
     return await response.blob();

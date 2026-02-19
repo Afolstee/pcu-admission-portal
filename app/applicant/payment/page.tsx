@@ -31,6 +31,7 @@ interface PaymentModal {
   isOpen: boolean;
   type: "acceptance" | "tuition" | null;
   step: "select" | "confirm" | "processing" | "success";
+  transactionId?: string;
 }
 
 export default function PaymentPage() {
@@ -42,6 +43,7 @@ export default function PaymentPage() {
     isOpen: false,
     type: null,
     step: "select",
+    transactionId: undefined,
   });
   const [processingPayment, setProcessingPayment] = useState(false);
 
@@ -61,17 +63,42 @@ export default function PaymentPage() {
 
   const loadPaymentInfo = async () => {
     try {
+      // Get applicant status from backend
+      const statusData = await ApiClient.getApplicantStatus();
+      const appStatus = statusData.applicant;
+
+      // Get program fees from admission letter data
+      const letterData = await ApiClient.getAdmissionLetter();
+
+      // Parse fees from formatted strings
+      const parseFee = (feeStr: string) => {
+        return parseInt(feeStr.replace(/₦|,/g, ""), 10);
+      };
+
+      const acceptance_fee = parseFee(letterData.acceptanceFee);
+      const tuition_fee = parseFee(letterData.tuition);
+
       setPaymentInfo({
-        applicant_id: applicant?.id || 0,
-        program_name: applicant ? "Your Program" : "Unknown",
-        admission_status: "admitted",
-        acceptance_fee: 50000,
-        tuition_fee: 800000,
-        has_paid_acceptance_fee: false,
-        has_paid_tuition: false,
+        applicant_id: appStatus.id,
+        program_name: appStatus.program_name,
+        admission_status: appStatus.admission_status,
+        acceptance_fee,
+        tuition_fee,
+        has_paid_acceptance_fee: appStatus.has_paid_acceptance_fee,
+        has_paid_tuition: appStatus.has_paid_tuition,
       });
     } catch (err) {
       console.error("Error loading payment info:", err);
+      // Fallback to default if API fails
+      setPaymentInfo({
+        applicant_id: 0,
+        program_name: "Unknown",
+        admission_status: "admitted",
+        acceptance_fee: 0,
+        tuition_fee: 0,
+        has_paid_acceptance_fee: false,
+        has_paid_tuition: false,
+      });
     } finally {
       setLoading(false);
     }
@@ -103,34 +130,89 @@ export default function PaymentPage() {
       isOpen: false,
       type: null,
       step: "select",
+      transactionId: undefined,
     });
   };
 
+  const downloadReceipt = async () => {
+    if (!paymentModal.transactionId) return;
+
+    try {
+      // Extract numeric transaction ID from the response
+      const transId = parseInt(paymentModal.transactionId.split("-")[1] || "0");
+      const blob = await ApiClient.downloadPaymentReceipt(transId);
+
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `payment_receipt_${paymentModal.transactionId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("[v0] Error downloading receipt:", error);
+      alert("Failed to download receipt. Please try again.");
+    }
+  };
+
   const simulateRemittaPayment = async () => {
+    if (!paymentModal.type || !paymentInfo) return;
+
     setProcessingPayment(true);
     setPaymentModal((prev) => ({ ...prev, step: "processing" }));
 
-    // Simulate Remita payment processing delay
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    try {
+      // Determine payment type and amount
+      const paymentType =
+        paymentModal.type === "acceptance" ? "acceptance_fee" : "tuition";
+      const amount =
+        paymentModal.type === "acceptance"
+          ? paymentInfo.acceptance_fee
+          : paymentInfo.tuition_fee;
 
-    // Update payment status
-    if (paymentInfo) {
-      const updatedInfo = { ...paymentInfo };
-      if (paymentModal.type === "acceptance") {
-        updatedInfo.has_paid_acceptance_fee = true;
-      } else if (paymentModal.type === "tuition") {
-        updatedInfo.has_paid_tuition = true;
+      // Process payment via backend
+      const result = await ApiClient.processPayment(
+        paymentType as "acceptance_fee" | "tuition",
+        amount,
+        "remita",
+        `TXN-${Date.now()}`
+      );
+
+      console.log("[v0] Payment processed successfully:", result);
+
+      // Update payment status
+      if (paymentInfo) {
+        const updatedInfo = { ...paymentInfo };
+        if (paymentModal.type === "acceptance") {
+          updatedInfo.has_paid_acceptance_fee = true;
+        } else if (paymentModal.type === "tuition") {
+          updatedInfo.has_paid_tuition = true;
+        }
+        setPaymentInfo(updatedInfo);
       }
-      setPaymentInfo(updatedInfo);
+
+      setProcessingPayment(false);
+      setPaymentModal((prev) => ({
+        ...prev,
+        step: "success",
+        transactionId: result.transaction_id,
+      }));
+
+      // Close modal after 2 seconds and reload data
+      setTimeout(() => {
+        closePaymentModal();
+        loadPaymentInfo(); // Refresh to get latest data
+      }, 2000);
+    } catch (error) {
+      console.error("[v0] Payment processing error:", error);
+      alert(
+        `Payment failed: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+      setProcessingPayment(false);
+      setPaymentModal((prev) => ({ ...prev, step: "confirm" }));
     }
-
-    setProcessingPayment(false);
-    setPaymentModal((prev) => ({ ...prev, step: "success" }));
-
-    // Close modal after 2 seconds
-    setTimeout(() => {
-      closePaymentModal();
-    }, 2000);
   };
 
   if (loading) {
@@ -458,17 +540,35 @@ export default function PaymentPage() {
             )}
 
             {paymentModal.step === "success" && (
-              <CardContent className="py-12 text-center">
-                <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4" />
-                <p className="text-foreground font-semibold mb-2">
-                  Payment Successful
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {paymentModal.type === "acceptance"
-                    ? "Acceptance fee has been processed"
-                    : "Tuition fee has been processed"}
-                </p>
-              </CardContent>
+              <>
+                <CardContent className="py-12 text-center">
+                  <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4" />
+                  <p className="text-foreground font-semibold mb-2">
+                    Payment Successful
+                  </p>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    {paymentModal.type === "acceptance"
+                      ? "Acceptance fee has been processed"
+                      : "Tuition fee has been processed"}
+                  </p>
+                  {paymentModal.transactionId && (
+                    <p className="text-xs text-muted-foreground bg-gray-100 rounded p-2 mb-4">
+                      Transaction ID: {paymentModal.transactionId}
+                    </p>
+                  )}
+                </CardContent>
+                {paymentModal.transactionId && (
+                  <div className="border-t px-6 py-4">
+                    <Button
+                      onClick={() => downloadReceipt()}
+                      className="w-full gap-2"
+                      variant="outline"
+                    >
+                      Download Receipt
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </Card>
         </div>

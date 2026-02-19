@@ -58,6 +58,27 @@ export interface AdmissionLetterData {
   reference: string;
 }
 
+export interface PaymentTransaction {
+  transaction_id: number;
+  payment_type: string;
+  amount: number;
+  status: string;
+  payment_method: string;
+  reference_id: string;
+  created_at: string | null;
+  completed_at: string | null;
+}
+
+export interface PaymentResponse {
+  message: string;
+  transaction_id: string;
+  applicant_id: number;
+  payment_type: string;
+  amount: number;
+  status: string;
+  completed_at: string;
+}
+
 export class ApiClient {
   private static token: string | null = null;
 
@@ -296,6 +317,60 @@ export class ApiClient {
 
     if (!response.ok) {
       throw new Error("Failed to generate PDF");
+    }
+
+    return await response.blob();
+  }
+
+  // Payment endpoints
+  static async processPayment(
+    payment_type: "acceptance_fee" | "tuition",
+    amount: number,
+    payment_method: string = "online",
+    reference_id: string = "",
+  ): Promise<PaymentResponse> {
+    const { data } = await this.fetch<PaymentResponse>(
+      "/applicant/process-payment",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          payment_type,
+          amount,
+          payment_method,
+          reference_id,
+        }),
+      },
+    );
+    return data;
+  }
+
+  static async getPaymentHistory(): Promise<{
+    payment_history: PaymentTransaction[];
+    total_payments: number;
+  }> {
+    const { data } = await this.fetch<{
+      payment_history: PaymentTransaction[];
+      total_payments: number;
+    }>("/applicant/payment-history");
+    return data;
+  }
+
+  static async downloadPaymentReceipt(transaction_id: number): Promise<Blob> {
+    const token = this.getToken();
+    const headers: Record<string, string> = {
+      ...(token && { Authorization: `Bearer ${token}` }),
+    };
+
+    const response = await fetch(
+      `${API_BASE_URL}/applicant/payment-receipt/${transaction_id}`,
+      {
+        method: "GET",
+        headers,
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error("Failed to download payment receipt");
     }
 
     return await response.blob();

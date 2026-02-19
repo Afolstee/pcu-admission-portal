@@ -3,9 +3,11 @@ from database import Database
 from utils.auth import AuthHandler
 from utils.document_handler import DocumentHandler
 from utils.pdf_generator import PDFGenerator
+from utils.payment_receipt_generator import PaymentReceiptGenerator
 from config import Config
 from datetime import datetime
 import os
+import uuid
 
 applicant_bp = Blueprint('applicant', __name__)
 
@@ -539,3 +541,206 @@ def print_admission_letter(payload):
         mimetype='application/pdf',
         headers={'Content-Disposition': f'attachment;filename=admission_letter_{applicant_data["id"]}.pdf'}
     )
+
+@applicant_bp.route('/process-payment', methods=['POST'])
+@AuthHandler.token_required
+def process_payment(payload):
+    """Process and save payment transaction"""
+    user_id = payload['user_id']
+    data = request.get_json()
+    
+    # Validate required fields
+    required_fields = ['payment_type', 'amount']
+    if not all(field in data for field in required_fields):
+        return jsonify({'message': 'Missing required fields: payment_type, amount'}), 400
+    
+    payment_type = data.get('payment_type')  # acceptance_fee or tuition
+    amount = float(data.get('amount', 0))
+    payment_method = data.get('payment_method', 'online')
+    reference_id = data.get('reference_id', '')
+    
+    # Validate payment type
+    if payment_type not in ['acceptance_fee', 'tuition']:
+        return jsonify({'message': 'Invalid payment_type. Must be acceptance_fee or tuition'}), 400
+    
+    if amount <= 0:
+        return jsonify({'message': 'Amount must be greater than 0'}), 400
+    
+    # Get applicant
+    applicant = Database.execute_query(
+        'SELECT id, program_id FROM applicants WHERE user_id = %s',
+        (user_id,)
+    )
+    
+    if not applicant:
+        return jsonify({'message': 'Applicant record not found'}), 404
+    
+    applicant_id = applicant[0]['id']
+    
+    # Verify amount matches program fee
+    program_id = applicant[0]['program_id']
+    if not program_id:
+        return jsonify({'message': 'Program not selected'}), 400
+    
+    fees = Database.execute_query(
+        'SELECT acceptance_fee, tuition_fee FROM program_fees WHERE program_id = %s',
+        (program_id,)
+    )
+    
+    if fees:
+        fee_map = {
+            'acceptance_fee': fees[0]['acceptance_fee'],
+            'tuition': fees[0]['tuition_fee']
+        }
+        expected_amount = fee_map.get(payment_type, 0)
+        if expected_amount and amount != expected_amount:
+            return jsonify({
+                'message': f'Amount mismatch. Expected {expected_amount} for {payment_type}',
+                'expected_amount': expected_amount
+            }), 400
+    
+    # Create payment transaction record
+    try:
+        success = Database.execute_update(
+            '''INSERT INTO payment_transactions 
+               (applicant_id, payment_type, amount, status, payment_method, reference_id, completed_at)
+               VALUES (%s, %s, %s, %s, %s, %s, NOW())''',
+            (applicant_id, payment_type, amount, 'completed', payment_method, reference_id)
+        )
+        
+        if not success:
+            return jsonify({'message': 'Failed to save payment transaction'}), 500
+        
+        # Update applicant payment status flags
+        if payment_type == 'acceptance_fee':
+            Database.execute_update(
+                'UPDATE applicants SET has_paid_acceptance_fee = TRUE WHERE id = %s',
+                (applicant_id,)
+            )
+        elif payment_type == 'tuition':
+            Database.execute_update(
+                'UPDATE applicants SET has_paid_tuition = TRUE WHERE id = %s',
+                (applicant_id,)
+            )
+        
+        # Prepare receipt data
+        transaction_id = reference_id or f"PAY-{uuid.uuid4().hex[:12].upper()}"
+        
+        return jsonify({
+            'message': 'Payment processed successfully',
+            'transaction_id': transaction_id,
+            'applicant_id': applicant_id,
+            'payment_type': payment_type,
+            'amount': amount,
+            'status': 'completed',
+            'completed_at': datetime.now().isoformat()
+        }), 200
+    
+    except Exception as e:
+        print(f"Payment processing error: {e}")
+        return jsonify({'message': 'Error processing payment'}), 500
+
+@applicant_bp.route('/payment-receipt/<int:transaction_id>', methods=['GET'])
+@AuthHandler.token_required
+def get_payment_receipt(payload, transaction_id):
+    """Download payment receipt as PDF"""
+    user_id = payload['user_id']
+    
+    # Get transaction and verify ownership
+    transaction = Database.execute_query(
+        '''SELECT pt.id, pt.applicant_id, pt.payment_type, pt.amount, pt.created_at, 
+                  pt.reference_id, pt.payment_method
+           FROM payment_transactions pt
+           JOIN applicants a ON pt.applicant_id = a.id
+           WHERE pt.id = %s AND a.user_id = %s''',
+        (transaction_id, user_id)
+    )
+    
+    if not transaction:
+        return jsonify({'message': 'Payment receipt not found'}), 404
+    
+    trans_data = transaction[0]
+    applicant_id = trans_data['applicant_id']
+    
+    # Get applicant and program info
+    applicant = Database.execute_query(
+        '''SELECT u.name, p.name as program_name, a.program_id
+           FROM applicants a
+           JOIN users u ON a.user_id = u.id
+           LEFT JOIN programs p ON a.program_id = p.id
+           WHERE a.id = %s''',
+        (applicant_id,)
+    )
+    
+    if not applicant:
+        return jsonify({'message': 'Applicant not found'}), 404
+    
+    applicant_data = applicant[0]
+    
+    # Generate PDF receipt
+    receipt_id = f"RCP-{trans_data['id']:06d}"
+    payment_date = trans_data['created_at'].strftime('%d %B %Y') if trans_data['created_at'] else datetime.now().strftime('%d %B %Y')
+    
+    pdf_bytes = PaymentReceiptGenerator.generate_payment_receipt_pdf(
+        receipt_id=receipt_id,
+        applicant_name=applicant_data['name'],
+        program_name=applicant_data['program_name'] or 'N/A',
+        payment_type=trans_data['payment_type'],
+        amount=float(trans_data['amount']),
+        payment_date=payment_date,
+        reference_number=trans_data['reference_id'] or '',
+        payment_method=trans_data['payment_method'] or 'Online',
+        currency='NGN'
+    )
+    
+    return Response(
+        pdf_bytes,
+        mimetype='application/pdf',
+        headers={'Content-Disposition': f'attachment;filename=payment_receipt_{receipt_id}.pdf'}
+    )
+
+@applicant_bp.route('/payment-history', methods=['GET'])
+@AuthHandler.token_required
+def get_payment_history(payload):
+    """Get payment history for the applicant"""
+    user_id = payload['user_id']
+    
+    # Get applicant
+    applicant = Database.execute_query(
+        'SELECT id FROM applicants WHERE user_id = %s',
+        (user_id,)
+    )
+    
+    if not applicant:
+        return jsonify({'message': 'Applicant record not found'}), 404
+    
+    applicant_id = applicant[0]['id']
+    
+    # Get payment history
+    transactions = Database.execute_query(
+        '''SELECT id, payment_type, amount, status, payment_method, reference_id, 
+                  created_at, completed_at
+           FROM payment_transactions
+           WHERE applicant_id = %s
+           ORDER BY created_at DESC''',
+        (applicant_id,)
+    )
+    
+    # Format transactions
+    formatted_transactions = []
+    for trans in (transactions or []):
+        formatted_transactions.append({
+            'transaction_id': trans['id'],
+            'payment_type': trans['payment_type'],
+            'amount': float(trans['amount']),
+            'status': trans['status'],
+            'payment_method': trans['payment_method'],
+            'reference_id': trans['reference_id'],
+            'created_at': trans['created_at'].isoformat() if trans['created_at'] else None,
+            'completed_at': trans['completed_at'].isoformat() if trans['completed_at'] else None
+        })
+    
+    return jsonify({
+        'payment_history': formatted_transactions,
+        'total_payments': len(formatted_transactions)
+    }), 200

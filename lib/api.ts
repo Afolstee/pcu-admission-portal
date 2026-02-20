@@ -17,6 +17,8 @@ export interface ApplicantStatus {
   has_paid_acceptance_fee: boolean;
   has_paid_tuition: boolean;
   submitted_at: string | null;
+  recommended_course_response?: string | null;
+  accepted_recommended_program_id?: number | null;
 }
 
 export interface Application {
@@ -72,12 +74,27 @@ export interface PaymentTransaction {
 export interface PaymentResponse {
   message: string;
   transaction_id: string;
-  transaction_db_id: number;
   applicant_id: number;
   payment_type: string;
   amount: number;
   status: string;
   completed_at: string;
+}
+
+export interface Recommendation {
+  review_id: number;
+  program_id: number;
+  program_name: string;
+  review_notes: string;
+  reviewed_by: string;
+  reviewed_at: string | null;
+  response: string | null;
+  is_accepted: boolean | null;
+}
+
+export interface RecommendationResponse {
+  recommendations: Recommendation[];
+  total_recommendations: number;
 }
 
 export class ApiClient {
@@ -186,6 +203,8 @@ export class ApiClient {
   }
 
   static async submitForm(formData: any) {
+    // Backend expects standard form fields via request.form,
+    // so we must send a FormData/multipart request (NOT JSON).
     const fd = new FormData();
     Object.entries(formData).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
@@ -375,27 +394,6 @@ export class ApiClient {
     return await response.blob();
   }
 
-  static async downloadDocument(document_id: number): Promise<Blob> {
-    const token = this.getToken();
-    const headers: Record<string, string> = {
-      ...(token && { Authorization: `Bearer ${token}` }),
-    };
-
-    const response = await fetch(
-      `${API_BASE_URL}/applicant/download-document/${document_id}`,
-      {
-        method: "GET",
-        headers,
-      },
-    );
-
-    if (!response.ok) {
-      throw new Error("Failed to download document");
-    }
-
-    return await response.blob();
-  }
-
   // Admin endpoints
   static async getApplications(
     status?: string,
@@ -482,6 +480,25 @@ export class ApiClient {
 
   static async getLetterTemplate(template_id: number) {
     const { data } = await this.fetch(`/admin/letter-template/${template_id}`);
+    return data;
+  }
+
+  // Recommendation endpoints
+  static async getRecommendations(): Promise<RecommendationResponse> {
+    const { data } = await this.fetch<RecommendationResponse>(
+      "/applicant/get-recommendations"
+    );
+    return data;
+  }
+
+  static async respondToRecommendation(
+    review_id: number,
+    response: "accepted" | "declined"
+  ) {
+    const { data } = await this.fetch("/applicant/respond-to-recommendation", {
+      method: "POST",
+      body: JSON.stringify({ review_id, response }),
+    });
     return data;
   }
 }

@@ -48,9 +48,8 @@ def select_program(payload):
     if not applicants:
         # Create applicant record tied to this user with the selected program
         applicant_id = Database.execute_update(
-            'INSERT INTO applicants (user_id, program_id) VALUES (%s, %s) RETURNING id',
-            (user_id, program_id),
-            return_id=True
+            'INSERT INTO applicants (user_id, program_id) VALUES (%s, %s)',
+            (user_id, program_id)
         )
         if not applicant_id:
             return jsonify({'message': 'Failed to create applicant record'}), 500
@@ -263,10 +262,9 @@ def upload_document(payload):
     '''INSERT INTO documents 
        (application_form_id, document_type, original_filename, stored_filename, file_path, 
         file_size, compressed_size, mime_type, is_compressed)
-       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id''',
+       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)''',
     (form_id_int, document_type, file.filename, stored_filename, file_path,
-     original_size_int, compressed_size_int, mime_type, is_compressed_bool),
-    return_id=True
+     original_size_int, compressed_size_int, mime_type, is_compressed_bool)
 )
     
     if not doc_id:
@@ -603,15 +601,14 @@ def process_payment(payload):
     
     # Create payment transaction record
     try:
-        transaction_db_id = Database.execute_update(
+        success = Database.execute_update(
             '''INSERT INTO payment_transactions 
                (applicant_id, payment_type, amount, status, payment_method, reference_id, completed_at)
-               VALUES (%s, %s, %s, %s, %s, %s, NOW()) RETURNING id''',
-            (applicant_id, payment_type, amount, 'completed', payment_method, reference_id),
-            return_id=True
+               VALUES (%s, %s, %s, %s, %s, %s, NOW())''',
+            (applicant_id, payment_type, amount, 'completed', payment_method, reference_id)
         )
         
-        if not transaction_db_id:
+        if not success:
             return jsonify({'message': 'Failed to save payment transaction'}), 500
         
         # Update applicant payment status flags
@@ -626,13 +623,12 @@ def process_payment(payload):
                 (applicant_id,)
             )
         
-        # Prepare receipt data - return the actual database ID
+        # Prepare receipt data
         transaction_id = reference_id or f"PAY-{uuid.uuid4().hex[:12].upper()}"
         
         return jsonify({
             'message': 'Payment processed successfully',
             'transaction_id': transaction_id,
-            'transaction_db_id': transaction_db_id,
             'applicant_id': applicant_id,
             'payment_type': payment_type,
             'amount': amount,
@@ -749,10 +745,10 @@ def get_payment_history(payload):
         'total_payments': len(formatted_transactions)
     }), 200
 
-@applicant_bp.route('/download-document/<int:document_id>', methods=['GET'])
+@applicant_bp.route('/get-recommendations', methods=['GET'])
 @AuthHandler.token_required
-def download_document(payload, document_id):
-    """Download an uploaded document"""
+def get_recommendations(payload):
+    """Get recommended courses for the applicant"""
     user_id = payload['user_id']
     
     # Get applicant
@@ -762,40 +758,114 @@ def download_document(payload, document_id):
     )
     
     if not applicant:
-        return jsonify({'message': 'Applicant not found'}), 404
+        return jsonify({'message': 'Applicant record not found'}), 404
     
     applicant_id = applicant[0]['id']
     
-    # Get document and verify ownership
-    document = Database.execute_query(
-        '''SELECT d.file_path, d.original_filename, d.mime_type
-           FROM documents d
-           JOIN application_forms af ON d.application_form_id = af.id
-           WHERE d.id = %s AND af.applicant_id = %s''',
-        (document_id, applicant_id)
+    # Get all reviews with recommendations for this applicant
+    recommendations = Database.execute_query(
+        '''SELECT ar.id, ar.review_notes, ar.recommended_program_id, p.name as program_name,
+                  ar.reviewed_at, ar.reviewed_by, u.name as reviewed_by_name,
+                  a.recommended_course_response, a.accepted_recommended_program_id
+           FROM application_reviews ar
+           LEFT JOIN programs p ON ar.recommended_program_id = p.id
+           LEFT JOIN users u ON ar.reviewed_by = u.id
+           LEFT JOIN applicants a ON a.id = %s
+           WHERE ar.applicant_id = %s AND ar.recommendation = %s''',
+        (applicant_id, applicant_id, 'recommend_other_program')
     )
     
-    if not document:
-        return jsonify({'message': 'Document not found'}), 404
+    # Format recommendations
+    formatted_recommendations = []
+    for rec in (recommendations or []):
+        formatted_recommendations.append({
+            'review_id': rec['id'],
+            'program_id': rec['recommended_program_id'],
+            'program_name': rec['program_name'],
+            'review_notes': rec['review_notes'],
+            'reviewed_by': rec['reviewed_by_name'],
+            'reviewed_at': rec['reviewed_at'].isoformat() if rec['reviewed_at'] else None,
+            'response': rec['recommended_course_response'],
+            'is_accepted': rec['accepted_recommended_program_id'] == rec['recommended_program_id'] if rec['accepted_recommended_program_id'] else None
+        })
     
-    doc_data = document[0]
-    file_path = doc_data['file_path']
-    original_filename = doc_data['original_filename']
-    mime_type = doc_data['mime_type'] or 'application/octet-stream'
+    return jsonify({
+        'recommendations': formatted_recommendations,
+        'total_recommendations': len(formatted_recommendations)
+    }), 200
+
+@applicant_bp.route('/respond-to-recommendation', methods=['POST'])
+@AuthHandler.token_required
+def respond_to_recommendation(payload):
+    """Accept or decline a recommended course"""
+    user_id = payload['user_id']
+    data = request.get_json()
     
-    # Verify file exists
-    if not os.path.exists(file_path):
-        return jsonify({'message': 'Document file not found on server'}), 404
+    if not data or 'review_id' not in data or 'response' not in data:
+        return jsonify({'message': 'review_id and response are required'}), 400
+    
+    review_id = data['review_id']
+    response = data['response']  # 'accepted' or 'declined'
+    
+    if response not in ['accepted', 'declined']:
+        return jsonify({'message': 'response must be either "accepted" or "declined"'}), 400
+    
+    # Verify ownership and get review details
+    applicant = Database.execute_query(
+        'SELECT id FROM applicants WHERE user_id = %s',
+        (user_id,)
+    )
+    
+    if not applicant:
+        return jsonify({'message': 'Applicant record not found'}), 404
+    
+    applicant_id = applicant[0]['id']
+    
+    # Get the review to verify it exists and get program details
+    review = Database.execute_query(
+        '''SELECT ar.id, ar.applicant_id, ar.recommended_program_id
+           FROM application_reviews ar
+           WHERE ar.id = %s AND ar.applicant_id = %s''',
+        (review_id, applicant_id)
+    )
+    
+    if not review:
+        return jsonify({'message': 'Review not found'}), 404
+    
+    recommended_program_id = review[0]['recommended_program_id']
     
     try:
-        with open(file_path, 'rb') as f:
-            file_data = f.read()
+        # Update applicant with response
+        if response == 'accepted':
+            success = Database.execute_update(
+                '''UPDATE applicants 
+                   SET recommended_course_response = %s, accepted_recommended_program_id = %s
+                   WHERE id = %s''',
+                (response, recommended_program_id, applicant_id)
+            )
+            # Update program to the recommended one if accepted
+            if success:
+                Database.execute_update(
+                    'UPDATE applicants SET program_id = %s WHERE id = %s',
+                    (recommended_program_id, applicant_id)
+                )
+        else:  # declined
+            success = Database.execute_update(
+                '''UPDATE applicants 
+                   SET recommended_course_response = %s
+                   WHERE id = %s''',
+                (response, applicant_id)
+            )
         
-        return Response(
-            file_data,
-            mimetype=mime_type,
-            headers={'Content-Disposition': f'attachment;filename={original_filename}'}
-        )
+        if not success:
+            return jsonify({'message': 'Failed to save response'}), 500
+        
+        return jsonify({
+            'message': f'Recommendation {response} successfully',
+            'applicant_id': applicant_id,
+            'response': response
+        }), 200
+    
     except Exception as e:
-        print(f"Error downloading document: {e}")
-        return jsonify({'message': 'Error downloading document'}), 500
+        print(f"Error processing recommendation response: {e}")
+        return jsonify({'message': 'Error processing response'}), 500

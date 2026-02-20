@@ -48,8 +48,8 @@ A full-stack university admission portal with separate interfaces for applicants
 
 ```bash
 # Connect to MySQL
-mysql -u root -p
-& "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p 
+& "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -pmysql -u root -p
+ 
 
 # Create database and tables
 source backend/database_schema.sql

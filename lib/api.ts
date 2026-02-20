@@ -186,8 +186,6 @@ export class ApiClient {
   }
 
   static async submitForm(formData: any) {
-    // Backend expects standard form fields via request.form,
-    // so we must send a FormData/multipart request (NOT JSON).
     const fd = new FormData();
     Object.entries(formData).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {

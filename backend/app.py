@@ -1,4 +1,4 @@
-from flask import Flask, app
+from flask import Flask, request
 from flask_cors import CORS
 from config import config
 import os
@@ -8,15 +8,36 @@ def create_app(config_name='development'):
     app = Flask(__name__)
     app.config.from_object(config[config_name])
 
-    CORS(app, resources={
-        r"/api/*": {
-            "origins": ["https://pcu-admission-portal.vercel.app"],
-            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"],
-            "supports_credentials": True
-        }
-    })
-    
+    # ✅ Proper CORS config (clean + controlled)
+    CORS(
+        app,
+        supports_credentials=True,
+        origins=[
+            "http://localhost:3000",
+            "https://pcu-admission-portal.vercel.app"
+        ]
+    )
+
+    # ✅ Ensure headers always present
+    @app.after_request
+    def after_request(response):
+        origin = request.headers.get("Origin")
+        if origin in [
+            "http://localhost:3000",
+            "https://pcu-admission-portal.vercel.app"
+        ]:
+            response.headers["Access-Control-Allow-Origin"] = origin
+
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
+        response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response
+
+    @app.before_request
+    def handle_preflight():
+        if request.method == "OPTIONS":
+            return "", 200
+
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
 
@@ -31,10 +52,10 @@ def create_app(config_name='development'):
     @app.route('/api/health', methods=['GET'])
     def health():
         return {'status': 'ok'}, 200
-    
+
     return app
 
 
 if __name__ == "__main__":
     app = create_app()
-    app.run(debug=True)  # only for local dev
+    app.run(debug=True)

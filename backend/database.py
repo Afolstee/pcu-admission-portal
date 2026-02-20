@@ -2,9 +2,12 @@ import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class Database:
-    """Handles PostgreSQL database connections"""
+
 
     @staticmethod
     def get_connection():

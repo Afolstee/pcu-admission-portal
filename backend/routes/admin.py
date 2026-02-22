@@ -445,18 +445,60 @@ def send_batch_letters(payload):
         }), 400
     
     # Send all emails in one batch via SendGrid API
-    email_result = send_batch_emails(
-        recipients=[{
+    try:
+        # Prepare recipients list
+        recipients_list = [{
             'email': app['email'],
             'name': app['name']
-        } for app in applicants_with_pdfs],
-        subject='Provisional Admission Letter',
-        body_html='<p>Dear {name},</p><p>Please find attached your provisional admission letter.</p><p>Best regards,<br>Admissions Office</p>',
-        attachment_generator=lambda r: (
-            'admission_letter.pdf',
-            next(app['pdf_bytes'] for app in applicants_with_pdfs if app['email'] == r['email'])
+        } for app in applicants_with_pdfs]
+        
+        # Create attachment generator
+        def attachment_gen(recipient):
+            for app in applicants_with_pdfs:
+                if app['email'] == recipient['email']:
+                    return ('admission_letter.pdf', app['pdf_bytes'])
+            return None
+        
+        # Send batch emails
+        email_result = send_batch_emails(
+            recipients=recipients_list,
+            subject='Provisional Admission Letter',
+            body_html='<p>Dear {name},</p><p>Please find attached your provisional admission letter.</p><p>Best regards,<br>Admissions Office</p>',
+            attachment_generator=attachment_gen
         )
-    )
+    except TypeError as e:
+        # Fallback: send emails individually if batch function has issues
+        print(f"[v0] Batch email TypeError: {str(e)}, falling back to individual emails")
+        email_result = {
+            'success': 0,
+            'failed': len(applicants_with_pdfs),
+            'total': len(applicants_with_pdfs),
+            'errors': [f"Batch function error: {str(e)}"]
+        }
+        # Try individual sends
+        for app in applicants_with_pdfs:
+            try:
+                success = send_email(
+                    to_email=app['email'],
+                    subject='Provisional Admission Letter',
+                    body_text='Dear ' + app['name'] + ',\n\nPlease find attached your provisional admission letter.\n\nBest regards,\nAdmissions Office',
+                    attachments=[('admission_letter.pdf', app['pdf_bytes'])]
+                )
+                if success:
+                    email_result['success'] += 1
+                else:
+                    email_result['failed'] += 1
+            except Exception as e:
+                email_result['failed'] += 1
+                email_result['errors'].append(f"Failed to send to {app['email']}: {str(e)}")
+    except Exception as e:
+        print(f"[v0] Batch email error: {str(e)}")
+        email_result = {
+            'success': 0,
+            'failed': len(applicants_with_pdfs),
+            'total': len(applicants_with_pdfs),
+            'errors': [str(e)]
+        }
     
     return jsonify({
         'message': 'Batch letters sent successfully',

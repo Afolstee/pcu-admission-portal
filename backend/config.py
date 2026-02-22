@@ -6,7 +6,6 @@ load_dotenv()
 class Config:
     FLASK_ENV = os.getenv('FLASK_ENV', 'development')
 
-    # PostgreSQL (Render)
     DB_USER = os.getenv('DB_USER')
     DB_PASSWORD = os.getenv('DB_PASSWORD')
     DB_HOST = os.getenv('DB_HOST')
@@ -21,11 +20,10 @@ class Config:
     TARGET_COMPRESSION_SIZE = 5 * 1024
     ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'}
 
-    MAIL_SERVER = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
-    MAIL_PORT = int(os.getenv('MAIL_PORT', 587))
-    MAIL_USE_TLS = os.getenv('MAIL_USE_TLS', 'True') == 'True'
-    MAIL_USERNAME = os.getenv('MAIL_USERNAME')
-    MAIL_PASSWORD = os.getenv('MAIL_PASSWORD')
+    # SendGrid Configuration
+    SENDGRID_API_KEY = os.getenv('SENDGRID_API_KEY')
+    SENDGRID_FROM_EMAIL = os.getenv('SENDGRID_FROM_EMAIL')
+    SENDGRID_FROM_NAME = os.getenv('SENDGRID_FROM_NAME', 'PCU Admissions Office')
 
     PROGRAMS = ['Undergraduate', 'Postgraduate', 'HND', 'Part time', 'Jupeb']
 

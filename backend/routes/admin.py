@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, Response
 from database import Database
 from utils.auth import AuthHandler
 from datetime import datetime
-from email_utils import send_email
+from email_utils import send_email, send_batch_emails
 from utils.pdf_generator import PDFGenerator
 from utils.letter_templates import get_template_by_id, get_all_templates
 
@@ -335,26 +335,26 @@ def preview_admission_letter(payload):
 @AuthHandler.token_required
 @AuthHandler.admin_required
 def send_batch_letters(payload):
-    """Send admission letters to multiple applicants using the selected template"""
+    """Send admission letters to multiple applicants using SendGrid batch API (1 call for all)"""
     data = request.get_json()
     
     if not data or 'applicant_ids' not in data:
         return jsonify({'message': 'applicant_ids is required'}), 400
     
     applicant_ids = data['applicant_ids']
+    if not isinstance(applicant_ids, list) or len(applicant_ids) == 0:
+        return jsonify({'message': 'applicant_ids must be a non-empty list'}), 400
+    
     # Get date in YYYY-MM-DD format from frontend or use today
     admission_date_db = data.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
-    # Convert to display format for the letter (e.g., "15 February, 2026")
     try:
         date_obj = datetime.strptime(admission_date_db, '%Y-%m-%d')
         admission_date_display = date_obj.strftime('%d %B, %Y')
     except:
         admission_date_display = admission_date_db
-    template_id = data.get('template_id', 'default')  # Get template selection, default to 'default'
     
-    if not isinstance(applicant_ids, list) or len(applicant_ids) == 0:
-        return jsonify({'message': 'applicant_ids must be a non-empty list'}), 400
-    
+    # Prepare applicant data and PDFs
+    applicants_with_pdfs = []
     letters_created = []
     errors = []
     
@@ -363,7 +363,7 @@ def send_batch_letters(payload):
             # Generate reference number
             ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id:04d}"
             
-            # Get applicant details with all program info
+            # Get applicant details
             applicant = Database.execute_query(
                 '''SELECT u.id, u.name, u.email, a.program_id, 
                    p.name as program_name, p.level, p.department, p.faculty, 
@@ -397,20 +397,20 @@ def send_batch_letters(payload):
                 tuition_fee_str = f"₦{tuition_fee:,.2f}"
                 other_fees_str = f"₦{other_fees:,.2f}"
             
-            # Generate PDF using the selected template
+            # Generate PDF
             pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
-                applicant_name=applicant_data['name'],
-                program=applicant_data['program_name'] or '',
+                candidateName=applicant_data['name'],
+                programme=applicant_data['program_name'] or '',
                 level=applicant_data.get('level') or '100 Level',
                 department=applicant_data.get('department') or '',
                 faculty=applicant_data.get('faculty') or '',
                 session=applicant_data.get('session') or '2025/2026',
                 mode=applicant_data.get('mode') or 'Full-Time',
-                admission_date=admission_date_display,
-                acceptance_fee=acceptance_fee_str,
-                tuition_fee=tuition_fee_str,
-                other_fees=other_fees_str,
-                resumption_date=applicant_data.get('resumption_date') or '',
+                date=admission_date_display,
+                acceptanceFee=acceptance_fee_str,
+                tuition=tuition_fee_str,
+                otherFees=other_fees_str,
+                resumptionDate=applicant_data.get('resumption_date') or '',
                 reference=ref_no,
                 body_html=''
             )
@@ -420,32 +420,54 @@ def send_batch_letters(payload):
                 'UPDATE applicants SET admission_status = %s WHERE id = %s',
                 ('admitted', applicant_id)
             )
+            
+            # Add to batch list
+            applicants_with_pdfs.append({
+                'email': applicant_data['email'],
+                'name': applicant_data['name'],
+                'applicant_id': applicant_id,
+                'pdf_bytes': pdf_bytes
+            })
             letters_created.append({'applicant_id': applicant_id})
             
-            # Send email with PDF attachment
-            subject = 'Provisional Admission Letter'
-            body_text = f"Dear {applicant_data['name']},\n\nPlease find attached your admission letter.\n\nBest regards,\nAdmissions Office"
-            attachments = [('admission_letter.pdf', pdf_bytes)]
-            
-            email_ok = send_email(
-                to_email=applicant_data['email'],
-                subject=subject,
-                body_text=body_text,
-                attachments=attachments
-            )
-            if not email_ok:
-                errors.append({'applicant_id': applicant_id, 'error': 'Email send failed'})
-        
         except Exception as e:
             errors.append({'applicant_id': applicant_id, 'error': str(e)})
     
+    # If no valid applicants, return early
+    if not applicants_with_pdfs:
+        return jsonify({
+            'message': 'No valid applicants to send letters to',
+            'total_requested': len(applicant_ids),
+            'letters_created': 0,
+            'errors': len(errors),
+            'created': [],
+            'failed': errors
+        }), 400
+    
+    # Send all emails in one batch via SendGrid API
+    email_result = send_batch_emails(
+        recipients=[{
+            'email': app['email'],
+            'name': app['name']
+        } for app in applicants_with_pdfs],
+        subject='Provisional Admission Letter',
+        body_html='<p>Dear {name},</p><p>Please find attached your provisional admission letter.</p><p>Best regards,<br>Admissions Office</p>',
+        attachment_generator=lambda r: (
+            'admission_letter.pdf',
+            next(app['pdf_bytes'] for app in applicants_with_pdfs if app['email'] == r['email'])
+        )
+    )
+    
     return jsonify({
-        'message': 'Batch letter generation completed',
+        'message': 'Batch letters sent successfully',
         'total_requested': len(applicant_ids),
         'letters_created': len(letters_created),
-        'errors': len(errors),
+        'emails_sent': email_result.get('success', 0),
+        'emails_failed': email_result.get('failed', 0),
+        'errors': len(errors) + (email_result.get('failed', 0) if email_result.get('errors') else 0),
         'created': letters_created,
-        'failed': errors
+        'failed': errors,
+        'email_errors': email_result.get('errors')
     }), 201
 
 @admin_bp.route('/revoke-admission', methods=['POST'])

@@ -24,6 +24,7 @@ import {
   ChevronRight,
   RotateCcw,
   AlertTriangle,
+  Eye,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -193,6 +194,17 @@ export default function SendLettersPage() {
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to resend letter",
+      );
+    }
+  };
+
+  const handlePreviewLetter = async (applicantId: number) => {
+    try {
+      const pdfUrl = `${process.env.NEXT_PUBLIC_API_BASE_URL || ""}/api/admin/preview-letter/${applicantId}?admission_date=${admissionDate}`;
+      window.open(pdfUrl, "_blank");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to preview letter",
       );
     }
   };
@@ -418,6 +430,15 @@ export default function SendLettersPage() {
                                     {app.email} • {app.program_name}
                                   </p>
                                 </label>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handlePreviewLetter(app.id)}
+                                  disabled={sending}
+                                  title="Preview admission letter"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
                               </div>
                             ))
                           )}

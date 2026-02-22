@@ -1050,3 +1050,84 @@ def resend_letter(payload, applicant_id):
             'message': 'Error resending letter',
             'error': str(e)
         }), 500
+
+@admin_bp.route('/preview-letter/<int:applicant_id>', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.admin_required
+def preview_letter(payload, applicant_id):
+    """Generate and return a preview PDF of the admission letter"""
+    admission_date_str = request.args.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
+    
+    try:
+        # Convert date
+        try:
+            date_obj = datetime.strptime(admission_date_str, '%Y-%m-%d')
+            admission_date_display = date_obj.strftime('%d %B, %Y')
+        except:
+            admission_date_display = admission_date_str
+        
+        ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id:04d}"
+        
+        # Get applicant
+        applicant = Database.execute_query(
+            '''SELECT u.id, u.name, u.email, a.program_id, 
+               p.name as program_name, p.level, p.department, p.faculty, 
+               p.mode, p.session, p.resumption_date
+               FROM applicants a
+               JOIN users u ON a.user_id = u.id
+               LEFT JOIN programs p ON a.program_id = p.id
+               WHERE a.id = %s AND a.application_status = %s''',
+            (applicant_id, 'accepted')
+        )
+        
+        if not applicant:
+            return jsonify({'message': 'Applicant not found or not accepted'}), 404
+        
+        applicant_data = applicant[0]
+        
+        # Get fees
+        fees = Database.execute_query(
+            'SELECT acceptance_fee, tuition_fee, other_fees FROM program_fees WHERE program_id = %s',
+            (applicant_data['program_id'],)
+        )
+        acceptance_fee_str = ''
+        tuition_fee_str = ''
+        other_fees_str = ''
+        if fees:
+            acceptance_fee = fees[0]['acceptance_fee']
+            tuition_fee = fees[0]['tuition_fee']
+            other_fees = fees[0].get('other_fees', 0)
+            acceptance_fee_str = f"₦{acceptance_fee:,.2f}"
+            tuition_fee_str = f"₦{tuition_fee:,.2f}"
+            other_fees_str = f"₦{other_fees:,.2f}"
+        
+        # Generate PDF
+        pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
+            candidateName=applicant_data['name'],
+            programme=applicant_data['program_name'] or '',
+            level=applicant_data.get('level') or '100 Level',
+            department=applicant_data.get('department') or '',
+            faculty=applicant_data.get('faculty') or '',
+            session=applicant_data.get('session') or '2025/2026',
+            mode=applicant_data.get('mode') or 'Full-Time',
+            date=admission_date_display,
+            acceptanceFee=acceptance_fee_str,
+            tuition=tuition_fee_str,
+            otherFees=other_fees_str,
+            resumptionDate=applicant_data.get('resumption_date') or '',
+            reference=ref_no,
+            body_html=''
+        )
+        
+        # Return PDF as response
+        return Response(
+            pdf_bytes,
+            mimetype='application/pdf',
+            headers={'Content-Disposition': f'inline; filename=admission_letter_{applicant_id}.pdf'}
+        )
+    
+    except Exception as e:
+        return jsonify({
+            'message': 'Error generating preview',
+            'error': str(e)
+        }), 500

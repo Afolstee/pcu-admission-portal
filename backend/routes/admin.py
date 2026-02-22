@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, Response
 from database import Database
 from utils.auth import AuthHandler
 from datetime import datetime
-from email_utils import send_email, send_batch_emails
+from email_utils import send_email
 from utils.pdf_generator import PDFGenerator
 from utils.letter_templates import get_template_by_id, get_all_templates
 
@@ -444,61 +444,79 @@ def send_batch_letters(payload):
             'failed': errors
         }), 400
     
-    # Send all emails in one batch via SendGrid API
+    # Send all emails in one batch via SendGrid API (inline implementation)
+    email_result = {
+        'success': 0,
+        'failed': 0,
+        'total': len(applicants_with_pdfs),
+        'errors': []
+    }
+    
     try:
-        # Prepare recipients list
-        recipients_list = [{
-            'email': app['email'],
-            'name': app['name']
-        } for app in applicants_with_pdfs]
+        from sendgrid import SendGridAPIClient
+        from config import Config
+        import base64
         
-        # Create attachment generator
-        def attachment_gen(recipient):
-            for app in applicants_with_pdfs:
-                if app['email'] == recipient['email']:
-                    return ('admission_letter.pdf', app['pdf_bytes'])
-            return None
+        if not all([Config.SENDGRID_API_KEY, Config.SENDGRID_FROM_EMAIL]):
+            raise ValueError("SendGrid API key or sender email not configured")
         
-        # Send batch emails
-        email_result = send_batch_emails(
-            recipients=recipients_list,
-            subject='Provisional Admission Letter',
-            body_html='<p>Dear {name},</p><p>Please find attached your provisional admission letter.</p><p>Best regards,<br>Admissions Office</p>',
-            attachment_generator=attachment_gen
-        )
-    except TypeError as e:
-        # Fallback: send emails individually if batch function has issues
-        print(f"[v0] Batch email TypeError: {str(e)}, falling back to individual emails")
-        email_result = {
-            'success': 0,
-            'failed': len(applicants_with_pdfs),
-            'total': len(applicants_with_pdfs),
-            'errors': [f"Batch function error: {str(e)}"]
-        }
-        # Try individual sends
+        sg = SendGridAPIClient(Config.SENDGRID_API_KEY)
+        
+        # Build personalizations array for all recipients
+        personalizations = []
         for app in applicants_with_pdfs:
-            try:
-                success = send_email(
-                    to_email=app['email'],
-                    subject='Provisional Admission Letter',
-                    body_text='Dear ' + app['name'] + ',\n\nPlease find attached your provisional admission letter.\n\nBest regards,\nAdmissions Office',
-                    attachments=[('admission_letter.pdf', app['pdf_bytes'])]
-                )
-                if success:
-                    email_result['success'] += 1
-                else:
-                    email_result['failed'] += 1
-            except Exception as e:
-                email_result['failed'] += 1
-                email_result['errors'].append(f"Failed to send to {app['email']}: {str(e)}")
-    except Exception as e:
-        print(f"[v0] Batch email error: {str(e)}")
-        email_result = {
-            'success': 0,
-            'failed': len(applicants_with_pdfs),
-            'total': len(applicants_with_pdfs),
-            'errors': [str(e)]
+            personalization = {
+                "to": [{"email": app['email'], "name": app['name']}]
+            }
+            personalizations.append(personalization)
+        
+        # Build payload for SendGrid API
+        payload = {
+            "from": {
+                "email": Config.SENDGRID_FROM_EMAIL,
+                "name": Config.SENDGRID_FROM_NAME
+            },
+            "subject": "Provisional Admission Letter",
+            "personalizations": personalizations,
+            "content": [
+                {
+                    "type": "text/html",
+                    "value": "<p>Dear recipient,</p><p>Please find attached your provisional admission letter.</p><p>Best regards,<br>Admissions Office</p>"
+                }
+            ]
         }
+        
+        # Add shared attachment (all recipients get the same PDF)
+        if applicants_with_pdfs:
+            pdf_bytes = applicants_with_pdfs[0]['pdf_bytes']
+            encoded_file = base64.b64encode(pdf_bytes).decode()
+            payload["attachments"] = [
+                {
+                    "content": encoded_file,
+                    "type": "application/pdf",
+                    "filename": "admission_letter.pdf",
+                    "disposition": "attachment"
+                }
+            ]
+        
+        # Send via SendGrid API
+        response = sg.client.mail.send.post(request_body=payload)
+        
+        if response.status_code in [200, 201, 202]:
+            email_result['success'] = len(applicants_with_pdfs)
+            print(f"[v0] SendGrid batch sent: {len(applicants_with_pdfs)} emails in 1 API call (status {response.status_code})")
+        else:
+            email_result['failed'] = len(applicants_with_pdfs)
+            error_msg = f"SendGrid returned status {response.status_code}"
+            if hasattr(response, 'body'):
+                error_msg += f": {response.body}"
+            email_result['errors'].append(error_msg)
+            print(f"[v0] SendGrid error: {error_msg}")
+    
+    except Exception as e:
+        email_result['failed'] = len(applicants_with_pdfs)
+        email_result['errors'] = [str(e)]
+        print(f"[v0] Batch email error: {str(e)}")
     
     return jsonify({
         'message': 'Batch letters sent successfully',

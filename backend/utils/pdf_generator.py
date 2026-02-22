@@ -23,13 +23,14 @@ class HTMLToFlowablesParser(HTMLParser):
         self.in_list = False
         self.in_div = False
         self.current_div_class = ""
+        self.tag_stack = []  # Track open tags
         
     def handle_starttag(self, tag, attrs):
         attrs_dict = dict(attrs)
+        self.tag_stack.append(tag)
         
         if tag == "br":
-            if self.current_text:
-                self.current_text += "<br/>"
+            self.current_text += "<br/>"
         elif tag == "p":
             if self.current_text.strip():
                 style = self._get_paragraph_style()
@@ -70,6 +71,10 @@ class HTMLToFlowablesParser(HTMLParser):
                     self.current_text += "<b>"
                     
     def handle_endtag(self, tag):
+        # Remove tag from stack if it exists
+        if tag in self.tag_stack:
+            self.tag_stack.remove(tag)
+        
         if tag == "p":
             if self.current_text.strip():
                 style = self._get_paragraph_style()
@@ -95,12 +100,16 @@ class HTMLToFlowablesParser(HTMLParser):
                 self.list_items[-1] = self.current_text
                 self.current_text = ""
         elif tag == "strong" or tag == "b":
-            self.current_text += "</b>"
+            # Only close if we actually opened one
+            if "<b>" in self.current_text or self.current_text.endswith("<b"):
+                self.current_text += "</b>"
         elif tag == "em" or tag == "i":
-            self.current_text += "</i>"
+            if "<i>" in self.current_text or self.current_text.endswith("<i"):
+                self.current_text += "</i>"
         elif tag == "span":
-            if self.current_text.endswith("<b"):
-                self.current_text += "></b>"
+            # Close any open bold tag from span
+            if "<b>" in self.current_text and "</b>" not in self.current_text.split("<b>")[-1]:
+                self.current_text += "</b>"
                 
     def handle_data(self, data):
         # Clean up whitespace but preserve intentional spacing
@@ -139,6 +148,19 @@ class PDFGenerator:
         return "<p>No template found</p>"
 
     @staticmethod
+    def _sanitize_html(html: str) -> str:
+        """Sanitize HTML to fix common tag nesting issues"""
+        # Remove any unclosed bold/italic tags at paragraph boundaries
+        html = re.sub(r'<b>\s*</b>', '', html)
+        html = re.sub(r'<i>\s*</i>', '', html)
+        
+        # Fix nested b tags by replacing inner <b> with nothing
+        html = re.sub(r'<b>([^<]*)<b>([^<]*)</b>', r'<b>\1\2</b>', html)
+        html = re.sub(r'<b>([^<]*)<b>([^<]*)</b>([^<]*)</b>', r'<b>\1\2\3</b>', html)
+        
+        return html
+
+    @staticmethod
     def generate_admission_letter_pdf(body_html: str = "", **kwargs) -> bytes:
         # Load template if no HTML provided
         if not body_html.strip():
@@ -148,6 +170,9 @@ class PDFGenerator:
         for key, value in kwargs.items():
             pattern = r"\{\{\s*" + re.escape(key) + r"\s*\}\}"
             body_html = re.sub(pattern, str(value or ""), body_html, flags=re.IGNORECASE)
+
+        # Sanitize HTML before parsing
+        body_html = PDFGenerator._sanitize_html(body_html)
 
         # Create PDF document in memory
         pdf_buffer = io.BytesIO()
@@ -165,7 +190,12 @@ class PDFGenerator:
         else:
             body_content = body_html
             
-        parser.feed(body_content)
+        try:
+            parser.feed(body_content)
+        except ValueError as e:
+            # If parsing fails, try again with escaped HTML
+            print(f"[PDF Generator] HTML parse error: {str(e)}")
+            raise
         
         story = parser.flowables.copy()
         

@@ -8,7 +8,6 @@ def create_app(config_name='development'):
     app = Flask(__name__)
     app.config.from_object(config[config_name])
 
-    # ✅ Proper CORS config (clean + controlled)
     CORS(
         app,
         supports_credentials=True,
@@ -18,14 +17,14 @@ def create_app(config_name='development'):
         ]
     )
 
-    # ✅ Ensure headers always present
     @app.after_request
     def after_request(response):
         origin = request.headers.get("Origin")
-        if origin in [
+        allowed_origins = [
             "http://localhost:3000",
             "https://pcu-admission-portal.vercel.app"
-        ]:
+        ]
+        if origin in allowed_origins:
             response.headers["Access-Control-Allow-Origin"] = origin
 
         response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"

@@ -200,8 +200,7 @@ export default function SendLettersPage() {
 
   const handlePreviewLetter = async (applicantId: number) => {
     try {
-      const pdfUrl = `${process.env.NEXT_PUBLIC_API_BASE_URL || ""}/api/admin/preview-letter/${applicantId}?admission_date=${admissionDate}`;
-      window.open(pdfUrl, "_blank");
+      window.open(`/admin/preview-letter/${applicantId}`, "_blank");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to preview letter",

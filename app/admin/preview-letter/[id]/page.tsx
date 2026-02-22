@@ -1,12 +1,14 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 
 export default function PreviewAdmissionLetterPage({
   params,
 }: {
   params: { id: string };
 }) {
+  const searchParams = useSearchParams();
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -16,6 +18,7 @@ export default function PreviewAdmissionLetterPage({
       try {
         setLoading(true);
         const token = localStorage.getItem("token");
+        const admissionDate = searchParams.get("admission_date") || new Date().toISOString().split("T")[0];
 
         const response = await fetch(`/api/admin/preview-admission-letter`, {
           method: "POST",
@@ -23,7 +26,7 @@ export default function PreviewAdmissionLetterPage({
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ applicant_id: parseInt(params.id) }),
+          body: JSON.stringify({ applicant_id: parseInt(params.id), admission_date: admissionDate }),
         });
 
         if (!response.ok) {
@@ -50,7 +53,7 @@ export default function PreviewAdmissionLetterPage({
         URL.revokeObjectURL(pdfUrl);
       }
     };
-  }, [params.id, pdfUrl]);
+  }, [params.id]);
 
   if (loading) {
     return (

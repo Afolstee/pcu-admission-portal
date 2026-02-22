@@ -483,6 +483,51 @@ export class ApiClient {
     return data;
   }
 
+  // New letter management endpoints
+  static async getFacultyDepartments() {
+    const { data } = await this.fetch("/admin/faculty-departments");
+    return data;
+  }
+
+  static async getDepartmentApplicants(departmentName: string) {
+    const { data } = await this.fetch(
+      `/admin/department-applicants/${encodeURIComponent(departmentName)}`
+    );
+    return data;
+  }
+
+  static async sendDepartmentLetters(
+    departmentName: string,
+    applicantIds: number[],
+    admissionDate?: string
+  ) {
+    const { data } = await this.fetch("/admin/send-department-letters", {
+      method: "POST",
+      body: JSON.stringify({
+        department_name: departmentName,
+        applicant_ids: applicantIds,
+        admission_date: admissionDate,
+      }),
+    });
+    return data;
+  }
+
+  static async getLetterStatusSummary() {
+    const { data } = await this.fetch("/admin/letter-status-summary");
+    return data;
+  }
+
+  static async resendLetter(applicantId: number, admissionDate?: string) {
+    const { data } = await this.fetch(
+      `/admin/resend-letter/${applicantId}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ admission_date: admissionDate }),
+      }
+    );
+    return data;
+  }
+
   // Recommendation endpoints
   static async getRecommendations(): Promise<RecommendationResponse> {
     const { data } = await this.fetch<RecommendationResponse>(

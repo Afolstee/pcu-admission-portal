@@ -599,3 +599,454 @@ def get_letter_templates(payload):
     """Get all available admission letter templates"""
     templates = get_all_templates()
     return jsonify({'templates': templates}), 200
+
+@admin_bp.route('/faculty-departments', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.admin_required
+def get_faculty_departments(payload):
+    """Get faculties and departments with pending applicants"""
+    query = '''SELECT DISTINCT 
+                p.faculty,
+                p.department,
+                COUNT(CASE WHEN (alt.status = 'pending' OR alt.status IS NULL) THEN 1 END) as pending_count
+            FROM programs p
+            LEFT JOIN applicants a ON p.id = a.program_id
+            LEFT JOIN admission_letter_tracking alt ON a.id = alt.applicant_id
+            WHERE a.application_status = 'accepted'
+              AND (alt.status = 'pending' OR alt.status IS NULL)
+            GROUP BY p.faculty, p.department
+            HAVING pending_count > 0
+            ORDER BY p.faculty, p.department'''
+    
+    results = Database.execute_query(query)
+    
+    # Organize by faculty
+    faculties = {}
+    if results:
+        for row in results:
+            faculty = row['faculty'] or 'Other'
+            if faculty not in faculties:
+                faculties[faculty] = []
+            faculties[faculty].append({
+                'name': row['department'],
+                'pending_count': row['pending_count']
+            })
+    
+    return jsonify({'faculties': faculties}), 200
+
+@admin_bp.route('/department-applicants/<department_name>', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.admin_required
+def get_department_applicants(payload, department_name):
+    """Get pending applicants for a department"""
+    query = '''SELECT a.id, u.name, u.email, p.name as program_name, p.faculty, p.department
+            FROM applicants a
+            JOIN users u ON a.user_id = u.id
+            JOIN programs p ON a.program_id = p.id
+            LEFT JOIN admission_letter_tracking alt ON a.id = alt.applicant_id
+            WHERE p.department = %s
+              AND a.application_status = 'accepted'
+              AND (alt.status IS NULL OR alt.status = 'pending')
+            ORDER BY u.name ASC'''
+    
+    applicants = Database.execute_query(query, (department_name,))
+    
+    return jsonify({
+        'department': department_name,
+        'applicants': applicants or []
+    }), 200
+
+@admin_bp.route('/send-department-letters', methods=['POST'])
+@AuthHandler.token_required
+@AuthHandler.admin_required
+def send_department_letters(payload):
+    """Send admission letters to all pending applicants in a department"""
+    from sendgrid import SendGridAPIClient
+    from config import Config
+    import base64
+    
+    data = request.get_json()
+    department_name = data.get('department_name')
+    applicant_ids = data.get('applicant_ids', [])
+    admission_date_str = data.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
+    
+    if not department_name or not applicant_ids:
+        return jsonify({'message': 'department_name and applicant_ids required'}), 400
+    
+    # Convert date to display format
+    try:
+        date_obj = datetime.strptime(admission_date_str, '%Y-%m-%d')
+        admission_date_display = date_obj.strftime('%d %B, %Y')
+    except:
+        admission_date_display = admission_date_str
+    
+    sent_list = []
+    failed_list = []
+    
+    try:
+        # Fetch all applicants' data and generate PDFs
+        applicants_with_pdfs = []
+        
+        for applicant_id in applicant_ids:
+            try:
+                ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id:04d}"
+                
+                applicant = Database.execute_query(
+                    '''SELECT u.id, u.name, u.email, a.program_id, 
+                       p.name as program_name, p.level, p.department, p.faculty, 
+                       p.mode, p.session, p.resumption_date
+                       FROM applicants a
+                       JOIN users u ON a.user_id = u.id
+                       LEFT JOIN programs p ON a.program_id = p.id
+                       WHERE a.id = %s AND a.application_status = %s''',
+                    (applicant_id, 'accepted')
+                )
+                
+                if not applicant:
+                    failed_list.append({
+                        'applicant_id': applicant_id,
+                        'error': 'Applicant not found or not accepted'
+                    })
+                    continue
+                
+                applicant_data = applicant[0]
+                
+                # Get fees
+                fees = Database.execute_query(
+                    'SELECT acceptance_fee, tuition_fee, other_fees FROM program_fees WHERE program_id = %s',
+                    (applicant_data['program_id'],)
+                )
+                acceptance_fee_str = ''
+                tuition_fee_str = ''
+                other_fees_str = ''
+                if fees:
+                    acceptance_fee = fees[0]['acceptance_fee']
+                    tuition_fee = fees[0]['tuition_fee']
+                    other_fees = fees[0].get('other_fees', 0)
+                    acceptance_fee_str = f"₦{acceptance_fee:,.2f}"
+                    tuition_fee_str = f"₦{tuition_fee:,.2f}"
+                    other_fees_str = f"₦{other_fees:,.2f}"
+                
+                # Generate PDF
+                pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
+                    candidateName=applicant_data['name'],
+                    programme=applicant_data['program_name'] or '',
+                    level=applicant_data.get('level') or '100 Level',
+                    department=applicant_data.get('department') or '',
+                    faculty=applicant_data.get('faculty') or '',
+                    session=applicant_data.get('session') or '2025/2026',
+                    mode=applicant_data.get('mode') or 'Full-Time',
+                    date=admission_date_display,
+                    acceptanceFee=acceptance_fee_str,
+                    tuition=tuition_fee_str,
+                    otherFees=other_fees_str,
+                    resumptionDate=applicant_data.get('resumption_date') or '',
+                    reference=ref_no,
+                    body_html=''
+                )
+                
+                applicants_with_pdfs.append({
+                    'applicant_id': applicant_id,
+                    'email': applicant_data['email'],
+                    'name': applicant_data['name'],
+                    'pdf_bytes': pdf_bytes
+                })
+                
+            except Exception as e:
+                failed_list.append({
+                    'applicant_id': applicant_id,
+                    'error': str(e)
+                })
+        
+        if not applicants_with_pdfs:
+            return jsonify({
+                'message': 'No valid applicants to send letters',
+                'sent': sent_list,
+                'failed': failed_list
+            }), 400
+        
+        # Send via SendGrid batch API
+        if not all([Config.SENDGRID_API_KEY, Config.SENDGRID_FROM_EMAIL]):
+            raise ValueError("SendGrid not configured")
+        
+        sg = SendGridAPIClient(Config.SENDGRID_API_KEY)
+        
+        # Build personalizations
+        personalizations = []
+        for app in applicants_with_pdfs:
+            personalizations.append({
+                "to": [{"email": app['email'], "name": app['name']}]
+            })
+        
+        # Build payload
+        payload_sg = {
+            "from": {
+                "email": Config.SENDGRID_FROM_EMAIL,
+                "name": Config.SENDGRID_FROM_NAME
+            },
+            "subject": "Provisional Admission Letter",
+            "personalizations": personalizations,
+            "content": [{
+                "type": "text/html",
+                "value": "<p>Dear recipient,</p><p>Please find attached your provisional admission letter.</p><p>Best regards,<br>Admissions Office</p>"
+            }]
+        }
+        
+        # Add shared attachment
+        if applicants_with_pdfs:
+            pdf_bytes = applicants_with_pdfs[0]['pdf_bytes']
+            encoded_file = base64.b64encode(pdf_bytes).decode()
+            payload_sg["attachments"] = [{
+                "content": encoded_file,
+                "type": "application/pdf",
+                "filename": "admission_letter.pdf",
+                "disposition": "attachment"
+            }]
+        
+        # Send batch
+        response = sg.client.mail.send.post(request_body=payload_sg)
+        
+        if response.status_code in [200, 201, 202]:
+            # Update tracking for all sent
+            for app in applicants_with_pdfs:
+                Database.execute_update(
+                    '''INSERT INTO admission_letter_tracking (applicant_id, recipient_email, status, sent_at)
+                       VALUES (%s, %s, 'sent', NOW())
+                       ON DUPLICATE KEY UPDATE status = 'sent', sent_at = NOW()''',
+                    (app['applicant_id'], app['email'])
+                )
+                # Update admission status
+                Database.execute_update(
+                    'UPDATE applicants SET admission_status = %s WHERE id = %s',
+                    ('admitted', app['applicant_id'])
+                )
+                sent_list.append({
+                    'applicant_id': app['applicant_id'],
+                    'name': app['name'],
+                    'email': app['email']
+                })
+            
+            print(f"[v0] Batch letters sent: {len(sent_list)} emails")
+        else:
+            error_msg = f"SendGrid error: {response.status_code}"
+            for app in applicants_with_pdfs:
+                failed_list.append({
+                    'applicant_id': app['applicant_id'],
+                    'error': error_msg
+                })
+    
+    except Exception as e:
+        for app in applicants_with_pdfs:
+            failed_list.append({
+                'applicant_id': app['applicant_id'],
+                'error': str(e)
+            })
+        print(f"[v0] Batch send error: {str(e)}")
+    
+    return jsonify({
+        'message': 'Batch send completed',
+        'sent': len(sent_list),
+        'failed': len(failed_list),
+        'sent_list': sent_list,
+        'failed_list': failed_list
+    }), 201
+
+@admin_bp.route('/letter-status-summary', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.admin_required
+def get_letter_status_summary(payload):
+    """Get summary of all letter statuses: sent, failed, pending"""
+    query = '''SELECT a.id, u.name, u.email, p.name as program_name, 
+                alt.status, alt.sent_at, alt.error_message, alt.retry_count
+            FROM applicants a
+            JOIN users u ON a.user_id = u.id
+            LEFT JOIN programs p ON a.program_id = p.id
+            LEFT JOIN admission_letter_tracking alt ON a.id = alt.applicant_id
+            WHERE a.application_status = 'accepted'
+            ORDER BY alt.status, alt.sent_at DESC'''
+    
+    results = Database.execute_query(query)
+    
+    sent = []
+    failed = []
+    pending = []
+    
+    if results:
+        for row in results:
+            item = {
+                'applicant_id': row['id'],
+                'name': row['name'],
+                'email': row['email'],
+                'program': row['program_name'],
+                'status': row['status'] or 'pending',
+                'sent_at': row['sent_at'],
+                'error_message': row['error_message'],
+                'retry_count': row['retry_count'] or 0
+            }
+            
+            if row['status'] == 'sent':
+                sent.append(item)
+            elif row['status'] in ['failed', 'sent_with_errors']:
+                failed.append(item)
+            else:
+                pending.append(item)
+    
+    return jsonify({
+        'sent': sent,
+        'failed': failed,
+        'pending': pending,
+        'summary': {
+            'total_sent': len(sent),
+            'total_failed': len(failed),
+            'total_pending': len(pending)
+        }
+    }), 200
+
+@admin_bp.route('/resend-letter/<int:applicant_id>', methods=['POST'])
+@AuthHandler.token_required
+@AuthHandler.admin_required
+def resend_letter(payload, applicant_id):
+    """Resend admission letter to an applicant"""
+    from sendgrid import SendGridAPIClient
+    from config import Config
+    import base64
+    
+    data = request.get_json()
+    admission_date_str = data.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
+    
+    try:
+        # Convert date
+        try:
+            date_obj = datetime.strptime(admission_date_str, '%Y-%m-%d')
+            admission_date_display = date_obj.strftime('%d %B, %Y')
+        except:
+            admission_date_display = admission_date_str
+        
+        ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id:04d}"
+        
+        # Get applicant
+        applicant = Database.execute_query(
+            '''SELECT u.id, u.name, u.email, a.program_id, 
+               p.name as program_name, p.level, p.department, p.faculty, 
+               p.mode, p.session, p.resumption_date
+               FROM applicants a
+               JOIN users u ON a.user_id = u.id
+               LEFT JOIN programs p ON a.program_id = p.id
+               WHERE a.id = %s AND a.application_status = %s''',
+            (applicant_id, 'accepted')
+        )
+        
+        if not applicant:
+            return jsonify({'message': 'Applicant not found or not accepted'}), 404
+        
+        applicant_data = applicant[0]
+        
+        # Get fees
+        fees = Database.execute_query(
+            'SELECT acceptance_fee, tuition_fee, other_fees FROM program_fees WHERE program_id = %s',
+            (applicant_data['program_id'],)
+        )
+        acceptance_fee_str = ''
+        tuition_fee_str = ''
+        other_fees_str = ''
+        if fees:
+            acceptance_fee = fees[0]['acceptance_fee']
+            tuition_fee = fees[0]['tuition_fee']
+            other_fees = fees[0].get('other_fees', 0)
+            acceptance_fee_str = f"₦{acceptance_fee:,.2f}"
+            tuition_fee_str = f"₦{tuition_fee:,.2f}"
+            other_fees_str = f"₦{other_fees:,.2f}"
+        
+        # Generate PDF
+        pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
+            candidateName=applicant_data['name'],
+            programme=applicant_data['program_name'] or '',
+            level=applicant_data.get('level') or '100 Level',
+            department=applicant_data.get('department') or '',
+            faculty=applicant_data.get('faculty') or '',
+            session=applicant_data.get('session') or '2025/2026',
+            mode=applicant_data.get('mode') or 'Full-Time',
+            date=admission_date_display,
+            acceptanceFee=acceptance_fee_str,
+            tuition=tuition_fee_str,
+            otherFees=other_fees_str,
+            resumptionDate=applicant_data.get('resumption_date') or '',
+            reference=ref_no,
+            body_html=''
+        )
+        
+        # Send via SendGrid
+        if not all([Config.SENDGRID_API_KEY, Config.SENDGRID_FROM_EMAIL]):
+            raise ValueError("SendGrid not configured")
+        
+        sg = SendGridAPIClient(Config.SENDGRID_API_KEY)
+        
+        payload_sg = {
+            "from": {
+                "email": Config.SENDGRID_FROM_EMAIL,
+                "name": Config.SENDGRID_FROM_NAME
+            },
+            "personalizations": [{
+                "to": [{"email": applicant_data['email'], "name": applicant_data['name']}]
+            }],
+            "subject": "Provisional Admission Letter - Resend",
+            "content": [{
+                "type": "text/html",
+                "value": "<p>Dear " + applicant_data['name'] + ",</p><p>Please find attached your provisional admission letter.</p><p>Best regards,<br>Admissions Office</p>"
+            }]
+        }
+        
+        # Add attachment
+        encoded_file = base64.b64encode(pdf_bytes).decode()
+        payload_sg["attachments"] = [{
+            "content": encoded_file,
+            "type": "application/pdf",
+            "filename": "admission_letter.pdf",
+            "disposition": "attachment"
+        }]
+        
+        # Send
+        response = sg.client.mail.send.post(request_body=payload_sg)
+        
+        if response.status_code in [200, 201, 202]:
+            # Update tracking
+            Database.execute_update(
+                '''UPDATE admission_letter_tracking 
+                   SET status = 'sent', sent_at = NOW(), retry_count = retry_count + 1
+                   WHERE applicant_id = %s''',
+                (applicant_id,)
+            )
+            
+            return jsonify({
+                'message': 'Letter resent successfully',
+                'applicant_id': applicant_id,
+                'status': 'sent'
+            }), 200
+        else:
+            # Update as failed
+            error_msg = f"SendGrid error: {response.status_code}"
+            Database.execute_update(
+                '''UPDATE admission_letter_tracking 
+                   SET status = 'failed', error_message = %s, retry_count = retry_count + 1
+                   WHERE applicant_id = %s''',
+                (error_msg, applicant_id)
+            )
+            
+            return jsonify({
+                'message': 'Failed to resend letter',
+                'error': error_msg
+            }), 500
+    
+    except Exception as e:
+        # Update as failed
+        Database.execute_update(
+            '''UPDATE admission_letter_tracking 
+               SET status = 'failed', error_message = %s, retry_count = retry_count + 1
+               WHERE applicant_id = %s''',
+            (str(e), applicant_id)
+        )
+        
+        return jsonify({
+            'message': 'Error resending letter',
+            'error': str(e)
+        }), 500

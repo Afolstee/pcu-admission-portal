@@ -117,12 +117,10 @@
     </div>
     <!-- Ref & Date -->
     <div class="ref-date">
-      <table style="width: 100%">
+      <table style="width: 100%; border-collapse: collapse">
         <tr>
-          <td><span style="font-weight: bold">Ref:</span> {{ reference }}</td>
-          <td style="text-align: right">
-            <span style="font-weight: bold">Date:</span> {{ date }}
-          </td>
+          <td style="width: 50%; text-align: left"><b>Ref:</b> {{ reference }}</td>
+          <td style="width: 50%; text-align: right"><b>Date:</b> {{ date }}</td>
         </tr>
       </table>
     </div>
@@ -149,10 +147,10 @@
         withdraw from the University.
       </p>
     </div>
-    <div style="margin-top: 20px">
-      <div style="font-weight: bold; margin-bottom: 10px">
+    <div style="margin-top: 15px">
+      <p style="font-weight: bold; margin-bottom: 8px">
         Required Documents at Registration:
-      </div>
+      </p>
       <ol>
         <li>Five (5) passport photographs.</li>
         <li>O'Level Result (WAEC/NECO SSCE).</li>
@@ -167,12 +165,12 @@
           Medical examination report from a Government Hospital and
           certification from University Medical Centre.
         </li>
+        <li>Possession of a webcam-enabled laptop is mandatory.</li>
       </ol>
-      <p>Possession of a webcam-enabled laptop is mandatory.</p>
     </div>
     <!-- Fees -->
-    <div style="margin-top: 20px">
-      <div style="font-weight: bold; margin-bottom: 10px">School Fees:</div>
+    <div style="margin-top: 15px">
+      <p style="font-weight: bold; margin-bottom: 8px">School Fees:</p>
       <p>Tuition: {{ tuition }}</p>
       <p>Other Charges: {{ otherFees }}</p>
       <p>
@@ -182,7 +180,7 @@
       <p>All payments must be made through the authorized portal.</p>
     </div>
     <!-- Resumption -->
-    <div style="margin-top: 20px">
+    <div style="margin-top: 15px">
       <p>
         The date of resumption for the {{ session }} academic session is
         scheduled for {{ resumptionDate }}.

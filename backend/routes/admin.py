@@ -204,18 +204,18 @@ def send_admission_letter(payload):
     
     # Generate PDF using the selected template
     pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
-        applicant_name=applicant_data['name'],
-        program=applicant_data['program_name'] or '',
+        candidateName=applicant_data['name'],
+        programme=applicant_data['program_name'] or '',
         level=applicant_data.get('level') or '100 Level',
         department=applicant_data.get('department') or '',
         faculty=applicant_data.get('faculty') or '',
         session=applicant_data.get('session') or '2025/2026',
         mode=applicant_data.get('mode') or 'Full-Time',
-        admission_date=admission_date_display,
-        acceptance_fee=acceptance_fee_str,
-        tuition_fee=tuition_fee_str,
-        other_fees=other_fees_str,
-        resumption_date=applicant_data.get('resumption_date') or '',
+        date=admission_date_display,
+        acceptanceFee=acceptance_fee_str,
+        tuition=tuition_fee_str,
+        otherFees=other_fees_str,
+        resumptionDate=applicant_data.get('resumption_date') or '',
         reference=ref_no,
         body_html=''
     )
@@ -310,18 +310,18 @@ def preview_admission_letter(payload):
 
     # Generate PDF using selected template (default to 'default' if not specified)
     pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
-        applicant_name=applicant_data['name'],
-        program=applicant_data['program_name'] or '',
+        candidateName=applicant_data['name'],
+        programme=applicant_data['program_name'] or '',
         level=applicant_data.get('level') or '100 Level',
         department=applicant_data.get('department') or '',
         faculty=applicant_data.get('faculty') or '',
         session=applicant_data.get('session') or '2025/2026',
         mode=applicant_data.get('mode') or 'Full-Time',
-        admission_date=admission_date_display,
-        acceptance_fee=acceptance_fee_str,
-        tuition_fee=tuition_fee_str,
-        other_fees=other_fees_str,
-        resumption_date=applicant_data.get('resumption_date') or '',
+        date=admission_date_display,
+        acceptanceFee=acceptance_fee_str,
+        tuition=tuition_fee_str,
+        otherFees=other_fees_str,
+        resumptionDate=applicant_data.get('resumption_date') or '',
         reference=ref_no,
         body_html=''
     )

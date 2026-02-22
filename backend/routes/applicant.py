@@ -519,18 +519,18 @@ def print_admission_letter(payload):
 
     # Generate PDF
     pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
-        applicant_name=applicant_data['name'],
-        program=applicant_data['program_name'] or '',
+        candidateName=applicant_data['name'],
+        programme=applicant_data['program_name'] or '',
         level=level,
         department=department,
         faculty=faculty,
         session=session,
         mode=mode,
-        admission_date=datetime.now().strftime('%d %B, %Y'),
-        acceptance_fee=acceptance_fee_str,
-        tuition_fee=tuition_fee_str,
-        other_fees=other_fees_str,
-        resumption_date=resumption_date,
+        date=datetime.now().strftime('%d %B, %Y'),
+        acceptanceFee=acceptance_fee_str,
+        tuition=tuition_fee_str,
+        otherFees=other_fees_str,
+        resumptionDate=resumption_date,
         reference=ref_no,
         body_html=''
     )

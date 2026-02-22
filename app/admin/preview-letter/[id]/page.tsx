@@ -1,13 +1,10 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 
-export default function PreviewAdmissionLetterPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default function PreviewAdmissionLetterPage() {
+  const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -18,7 +15,9 @@ export default function PreviewAdmissionLetterPage({
       try {
         setLoading(true);
         const token = localStorage.getItem("token");
-        const admissionDate = searchParams.get("admission_date") || new Date().toISOString().split("T")[0];
+        const admissionDate =
+          searchParams.get("admission_date") ||
+          new Date().toISOString().split("T")[0];
 
         const response = await fetch(`/api/admin/preview-admission-letter`, {
           method: "POST",
@@ -26,12 +25,23 @@ export default function PreviewAdmissionLetterPage({
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ applicant_id: parseInt(params.id), admission_date: admissionDate }),
+          body: JSON.stringify({
+            applicant_id: parseInt(params.id),
+            admission_date: admissionDate,
+          }),
         });
 
         if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.message || "Failed to generate preview");
+          const contentType = response.headers.get("content-type");
+          let errorMessage = "Failed to generate preview";
+
+          if (contentType?.includes("application/json")) {
+            const errorData = await response.json();
+            errorMessage = errorData.message || errorMessage;
+          } else {
+            errorMessage = `Server error: ${response.status} ${response.statusText}`;
+          }
+          throw new Error(errorMessage);
         }
 
         // Get the PDF blob and create a preview URL
@@ -45,7 +55,9 @@ export default function PreviewAdmissionLetterPage({
       }
     };
 
-    fetchAndPreviewLetter();
+    if (params.id) {
+      fetchAndPreviewLetter();
+    }
 
     // Cleanup object URL on unmount
     return () => {
@@ -53,7 +65,7 @@ export default function PreviewAdmissionLetterPage({
         URL.revokeObjectURL(pdfUrl);
       }
     };
-  }, [params.id]);
+  }, [params.id, searchParams]);
 
   if (loading) {
     return (

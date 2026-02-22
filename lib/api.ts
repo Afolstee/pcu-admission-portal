@@ -21,6 +21,48 @@ export interface ApplicantStatus {
   accepted_recommended_program_id?: number | null;
 }
 
+// ===== Letter Management Types =====
+
+export interface FacultyDepartmentsResponse {
+  faculties: {
+    [faculty: string]: Array<{
+      name: string;
+      pending_count: number;
+    }>;
+  };
+}
+
+export interface DepartmentApplicant {
+  id: number;
+  name: string;
+  email: string;
+  program_name: string;
+}
+
+export interface DepartmentApplicantsResponse {
+  applicants: DepartmentApplicant[];
+}
+
+export interface LetterStatus {
+  applicant_id: number;
+  name: string;
+  email: string;
+  program: string;
+  status: "pending" | "sent" | "failed";
+  sent_at: string | null;
+  error_message: string | null;
+  retry_count: number;
+}
+
+export interface LetterStatusSummaryResponse {
+  sent: LetterStatus[];
+  failed: LetterStatus[];
+}
+
+export interface SendDepartmentLettersResponse {
+  sent: number;
+  failed: number;
+}
 export interface Application {
   id: number;
   name: string;
@@ -484,49 +526,61 @@ export class ApiClient {
   }
 
   // New letter management endpoints
-  static async getFacultyDepartments() {
-    const { data } = await this.fetch("/admin/faculty-departments");
-    return data;
-  }
+  static async getFacultyDepartments(): Promise<FacultyDepartmentsResponse> {
+  const { data } = await this.fetch<FacultyDepartmentsResponse>(
+    "/admin/faculty-departments"
+  );
+  return data;
+}
 
-  static async getDepartmentApplicants(departmentName: string) {
-    const { data } = await this.fetch(
-      `/admin/department-applicants/${encodeURIComponent(departmentName)}`
-    );
-    return data;
-  }
+  static async getDepartmentApplicants(
+  departmentName: string
+): Promise<DepartmentApplicantsResponse> {
+  const { data } = await this.fetch<DepartmentApplicantsResponse>(
+    `/admin/department-applicants/${encodeURIComponent(departmentName)}`
+  );
+  return data;
+}
 
   static async sendDepartmentLetters(
-    departmentName: string,
-    applicantIds: number[],
-    admissionDate?: string
-  ) {
-    const { data } = await this.fetch("/admin/send-department-letters", {
+  departmentName: string,
+  applicantIds: number[],
+  admissionDate?: string
+): Promise<SendDepartmentLettersResponse> {
+  const { data } = await this.fetch<SendDepartmentLettersResponse>(
+    "/admin/send-department-letters",
+    {
       method: "POST",
       body: JSON.stringify({
         department_name: departmentName,
         applicant_ids: applicantIds,
         admission_date: admissionDate,
       }),
-    });
-    return data;
-  }
+    }
+  );
+  return data;
+}
 
-  static async getLetterStatusSummary() {
-    const { data } = await this.fetch("/admin/letter-status-summary");
-    return data;
-  }
+  static async getLetterStatusSummary(): Promise<LetterStatusSummaryResponse> {
+  const { data } = await this.fetch<LetterStatusSummaryResponse>(
+    "/admin/letter-status-summary"
+  );
+  return data;
+}
 
-  static async resendLetter(applicantId: number, admissionDate?: string) {
-    const { data } = await this.fetch(
-      `/admin/resend-letter/${applicantId}`,
-      {
-        method: "POST",
-        body: JSON.stringify({ admission_date: admissionDate }),
-      }
-    );
-    return data;
-  }
+  static async resendLetter(
+  applicantId: number,
+  admissionDate?: string
+): Promise<{ message: string }> {
+  const { data } = await this.fetch<{ message: string }>(
+    `/admin/resend-letter/${applicantId}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ admission_date: admissionDate }),
+    }
+  );
+  return data;
+}
 
   // Recommendation endpoints
   static async getRecommendations(): Promise<RecommendationResponse> {

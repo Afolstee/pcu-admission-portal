@@ -611,10 +611,9 @@ def get_faculty_departments(payload):
                 COUNT(a.id) as pending_count
             FROM programs p
             JOIN applicants a ON p.id = a.program_id
-            LEFT JOIN admission_letters al ON a.id = al.applicant_id
+            LEFT JOIN admission_letter_tracking alt ON a.id = alt.applicant_id
             WHERE a.application_status = 'accepted'
-              AND a.admission_status = 'not_admitted'
-              AND (al.id IS NULL OR al.status != 'sent')
+              AND (alt.status IS NULL OR alt.status = 'pending')
             GROUP BY p.faculty, p.department
             HAVING COUNT(a.id) > 0
             ORDER BY p.faculty, p.department'''
@@ -644,11 +643,10 @@ def get_department_applicants(payload, department_name):
             FROM applicants a
             JOIN users u ON a.user_id = u.id
             JOIN programs p ON a.program_id = p.id
-            LEFT JOIN admission_letters al ON a.id = al.applicant_id
+            LEFT JOIN admission_letter_tracking alt ON a.id = alt.applicant_id
             WHERE p.department = %s
               AND a.application_status = 'accepted'
-              AND a.admission_status = 'not_admitted'
-              AND (al.id IS NULL OR al.status != 'sent')
+              AND (alt.status IS NULL OR alt.status = 'pending')
             ORDER BY u.name ASC'''
     
     applicants = Database.execute_query(query, (department_name,))

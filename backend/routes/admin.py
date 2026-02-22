@@ -604,18 +604,19 @@ def get_letter_templates(payload):
 @AuthHandler.token_required
 @AuthHandler.admin_required
 def get_faculty_departments(payload):
-    """Get faculties and departments with pending applicants"""
-    query = '''SELECT DISTINCT 
+    """Get faculties and departments with pending applicants awaiting admission letters"""
+    query = '''SELECT 
                 p.faculty,
                 p.department,
-                COUNT(CASE WHEN (alt.status = 'pending' OR alt.status IS NULL) THEN 1 END) as pending_count
+                COUNT(a.id) as pending_count
             FROM programs p
-            LEFT JOIN applicants a ON p.id = a.program_id
-            LEFT JOIN admission_letter_tracking alt ON a.id = alt.applicant_id
+            JOIN applicants a ON p.id = a.program_id
+            LEFT JOIN admission_letters al ON a.id = al.applicant_id
             WHERE a.application_status = 'accepted'
-              AND (alt.status = 'pending' OR alt.status IS NULL)
+              AND a.admission_status = 'not_admitted'
+              AND (al.id IS NULL OR al.status != 'sent')
             GROUP BY p.faculty, p.department
-            HAVING pending_count > 0
+            HAVING COUNT(a.id) > 0
             ORDER BY p.faculty, p.department'''
     
     results = Database.execute_query(query)
@@ -638,15 +639,16 @@ def get_faculty_departments(payload):
 @AuthHandler.token_required
 @AuthHandler.admin_required
 def get_department_applicants(payload, department_name):
-    """Get pending applicants for a department"""
+    """Get pending applicants for a department awaiting admission letters"""
     query = '''SELECT a.id, u.name, u.email, p.name as program_name, p.faculty, p.department
             FROM applicants a
             JOIN users u ON a.user_id = u.id
             JOIN programs p ON a.program_id = p.id
-            LEFT JOIN admission_letter_tracking alt ON a.id = alt.applicant_id
+            LEFT JOIN admission_letters al ON a.id = al.applicant_id
             WHERE p.department = %s
               AND a.application_status = 'accepted'
-              AND (alt.status IS NULL OR alt.status = 'pending')
+              AND a.admission_status = 'not_admitted'
+              AND (al.id IS NULL OR al.status != 'sent')
             ORDER BY u.name ASC'''
     
     applicants = Database.execute_query(query, (department_name,))

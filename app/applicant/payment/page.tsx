@@ -15,93 +15,196 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { LogOut, AlertCircle, DollarSign, CheckCircle } from "lucide-react";
+import {
+  LogOut,
+  Mail,
+  AlertCircle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  RotateCcw,
+  AlertTriangle,
+  Eye,
+} from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-interface PaymentInfo {
-  applicant_id: number;
+interface FacultyData {
+  [faculty: string]: Array<{
+    name: string;
+    pending_count: number;
+  }>;
+}
+
+interface DepartmentApplicant {
+  id: number;
+  name: string;
+  email: string;
   program_name: string;
-  admission_status: string;
-  acceptance_fee: number;
-  tuition_fee: number;
-  has_paid_acceptance_fee: boolean;
-  has_paid_tuition: boolean;
 }
 
-interface PaymentModal {
-  isOpen: boolean;
-  type: "acceptance" | "tuition" | null;
-  step: "select" | "confirm" | "processing" | "success";
-  transactionId?: string;
-  transactionDbId?: number;
+interface LetterStatus {
+  applicant_id: number;
+  name: string;
+  email: string;
+  program: string;
+  status: "pending" | "sent" | "failed";
+  sent_at: string | null;
+  error_message: string | null;
+  retry_count: number;
 }
 
-export default function PaymentPage() {
+export default function SendLettersPage() {
   const router = useRouter();
-  const { user, applicant, isAuthenticated, logout } = useAuth();
-  const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null);
+  const { user, isAuthenticated, logout } = useAuth();
+
+  // Faculty/Department pending state
+  const [faculties, setFaculties] = useState<FacultyData>({});
+  const [expandedFaculty, setExpandedFaculty] = useState<string | null>(null);
+  const [selectedDepartment, setSelectedDepartment] = useState<string | null>(
+    null,
+  );
+  const [departmentApplicants, setDepartmentApplicants] = useState<
+    DepartmentApplicant[]
+  >([]);
+  const [selectedApplicants, setSelectedApplicants] = useState<Set<number>>(
+    new Set(),
+  );
+
+  // Status tabs state
+  const [activeTab, setActiveTab] = useState<"pending" | "sent" | "failed">(
+    "pending",
+  );
+  const [sentLetters, setSentLetters] = useState<LetterStatus[]>([]);
+  const [failedLetters, setFailedLetters] = useState<LetterStatus[]>([]);
+
+  // UI state
   const [loading, setLoading] = useState(true);
-  const [paymentModal, setPaymentModal] = useState<PaymentModal>({
-    isOpen: false,
-    type: null,
-    step: "select",
-    transactionId: undefined,
-  });
-  const [processingPayment, setProcessingPayment] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [admissionDate, setAdmissionDate] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated || user?.role !== "applicant") {
+    if (!isAuthenticated || user?.role !== "admin") {
       router.replace("/auth/login");
       return;
     }
 
-    if (applicant?.admission_status !== "admitted") {
-      router.replace("/applicant/dashboard");
+    // Set admission date to today on client mount
+    if (!admissionDate) {
+      setAdmissionDate(new Date().toISOString().split("T")[0]);
+    }
+
+    loadData();
+  }, [isAuthenticated, user, router]);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [facultyData, statusData] = await Promise.all([
+        ApiClient.getFacultyDepartments(),
+        ApiClient.getLetterStatusSummary(),
+      ]);
+
+      setFaculties(facultyData.faculties || {});
+      setSentLetters(statusData.sent || []);
+      setFailedLetters(statusData.failed || []);
+    } catch (err) {
+      setError("Failed to load data. Please try again.");
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadDepartmentApplicants = async (department: string) => {
+    try {
+      const response = await ApiClient.getDepartmentApplicants(department);
+      setDepartmentApplicants(response.applicants || []);
+      setSelectedApplicants(new Set());
+    } catch (err) {
+      console.error("Failed to load department applicants:", err);
+    }
+  };
+
+  const handleSelectDepartment = async (department: string) => {
+    setSelectedDepartment(department);
+    await loadDepartmentApplicants(department);
+  };
+
+  const handleSelectApplicant = (id: number, checked: boolean) => {
+    const newSelected = new Set(selectedApplicants);
+    if (checked) {
+      newSelected.add(id);
+    } else {
+      newSelected.delete(id);
+    }
+    setSelectedApplicants(newSelected);
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedApplicants(
+        new Set(departmentApplicants.map((app) => app.id)),
+      );
+    } else {
+      setSelectedApplicants(new Set());
+    }
+  };
+
+  const handleSendLetters = async () => {
+    if (!selectedDepartment || selectedApplicants.size === 0) {
+      setError("Please select a department and applicants");
       return;
     }
 
-    loadPaymentInfo();
-  }, [isAuthenticated, user, applicant, router]);
+    setSending(true);
+    setError(null);
+    setSuccessMessage(null);
 
-  const loadPaymentInfo = async () => {
     try {
-      // Get applicant status from backend
-      const statusData = await ApiClient.getApplicantStatus();
-      const appStatus = statusData.applicant;
+      const result = await ApiClient.sendDepartmentLetters(
+        selectedDepartment,
+        Array.from(selectedApplicants),
+        admissionDate,
+      );
 
-      // Get program fees from admission letter data
-      const letterData = await ApiClient.getAdmissionLetter();
-
-      // Parse fees from formatted strings
-      const parseFee = (feeStr: string) => {
-        return parseInt(feeStr.replace(/₦|,/g, ""), 10);
-      };
-
-      const acceptance_fee = parseFee(letterData.acceptanceFee);
-      const tuition_fee = parseFee(letterData.tuition);
-
-      setPaymentInfo({
-        applicant_id: appStatus.id,
-        program_name: appStatus.program_name,
-        admission_status: appStatus.admission_status,
-        acceptance_fee,
-        tuition_fee,
-        has_paid_acceptance_fee: appStatus.has_paid_acceptance_fee,
-        has_paid_tuition: appStatus.has_paid_tuition,
-      });
+      setSuccessMessage(
+        `Successfully sent ${result.sent} letters (${result.failed} failed)`,
+      );
+      setSelectedApplicants(new Set());
+      await loadData();
     } catch (err) {
-      console.error("Error loading payment info:", err);
-      // Fallback to default if API fails
-      setPaymentInfo({
-        applicant_id: 0,
-        program_name: "Unknown",
-        admission_status: "admitted",
-        acceptance_fee: 0,
-        tuition_fee: 0,
-        has_paid_acceptance_fee: false,
-        has_paid_tuition: false,
-      });
+      const message =
+        err instanceof Error ? err.message : "Failed to send letters";
+      setError(message);
     } finally {
-      setLoading(false);
+      setSending(false);
+    }
+  };
+
+  const handleResend = async (applicantId: number) => {
+    try {
+      await ApiClient.resendLetter(applicantId, admissionDate);
+      setSuccessMessage("Letter resent successfully");
+      await loadData();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to resend letter",
+      );
+    }
+  };
+
+  const handlePreviewLetter = async (applicantId: number) => {
+    try {
+      window.open(`/admin/preview-letter/${applicantId}`, "_blank");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to preview letter",
+      );
     }
   };
 
@@ -110,153 +213,15 @@ export default function PaymentPage() {
     router.replace("/");
   };
 
-  const openPaymentModal = (type: "acceptance" | "tuition") => {
-    // Prevent tuition payment if acceptance fee not paid
-    if (type === "tuition" && !paymentInfo?.has_paid_acceptance_fee) {
-      alert(
-        "You must pay the acceptance fee first before paying tuition."
-      );
-      return;
-    }
-
-    setPaymentModal({
-      isOpen: true,
-      type,
-      step: "confirm",
-    });
-  };
-
-  const closePaymentModal = () => {
-    setPaymentModal({
-      isOpen: false,
-      type: null,
-      step: "select",
-      transactionId: undefined,
-    });
-  };
-
-  const downloadReceipt = async () => {
-    if (!paymentModal.transactionDbId) {
-      alert("Transaction ID not available. Please try again.");
-      return;
-    }
-
-    try {
-      const blob = await ApiClient.downloadPaymentReceipt(paymentModal.transactionDbId);
-
-      // Create download link
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `payment_receipt_${paymentModal.transactionId || "receipt"}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error("[v0] Error downloading receipt:", error);
-      alert("Failed to download receipt. Please try again.");
-    }
-  };
-
-  const simulateRemittaPayment = async () => {
-    if (!paymentModal.type || !paymentInfo) return;
-
-    setProcessingPayment(true);
-    setPaymentModal((prev) => ({ ...prev, step: "processing" }));
-
-    try {
-      // Determine payment type and amount
-      const paymentType =
-        paymentModal.type === "acceptance" ? "acceptance_fee" : "tuition";
-      const amount =
-        paymentModal.type === "acceptance"
-          ? paymentInfo.acceptance_fee
-          : paymentInfo.tuition_fee;
-
-      // Process payment via backend
-      const result = await ApiClient.processPayment(
-        paymentType as "acceptance_fee" | "tuition",
-        amount,
-        "remita",
-        `TXN-${Date.now()}`
-      );
-
-      console.log("[v0] Payment processed successfully:", result);
-
-      // Update payment status
-      if (paymentInfo) {
-        const updatedInfo = { ...paymentInfo };
-        if (paymentModal.type === "acceptance") {
-          updatedInfo.has_paid_acceptance_fee = true;
-        } else if (paymentModal.type === "tuition") {
-          updatedInfo.has_paid_tuition = true;
-        }
-        setPaymentInfo(updatedInfo);
-      }
-
-      setProcessingPayment(false);
-      setPaymentModal((prev) => ({
-        ...prev,
-        step: "success",
-        transactionId: result.transaction_id,
-        transactionDbId: result.transaction_db_id,
-      }));
-
-      // Close modal after 2 seconds and reload data
-      setTimeout(() => {
-        closePaymentModal();
-        loadPaymentInfo(); // Refresh to get latest data
-      }, 2000);
-    } catch (error) {
-      console.error("[v0] Payment processing error:", error);
-      alert(
-        `Payment failed: ${error instanceof Error ? error.message : "Unknown error"}`
-      );
-      setProcessingPayment(false);
-      setPaymentModal((prev) => ({ ...prev, step: "confirm" }));
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
-          <p className="text-muted-foreground">
-            Loading payment information...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!paymentInfo) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Card className="w-full max-w-md">
-          <CardContent className="py-12 text-center">
-            <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-            <p className="text-foreground font-semibold mb-2">
-              Error Loading Payment
-            </p>
-            <p className="text-sm text-muted-foreground mb-6">
-              Unable to load payment information. Please try again later.
-            </p>
-            <Link href="/applicant/dashboard">
-              <Button>Go Back</Button>
-            </Link>
-          </CardContent>
-        </Card>
-      </div>
-    );
+  if (!isAuthenticated || user?.role !== "admin") {
+    return null;
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">
       {/* Navigation */}
       <nav className="bg-background border-b border-border sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Image
               src="/images/logo new.png"
@@ -265,11 +230,11 @@ export default function PaymentPage() {
               height={28}
               className="object-contain"
             />
-            <span className="font-bold text-lg">Admission Portal</span>
+            <span className="font-bold text-lg">Admission Portal - Admin</span>
           </div>
           <div className="flex items-center gap-4">
             <div className="text-sm">
-              <p className="text-muted-foreground">Welcome back</p>
+              <p className="text-muted-foreground">Logged in as</p>
               <p className="font-medium text-foreground">{user?.name}</p>
             </div>
             <Button
@@ -286,296 +251,373 @@ export default function PaymentPage() {
       </nav>
 
       {/* Main Content */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">
-          <Button
-            variant="outline"
-            className="mb-4 bg-transparent"
-            onClick={() => router.back()}
+          <Link
+            href="/admin/dashboard"
+            className="text-primary hover:underline text-sm mb-2 block"
           >
-            ← Back
-          </Button>
-          <h1 className="text-3xl font-bold text-foreground mb-2">Payment</h1>
+            ← Back to Dashboard
+          </Link>
+          <h1 className="text-3xl font-bold text-foreground mb-2">
+            Send Admission Letters
+          </h1>
           <p className="text-muted-foreground">
-            Complete your payment to finalize your admission
+            Manage and send admission letters by faculty and department
           </p>
         </div>
 
-        {/* Admission Status */}
-        <Card className="mb-8 border-green-500/50 bg-green-50">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-green-800 font-medium">
-                  Admission Status
-                </p>
-                <p className="text-lg font-semibold text-green-900">
-                  Congratulations! You have been admitted.
-                </p>
-              </div>
-              <Badge className="bg-green-600">Admitted</Badge>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Payment Order Info */}
-        <Card className="mb-8 border-blue-500/50 bg-blue-50">
-          <CardContent className="pt-6">
-            <p className="text-sm text-blue-800">
-              <strong>Payment Order:</strong> You must pay the acceptance fee first before you can proceed with tuition payment.
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Payment Summary */}
-        <div className="grid md:grid-cols-2 gap-6 mb-8">
-          {/* Acceptance Fee */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <DollarSign className="h-5 w-5" />
-                Acceptance Fee
-              </CardTitle>
-              <CardDescription>
-                Required to confirm your admission
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <p className="text-sm text-muted-foreground mb-1">Amount</p>
-                <p className="text-3xl font-bold">
-                  ₦{paymentInfo.acceptance_fee.toLocaleString()}
-                </p>
-              </div>
-
-              <div className="pt-4 border-t border-border">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-medium">Status:</span>
-                  {paymentInfo.has_paid_acceptance_fee ? (
-                    <Badge className="bg-green-600 flex items-center gap-1">
-                      <CheckCircle className="h-3 w-3" />
-                      Paid
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline">Pending</Badge>
-                  )}
-                </div>
-                <Button
-                  onClick={() => openPaymentModal("acceptance")}
-                  disabled={paymentInfo.has_paid_acceptance_fee}
-                  className="w-full gap-2"
-                  variant={
-                    paymentInfo.has_paid_acceptance_fee ? "outline" : "default"
-                  }
-                >
-                  <DollarSign className="h-4 w-4" />
-                  {paymentInfo.has_paid_acceptance_fee
-                    ? "Payment Completed"
-                    : "Pay via Remita"}
-                </Button>
-              </div>
+        {error && (
+          <Card className="mb-6 border-destructive/50 bg-destructive/5">
+            <CardContent className="pt-6 flex gap-3">
+              <AlertCircle className="h-5 w-5 text-destructive flex-shrink-0" />
+              <p className="text-sm text-destructive">{error}</p>
             </CardContent>
           </Card>
+        )}
 
-          {/* Tuition Fee */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <DollarSign className="h-5 w-5" />
-                Tuition Fee
-              </CardTitle>
-              <CardDescription>For your first year of study</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <p className="text-sm text-muted-foreground mb-1">Amount</p>
-                <p className="text-3xl font-bold">
-                  ₦{paymentInfo.tuition_fee.toLocaleString()}
-                </p>
-              </div>
-
-              <div className="pt-4 border-t border-border">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-medium">Status:</span>
-                  {paymentInfo.has_paid_tuition ? (
-                    <Badge className="bg-green-600 flex items-center gap-1">
-                      <CheckCircle className="h-3 w-3" />
-                      Paid
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline">
-                      {paymentInfo.has_paid_acceptance_fee
-                        ? "Pending"
-                        : "Locked"}
-                    </Badge>
-                  )}
-                </div>
-                <Button
-                  onClick={() => openPaymentModal("tuition")}
-                  disabled={
-                    paymentInfo.has_paid_tuition ||
-                    !paymentInfo.has_paid_acceptance_fee
-                  }
-                  className="w-full gap-2"
-                  variant={paymentInfo.has_paid_tuition ? "outline" : "default"}
-                >
-                  <DollarSign className="h-4 w-4" />
-                  {paymentInfo.has_paid_tuition
-                    ? "Payment Completed"
-                    : !paymentInfo.has_paid_acceptance_fee
-                    ? "Pay Acceptance Fee First"
-                    : "Pay via Remita"}
-                </Button>
-              </div>
+        {successMessage && (
+          <Card className="mb-6 border-green-500/50 bg-green-50">
+            <CardContent className="pt-6 flex gap-3">
+              <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
+              <p className="text-sm text-green-700">{successMessage}</p>
             </CardContent>
           </Card>
-        </div>
+        )}
 
-        {/* Total Summary */}
-        <Card className="bg-primary/5 border-primary/20 mb-8">
-          <CardContent className="pt-6">
-            <div className="space-y-2">
-              <div className="flex justify-between items-center text-sm">
-                <span>Acceptance Fee:</span>
-                <span>₦{paymentInfo.acceptance_fee.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <span>Tuition Fee:</span>
-                <span>₦{paymentInfo.tuition_fee.toLocaleString()}</span>
-              </div>
-              <div className="border-t border-primary/20 pt-2 mt-2 flex justify-between items-center font-bold">
-                <span>Total Amount:</span>
-                <span className="text-lg">
-                  ₦
-                  {(
-                    paymentInfo.acceptance_fee + paymentInfo.tuition_fee
-                  ).toLocaleString()}
-                </span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <Tabs defaultValue="pending" value={activeTab} onValueChange={(v) => setActiveTab(v as "pending" | "sent" | "failed")}>
+          <TabsList className="grid w-full grid-cols-3 mb-6">
+            <TabsTrigger value="pending">Pending</TabsTrigger>
+            <TabsTrigger value="sent">Sent Successfully</TabsTrigger>
+            <TabsTrigger value="failed">Failed</TabsTrigger>
+          </TabsList>
 
-        {/* Navigation */}
-        <div className="mt-8 flex gap-4 justify-between">
-          <Button
-            variant="outline"
-            onClick={() => router.push("/applicant/dashboard")}
-          >
-            Back to Dashboard
-          </Button>
-        </div>
-      </div>
-
-      {/* Remita Payment Modal */}
-      {paymentModal.isOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-md">
-            {paymentModal.step === "confirm" && (
-              <>
-                <CardHeader>
-                  <CardTitle>Confirm Payment</CardTitle>
-                  <CardDescription>
-                    Processing via Remita Gateway
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-1">
-                      Payment Type
-                    </p>
-                    <p className="font-semibold text-foreground capitalize">
-                      {paymentModal.type === "acceptance"
-                        ? "Acceptance Fee"
-                        : "Tuition Fee"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-1">Amount</p>
-                    <p className="text-2xl font-bold">
-                      ₦
-                      {(paymentModal.type === "acceptance"
-                        ? paymentInfo.acceptance_fee
-                        : paymentInfo.tuition_fee
-                      ).toLocaleString()}
-                    </p>
-                  </div>
-                  <div className="bg-gray-100 p-3 rounded text-sm">
-                    <p className="text-xs text-muted-foreground mb-2">
-                      Gateway: Remita
-                    </p>
-                    <p className="text-xs">
-                      You will be redirected to Remita to complete your payment
-                      securely.
-                    </p>
-                  </div>
+          {/* Pending Tab */}
+          <TabsContent value="pending" className="space-y-6">
+            {loading ? (
+              <Card>
+                <CardContent className="pt-12 text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
+                  <p className="text-muted-foreground">Loading...</p>
                 </CardContent>
-                <div className="border-t px-6 py-4 flex gap-3">
-                  <Button
-                    variant="outline"
-                    onClick={closePaymentModal}
-                    className="flex-1"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={simulateRemittaPayment}
-                    className="flex-1"
-                    disabled={processingPayment}
-                  >
-                    {processingPayment ? "Processing..." : "Proceed to Pay"}
-                  </Button>
-                </div>
-              </>
-            )}
-
-            {paymentModal.step === "processing" && (
-              <CardContent className="py-12 text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
-                <p className="text-foreground font-semibold">
-                  Processing Payment
-                </p>
-                <p className="text-sm text-muted-foreground mt-2">
-                  Redirecting to Remita...
-                </p>
-              </CardContent>
-            )}
-
-            {paymentModal.step === "success" && (
-              <>
-                <CardContent className="py-12 text-center">
-                  <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4" />
-                  <p className="text-foreground font-semibold mb-2">
-                    Payment Successful
-                  </p>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    {paymentModal.type === "acceptance"
-                      ? "Acceptance fee has been processed"
-                      : "Tuition fee has been processed"}
-                  </p>
-                  {paymentModal.transactionId && (
-                    <p className="text-xs text-muted-foreground bg-gray-100 rounded p-2 mb-4">
-                      Transaction ID: {paymentModal.transactionId}
-                    </p>
-                  )}
+              </Card>
+            ) : Object.keys(faculties).length === 0 ? (
+              <Card>
+                <CardContent className="pt-12 text-center">
+                  <CheckCircle2 className="h-12 w-12 text-green-600 mx-auto mb-4" />
+                  <p className="text-muted-foreground">All applicants have received letters!</p>
                 </CardContent>
-                {paymentModal.transactionId && (
-                  <div className="border-t px-6 py-4">
-                    <Button
-                      onClick={() => downloadReceipt()}
-                      className="w-full gap-2"
-                      variant="outline"
-                    >
-                      Download Receipt
-                    </Button>
+              </Card>
+            ) : (
+              <div className="grid lg:grid-cols-3 gap-6">
+                {/* Faculty/Department Selector */}
+                <Card className="lg:row-span-2">
+                  <CardHeader>
+                    <CardTitle>Faculties & Departments</CardTitle>
+                    <CardDescription>
+                      {selectedDepartment
+                        ? `Selected: ${selectedDepartment}`
+                        : "Choose a department"}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {Object.entries(faculties).map(([faculty, departments]) => (
+                      <div key={faculty}>
+                        <button
+                          onClick={() =>
+                            setExpandedFaculty(
+                              expandedFaculty === faculty ? null : faculty,
+                            )
+                          }
+                          className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-accent"
+                        >
+                          {expandedFaculty === faculty ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                          <span className="font-medium">{faculty}</span>
+                        </button>
+
+                        {expandedFaculty === faculty && (
+                          <div className="ml-4 space-y-1">
+                            {departments.map((dept) => (
+                              <button
+                                key={dept.name}
+                                onClick={() => handleSelectDepartment(dept.name)}
+                                className={`w-full text-left p-2 rounded-lg text-sm transition-colors ${
+                                  selectedDepartment === dept.name
+                                    ? "bg-primary text-primary-foreground"
+                                    : "hover:bg-muted"
+                                }`}
+                              >
+                                <div className="flex justify-between items-center">
+                                  <span>{dept.name}</span>
+                                  <Badge variant="secondary">
+                                    {dept.pending_count}
+                                  </Badge>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+
+                {/* Applicants List & Settings */}
+                <Card className="lg:col-span-2">
+                  <CardHeader>
+                    <CardTitle>Applicants</CardTitle>
+                    <CardDescription>
+                      {selectedDepartment
+                        ? `Select applicants from ${selectedDepartment}`
+                        : "Select a department first"}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {selectedDepartment ? (
+                      <>
+                        <div className="space-y-3 max-h-64 overflow-y-auto">
+                          {departmentApplicants.length > 0 && (
+                            <div className="flex items-center gap-2 p-2 mb-2">
+                              <Checkbox
+                                id="select-all"
+                                checked={
+                                  selectedApplicants.size ===
+                                    departmentApplicants.length &&
+                                  departmentApplicants.length > 0
+                                }
+                                onCheckedChange={(checked) =>
+                                  handleSelectAll(checked as boolean)
+                                }
+                                disabled={sending}
+                              />
+                              <label htmlFor="select-all" className="text-sm font-medium cursor-pointer">
+                                Select All ({selectedApplicants.size}/
+                                {departmentApplicants.length})
+                              </label>
+                            </div>
+                          )}
+
+                          {departmentApplicants.length === 0 ? (
+                            <p className="text-sm text-muted-foreground text-center py-4">
+                              No pending applicants
+                            </p>
+                          ) : (
+                            departmentApplicants.map((app) => (
+                              <div
+                                key={app.id}
+                                className="flex items-center gap-3 p-3 border border-border rounded-lg hover:bg-accent"
+                              >
+                                <Checkbox
+                                  id={`app-${app.id}`}
+                                  checked={selectedApplicants.has(app.id)}
+                                  onCheckedChange={(checked) =>
+                                    handleSelectApplicant(app.id, checked as boolean)
+                                  }
+                                  disabled={sending}
+                                />
+                                <label
+                                  htmlFor={`app-${app.id}`}
+                                  className="flex-1 cursor-pointer"
+                                >
+                                  <p className="font-medium text-sm">{app.name}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {app.email} • {app.program_name}
+                                  </p>
+                                </label>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handlePreviewLetter(app.id)}
+                                  disabled={sending}
+                                  title="Preview admission letter"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ))
+                          )}
+                        </div>
+
+                        <div className="border-t border-border pt-4">
+                          <div className="space-y-3">
+                            <div>
+                              <Label htmlFor="admission-date-pending">
+                                Admission Date
+                              </Label>
+                              <Input
+                                id="admission-date-pending"
+                                type="date"
+                                value={admissionDate}
+                                onChange={(e) =>
+                                  setAdmissionDate(e.target.value)
+                                }
+                                disabled={sending}
+                              />
+                            </div>
+
+                            <Button
+                              onClick={handleSendLetters}
+                              disabled={
+                                sending || selectedApplicants.size === 0
+                              }
+                              className="w-full gap-2"
+                            >
+                              <Mail className="h-4 w-4" />
+                              {sending
+                                ? "Sending..."
+                                : `Send to ${selectedApplicants.size} Applicant${selectedApplicants.size !== 1 ? "s" : ""}`}
+                            </Button>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground text-center py-12">
+                        Select a department to see applicants
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </TabsContent>
+
+          {/* Sent Successfully Tab */}
+          <TabsContent value="sent">
+            <Card>
+              <CardHeader>
+                <CardTitle>Successfully Sent</CardTitle>
+                <CardDescription>
+                  {sentLetters.length} applicants have received letters
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {sentLetters.length === 0 ? (
+                  <div className="text-center py-12">
+                    <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground">No sent letters yet</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="text-left py-3 px-4 font-medium">
+                            Name
+                          </th>
+                          <th className="text-left py-3 px-4 font-medium">
+                            Email
+                          </th>
+                          <th className="text-left py-3 px-4 font-medium">
+                            Program
+                          </th>
+                          <th className="text-left py-3 px-4 font-medium">
+                            Sent Date
+                          </th>
+                          <th className="text-left py-3 px-4 font-medium">
+                            Action
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sentLetters.map((letter) => (
+                          <tr key={letter.applicant_id} className="border-b border-border hover:bg-muted/50">
+                            <td className="py-3 px-4">{letter.name}</td>
+                            <td className="py-3 px-4 text-xs">{letter.email}</td>
+                            <td className="py-3 px-4 text-xs">{letter.program}</td>
+                            <td className="py-3 px-4 text-xs">
+                              {letter.sent_at
+                                ? new Date(letter.sent_at).toLocaleDateString()
+                                : "—"}
+                            </td>
+                            <td className="py-3 px-4">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() =>
+                                  handleResend(letter.applicant_id)
+                                }
+                                disabled={sending}
+                                className="gap-2"
+                              >
+                                <RotateCcw className="h-3 w-3" />
+                                Resend
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
-              </>
-            )}
-          </Card>
-        </div>
-      )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Failed Tab */}
+          <TabsContent value="failed">
+            <Card>
+              <CardHeader>
+                <CardTitle>Failed Sends</CardTitle>
+                <CardDescription>
+                  {failedLetters.length} applicants failed to receive letters
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {failedLetters.length === 0 ? (
+                  <div className="text-center py-12">
+                    <CheckCircle2 className="h-12 w-12 text-green-600 mx-auto mb-4" />
+                    <p className="text-muted-foreground">No failed letters</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {failedLetters.map((letter) => (
+                      <Card key={letter.applicant_id} className="border-destructive/50 bg-destructive/5">
+                        <CardContent className="pt-6">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-2">
+                                <AlertTriangle className="h-4 w-4 text-destructive" />
+                                <h4 className="font-medium">{letter.name}</h4>
+                              </div>
+                              <p className="text-sm text-muted-foreground mb-1">
+                                {letter.email} • {letter.program}
+                              </p>
+                              {letter.error_message && (
+                                <p className="text-xs text-destructive">
+                                  Error: {letter.error_message}
+                                </p>
+                              )}
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Attempts: {letter.retry_count}
+                              </p>
+                            </div>
+                            <Button
+                              size="sm"
+                              onClick={() =>
+                                handleResend(letter.applicant_id)
+                              }
+                              disabled={sending}
+                              className="gap-2"
+                            >
+                              <RotateCcw className="h-3 w-3" />
+                              Retry
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
     </div>
   );
 }

@@ -295,7 +295,9 @@ export default function SignupPage() {
                 />
               </div>
 
-              <Button type="submit" className="w-full" disabled={isLoading}>
+              <Button type="submit" className="w-full" disabled={isLoading} style={{
+  background: "linear-gradient(90deg, #3d2b3d 0%, #5a3f5a 40%, #6b4f6b 70%, #4a3050 100%)"
+}}>
                 {isLoading ? "Creating Account..." : "Create Account"}
               </Button>
             </form>

@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { ApiClient, ApplicantStatus, AdmissionLetterData } from "@/lib/api";
+import { ApiClient, ApplicantStatus, AdmissionLetterData, PaymentTransaction } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -55,6 +55,8 @@ export default function ApplicantDashboard() {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
+  const [paymentHistory, setPaymentHistory] = useState<PaymentTransaction[]>([]);
+  const [downloading, setDownloading] = useState<string | null>(null);
   useProgramGuard();
 
   const handlePrintPDF = async () => {
@@ -139,13 +141,103 @@ export default function ApplicantDashboard() {
       }
     };
 
+    const loadPaymentHistory = async () => {
+      try {
+        const response = await ApiClient.getPaymentHistory();
+        setPaymentHistory(response.payment_history);
+      } catch (err) {
+        console.error("Error loading payment history:", err);
+      }
+    };
+
     loadStatus();
     loadRecommendations();
+    loadPaymentHistory();
   }, [isAuthenticated]);
 
   const handleLogout = async () => {
     await logout();
     router.replace("/");
+  };
+
+  const handleDownloadMedicalForm = async () => {
+    try {
+      setDownloading("medical_form");
+      const blob = await ApiClient.downloadMedicalForm();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `medical_examination_form.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Error downloading medical form:", err);
+      alert(err instanceof Error ? err.message : "Failed to download medical form");
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const handleDownloadNotice = async () => {
+    try {
+      setDownloading("admission_notice");
+      const blob = await ApiClient.downloadAdmissionNotice();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `pcu_admission_notice_2025.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Error downloading notice:", err);
+      alert("Failed to download admission notice");
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const handleDownloadAffidavit = async () => {
+    try {
+      setDownloading("affidavit");
+      const blob = await ApiClient.downloadAffidavitForm();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `pcu_affidavit_for_good_conduct.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Error downloading affidavit:", err);
+      alert("Failed to download affidavit form");
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const handleDownloadReceipt = async (transactionId: number, type: string) => {
+    try {
+      setDownloading(`receipt_${transactionId}`);
+      const blob = await ApiClient.downloadPaymentReceipt(transactionId);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `receipt_${type}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Error downloading receipt:", err);
+      alert("Failed to download receipt");
+    } finally {
+      setDownloading(null);
+    }
   };
 
   if (loading) {
@@ -362,7 +454,7 @@ export default function ApplicantDashboard() {
                           size="sm"
                           variant="outline"
                           className="w-full gap-2"
-                          onClick={() => router.push("/applicant/payment")}
+                          onClick={() => router.push("/applicant/payment?type=acceptance_fee")}
                         >
                           <DollarSign className="h-4 w-4" />
                           Pay Acceptance Fee
@@ -373,7 +465,7 @@ export default function ApplicantDashboard() {
                           size="sm"
                           variant="outline"
                           className="w-full gap-2"
-                          onClick={() => router.push("/applicant/payment")}
+                          onClick={() => router.push("/applicant/payment?type=tuition")}
                         >
                           <DollarSign className="h-4 w-4" />
                           Pay Tuition
@@ -383,12 +475,15 @@ export default function ApplicantDashboard() {
                         status?.has_paid_tuition && (
                           <Button
                             size="sm"
-                            variant="outline"
-                            className="w-full gap-2"
-                            disabled
+                            variant="secondary"
+                            className="w-full gap-2 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10"
+                            onClick={() => {
+                              const el = document.getElementById('admission-documents');
+                              el?.scrollIntoView({ behavior: 'smooth' });
+                            }}
                           >
                             <Download className="h-4 w-4" />
-                            Print Admission Documents
+                            Access Admission Documents
                           </Button>
                         )}
                     </div>
@@ -400,44 +495,143 @@ export default function ApplicantDashboard() {
         </Card>
 
         {/* Admission Letter */}
-        {status?.admission_status === "admitted" && admissionLetter && (
-          <Card className="mb-8">
-            <CardHeader>
-              <CardTitle>Admission Letter</CardTitle>
-              <CardDescription>
-                Congratulations! Your admission letter is ready.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  You have been admitted to {status.program_name}. Click below
-                  to view your admission letter.
-                </p>
-                <div className="flex gap-2 flex-wrap">
-                  <Button
-                    onClick={() => setShowLetter(!showLetter)}
-                    className="gap-2"
+        {status?.admission_status === "admitted" && (
+          <Card id="admission-documents" className="mb-8 overflow-hidden border-2 border-primary/20 shadow-xl">
+            <div className="bg-primary/5 p-6 border-b border-primary/10">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-2xl text-primary">Official Admission Documents</CardTitle>
+                  <CardDescription className="text-base mt-2">
+                    Congratulations! You have completed all requirements. Download your official documents below.
+                  </CardDescription>
+                </div>
+                <div className="hidden sm:block">
+                  <div className="bg-green-100 text-green-700 px-4 py-2 rounded-full text-sm font-bold flex items-center gap-2">
+                    <LogOut className="h-4 w-4 rotate-180" />
+                    Enrolled Successfully
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <CardContent className="p-6">
+              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {/* Admission Letter Download */}
+                <div className="bg-background border rounded-xl p-5 hover:border-primary/50 transition-all group shadow-sm">
+                  <div className="bg-blue-50 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                    <FileText className="text-blue-600 h-6 w-6" />
+                  </div>
+                  <h4 className="font-bold text-lg mb-2">Provisional Admission Letter</h4>
+                  <p className="text-sm text-muted-foreground mb-4">Your official letter of admission for {status.program_name}.</p>
+                  <div className="flex gap-2">
+                    <Button 
+                      onClick={() => setShowLetter(!showLetter)} 
+                      variant="secondary" 
+                      size="sm" 
+                      className="flex-1"
+                      disabled={!admissionLetter}
+                    >
+                      {showLetter ? "Close Preview" : "Preview"}
+                    </Button>
+                    <Button onClick={handlePrintPDF} size="sm" className="flex-1 gap-2" disabled={printLoading}>
+                      <Download className="h-4 w-4" />
+                      {printLoading ? "..." : "PDF"}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Medical Form Download */}
+                <div className="bg-background border rounded-xl p-5 hover:border-primary/50 transition-all group shadow-sm">
+                  <div className="bg-green-50 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                    <FileText className="text-green-600 h-6 w-6" />
+                  </div>
+                  <h4 className="font-bold text-lg mb-2">Medical Examination Form</h4>
+                  <p className="text-sm text-muted-foreground mb-4">Print and take to a certified hospital for examination.</p>
+                  <Button 
+                    onClick={handleDownloadMedicalForm} 
+                    disabled={downloading === "medical_form" || !status?.has_paid_tuition} 
+                    className="w-full gap-2"
                   >
-                    <FileText className="h-4 w-4" />
-                    {showLetter ? "Hide" : "View"} Admission Letter
-                  </Button>
-                  <Button
-                    onClick={handlePrintPDF}
-                    variant="outline"
-                    className="gap-2"
-                    disabled={printLoading}
-                  >
-                    <Printer className="h-4 w-4" />
-                    {printLoading ? "Generating PDF..." : "Download as PDF"}
+                    <Download className="h-4 w-4" />
+                    {downloading === "medical_form" ? "Downloading..." : "Download PDF"}
                   </Button>
                 </div>
-                {showLetter && (
-                  <div className="mt-4 border rounded-lg p-4 bg-white">
-                    <FsmsAdmissionLetter {...admissionLetter} />
+
+                {/* Additional Forms Download */}
+                <div className="bg-background border rounded-xl p-5 hover:border-primary/50 transition-all group shadow-sm">
+                  <div className="bg-orange-50 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                    <Settings className="text-orange-600 h-6 w-6" />
                   </div>
-                )}
+                  <h4 className="font-bold text-lg mb-2">Notice & Affidavit</h4>
+                  <p className="text-sm text-muted-foreground mb-4">Official resumption notice and good conduct affidavit.</p>
+                  <div className="space-y-2">
+                    <Button 
+                      onClick={handleDownloadNotice} 
+                      variant="outline"
+                      size="sm"
+                      disabled={downloading === "admission_notice"} 
+                      className="w-full gap-2 justify-start"
+                    >
+                      <Download className="h-4 w-4 text-orange-600" />
+                      {downloading === "admission_notice" ? "..." : "Admission Notice"}
+                    </Button>
+                    <Button 
+                      onClick={handleDownloadAffidavit} 
+                      variant="outline"
+                      size="sm"
+                      disabled={downloading === "affidavit"} 
+                      className="w-full gap-2 justify-start"
+                    >
+                      <Download className="h-4 w-4 text-orange-600" />
+                      {downloading === "affidavit" ? "..." : "Conduct Affidavit"}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Receipts Section */}
+                <div className="bg-background border rounded-xl p-5 hover:border-primary/50 transition-all group shadow-sm">
+                  <div className="bg-purple-50 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                    <DollarSign className="text-purple-600 h-6 w-6" />
+                  </div>
+                  <h4 className="font-bold text-lg mb-2">Payment Receipts</h4>
+                  <p className="text-sm text-muted-foreground mb-4">Download official receipts for your completed payments.</p>
+                  <div className="space-y-2">
+                    {paymentHistory.map((pt) => (
+                      <div key={pt.transaction_id} className="flex items-center justify-between p-2 bg-muted/30 rounded-lg border text-sm">
+                        <span className="capitalize">{pt.payment_type.replace('_', ' ')}</span>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-8 text-primary hover:text-primary hover:bg-primary/10"
+                          onClick={() => handleDownloadReceipt(pt.transaction_id, pt.payment_type)}
+                          disabled={downloading === `receipt_${pt.transaction_id}`}
+                        >
+                          <Download className="h-4 w-4 mr-1" />
+                          Receipt
+                        </Button>
+                      </div>
+                    ))}
+                    {paymentHistory.length === 0 && (
+                      <p className="text-xs text-center text-muted-foreground py-2 italic">No payment records found.</p>
+                    )}
+                  </div>
+                </div>
               </div>
+
+              {showLetter && (
+                <div className="mt-8 border rounded-xl overflow-hidden shadow-inner bg-slate-50 p-8">
+                  <div className="bg-white p-12 shadow-2xl mx-auto max-w-[850px]">
+                    {admissionLetter ? (
+                      <FsmsAdmissionLetter {...admissionLetter} />
+                    ) : (
+                      <div className="text-center py-12">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
+                        <p className="text-muted-foreground mt-4">Loading admission letter details...</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

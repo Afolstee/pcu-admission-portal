@@ -119,8 +119,9 @@ def review_application(payload, admin_id=None):
     review_id = Database.execute_update(
         '''INSERT INTO application_reviews 
            (applicant_id, reviewed_by, review_notes, recommendation, recommended_program_id)
-           VALUES (%s, %s, %s, %s, %s)''',
-        (applicant_id, admin_id, review_notes, recommendation, recommended_program_id if recommendation == 'recommend_other_program' else None)
+           VALUES (%s, %s, %s, %s, %s) RETURNING id''',
+        (applicant_id, admin_id, review_notes, recommendation, recommended_program_id if recommendation == 'recommend_other_program' else None),
+        return_id=True
     )
     
     if not review_id:
@@ -812,7 +813,7 @@ def send_department_letters(payload):
                 Database.execute_update(
                     '''INSERT INTO admission_letter_tracking (applicant_id, recipient_email, status, sent_at)
                        VALUES (%s, %s, 'sent', NOW())
-                       ON DUPLICATE KEY UPDATE status = 'sent', sent_at = NOW()''',
+                       ON CONFLICT (applicant_id) DO UPDATE SET status = 'sent', sent_at = NOW()''',
                     (app['applicant_id'], app['email'])
                 )
                 # Update admission status

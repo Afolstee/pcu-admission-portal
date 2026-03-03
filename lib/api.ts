@@ -436,6 +436,59 @@ export class ApiClient {
     return await response.blob();
   }
 
+  static async downloadMedicalForm(): Promise<Blob> {
+    const token = this.getToken();
+    const headers: Record<string, string> = {
+      ...(token && { Authorization: `Bearer ${token}` }),
+    };
+
+    const response = await fetch(`${API_BASE_URL}/applicant/medical-form`, {
+      method: "GET",
+      headers,
+    });
+
+    if (!response.ok) {
+      if (response.status === 403) {
+        throw new Error("Please complete all payments to download this form");
+      }
+      throw new Error("Failed to download medical form");
+    }
+
+    return await response.blob();
+  }
+
+  static async downloadAdmissionNotice(): Promise<Blob> {
+    const token = this.getToken();
+    const headers: Record<string, string> = {
+      ...(token && { Authorization: `Bearer ${token}` }),
+    };
+
+    const response = await fetch(`${API_BASE_URL}/applicant/admission-notice`, {
+      method: "GET",
+      headers,
+    });
+
+    if (!response.ok) throw new Error("Failed to download admission notice");
+
+    return await response.blob();
+  }
+
+  static async downloadAffidavitForm(): Promise<Blob> {
+    const token = this.getToken();
+    const headers: Record<string, string> = {
+      ...(token && { Authorization: `Bearer ${token}` }),
+    };
+
+    const response = await fetch(`${API_BASE_URL}/applicant/affidavit-form`, {
+      method: "GET",
+      headers,
+    });
+
+    if (!response.ok) throw new Error("Failed to download affidavit form");
+
+    return await response.blob();
+  }
+
   // Admin endpoints
   static async getApplications(
     status?: string,

@@ -37,8 +37,9 @@ def signup():
     
     # Insert new user
     user_id = Database.execute_update(
-        'INSERT INTO users (name, email, password_hash, phone_number, role) VALUES (%s, %s, %s, %s, %s)',
-        (data['name'], data['email'], password_hash, data['phone_number'], 'applicant')
+        'INSERT INTO users (name, email, password_hash, phone_number, role) VALUES (%s, %s, %s, %s, %s) RETURNING id',
+        (data['name'], data['email'], password_hash, data['phone_number'], 'applicant'),
+        return_id=True
     )
     
     if not user_id:
@@ -118,11 +119,25 @@ def login():
 @auth_bp.route('/verify-token', methods=['GET'])
 @AuthHandler.token_required
 def verify_token(payload):
-    """Verify JWT token validity"""
+    """Verify JWT token validity and return user info"""
+    user_id = payload['user_id']
+    
+    user = Database.execute_query(
+        'SELECT id, name, email, role FROM users WHERE id = %s',
+        (user_id,)
+    )
+    
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
+        
     return jsonify({
         'message': 'Token is valid',
-        'user_id': payload['user_id'],
-        'role': payload['role']
+        'user': {
+            'id': user[0]['id'],
+            'name': user[0]['name'],
+            'email': user[0]['email'],
+            'role': user[0]['role']
+        }
     }), 200
 
 @auth_bp.route('/logout', methods=['POST'])

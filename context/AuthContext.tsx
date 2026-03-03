@@ -17,6 +17,12 @@ interface ApplicantData {
   admission_status: string;
 }
 
+interface ApiResponse {
+  user: User;
+  token: string;
+  applicant?: ApplicantData;
+}
+
 interface AuthContextType {
   user: User | null;
   applicant: ApplicantData | null;
@@ -49,10 +55,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const verifyToken = useCallback(async () => {
     try {
-      const response = await ApiClient.verifyToken();
-      // If token is valid, try to get user status
-      const status = await ApiClient.getApplicantStatus();
-      setApplicant(status.applicant);
+      const response = await ApiClient.verifyToken() as { user: User };
+      setUser(response.user);
+      
+      // If token is valid and user is applicant, try to get applicant status
+      if (response.user.role === 'applicant') {
+        const status = await ApiClient.getApplicantStatus();
+        setApplicant(status.applicant);
+      } else {
+        setApplicant(null);
+      }
     } catch (err) {
       ApiClient.setToken(null);
       setUser(null);
@@ -67,7 +79,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoading(true);
       setError(null);
       try {
-        const response = await ApiClient.signup(name, email, password, phone_number);
+        const response = await ApiClient.signup(name, email, password, phone_number) as ApiResponse;
         ApiClient.setToken(response.token);
         setUser(response.user);
         if (response.applicant) {
@@ -88,7 +100,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     setError(null);
     try {
-      const response = await ApiClient.login(email, password);
+      const response = await ApiClient.login(email, password) as ApiResponse;
       ApiClient.setToken(response.token);
       setUser(response.user);
       if (response.applicant) {

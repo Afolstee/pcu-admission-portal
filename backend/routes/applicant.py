@@ -4,6 +4,7 @@ from utils.auth import AuthHandler
 from utils.document_handler import DocumentHandler
 from utils.pdf_generator import PDFGenerator
 from utils.payment_receipt_generator import PaymentReceiptGenerator
+from utils.medical_form_generator import MedicalFormGenerator
 from config import Config
 from datetime import datetime
 import os
@@ -48,8 +49,9 @@ def select_program(payload):
     if not applicants:
         # Create applicant record tied to this user with the selected program
         applicant_id = Database.execute_update(
-            'INSERT INTO applicants (user_id, program_id) VALUES (%s, %s)',
-            (user_id, program_id)
+            'INSERT INTO applicants (user_id, program_id) VALUES (%s, %s) RETURNING id',
+            (user_id, program_id),
+            return_id=True
         )
         if not applicant_id:
             return jsonify({'message': 'Failed to create applicant record'}), 500
@@ -188,6 +190,7 @@ def submit_form(payload):
              qualification_type, qualification_institution, qualification_year,
              work_experience, additional_info)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
             ''',
             (
                 applicant_id,
@@ -201,7 +204,8 @@ def submit_form(payload):
                 data.get('qualification_year'),
                 data.get('work_experience'),
                 data.get('additional_info')
-            )
+            ),
+            return_id=True
         )
 
     if not form_id:
@@ -246,13 +250,17 @@ def upload_document(payload):
     if not stored_filename:
         return jsonify({'message': 'Failed to save document'}), 500
     
+    if not form_id:
+        return jsonify({'message': 'form_id is required'}), 400
+        
     try:
         form_id_int = int(form_id)                 
         is_compressed_bool = bool(is_compressed)  
         original_size_int = int(original_size)    
         compressed_size_int = int(compressed_size)
-    except (TypeError, ValueError):
-        return jsonify({'message': 'Invalid file metadata'}), 400
+    except (TypeError, ValueError) as e:
+        print(f"Metadata conversion error: {e}, form_id={form_id}")
+        return jsonify({'message': f'Invalid file metadata: {str(e)}'}), 400
     
     # Store document metadata in database
     file_path = os.path.join(upload_folder, stored_filename)
@@ -262,9 +270,10 @@ def upload_document(payload):
     '''INSERT INTO documents 
        (application_form_id, document_type, original_filename, stored_filename, file_path, 
         file_size, compressed_size, mime_type, is_compressed)
-       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id''',
     (form_id_int, document_type, file.filename, stored_filename, file_path,
-     original_size_int, compressed_size_int, mime_type, is_compressed_bool)
+     original_size_int, compressed_size_int, mime_type, is_compressed_bool),
+    return_id=True
 )
     
     if not doc_id:
@@ -698,6 +707,88 @@ def get_payment_receipt(payload, transaction_id):
         mimetype='application/pdf',
         headers={'Content-Disposition': f'attachment;filename=payment_receipt_{receipt_id}.pdf'}
     )
+
+@applicant_bp.route('/medical-form', methods=['GET'])
+@AuthHandler.token_required
+def get_medical_form(payload):
+    """Download medical examination form as PDF"""
+    user_id = payload['user_id']
+    
+    # Get applicant and verify document download eligibility (paid both fees?)
+    # Usually students can download this once they are admitted, but user said "after tuition and acceptance has been paid"
+    applicant = Database.execute_query(
+        '''SELECT a.id, a.program_id, u.name, p.name as program_name, a.has_paid_acceptance_fee, a.has_paid_tuition
+           FROM applicants a
+           JOIN users u ON a.user_id = u.id
+           LEFT JOIN programs p ON a.program_id = p.id
+           WHERE a.user_id = %s''',
+        (user_id,)
+    )
+    
+    if not applicant:
+        return jsonify({'message': 'Applicant record not found'}), 404
+        
+    app_data = applicant[0]
+    
+    if not app_data['has_paid_acceptance_fee'] or not app_data['has_paid_tuition']:
+        return jsonify({'message': 'Please complete acceptance and tuition payments to download this form'}), 403
+    
+    # Try to serve the official PDF file from data folder
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    medical_form_path = os.path.join(base_dir, 'data', "PCU STUDENTS' MEDICAL REPORT FORM_ (1) - Copy.pdf")
+    
+    if os.path.exists(medical_form_path):
+        with open(medical_form_path, 'rb') as f:
+            pdf_bytes = f.read()
+        filename = "pcu_medical_report_form.pdf"
+    else:
+        # Fallback to generated one if file is missing
+        pdf_bytes = MedicalFormGenerator.generate_medical_form_pdf(
+            applicant_name=app_data['name'],
+            program_name=app_data['program_name'] or 'N/A',
+            applicant_id=app_data['id']
+        )
+        filename = f"medical_form_{app_data['id']}.pdf"
+    
+    return Response(
+        pdf_bytes,
+        mimetype='application/pdf',
+        headers={'Content-Disposition': f'attachment;filename={filename}'}
+    )
+
+@applicant_bp.route('/admission-notice', methods=['GET'])
+@AuthHandler.token_required
+def get_admission_notice(payload):
+    """Download official admission notice as PDF"""
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    file_path = os.path.join(base_dir, 'data', "PCU NOTICE TO CANDIDATES OFFERED PROVISIONAL ADMISSION 2025.pdf")
+    
+    if os.path.exists(file_path):
+        with open(file_path, 'rb') as f:
+            pdf_bytes = f.read()
+        return Response(
+            pdf_bytes,
+            mimetype='application/pdf',
+            headers={'Content-Disposition': 'attachment;filename=pcu_admission_notice_2025.pdf'}
+        )
+    return jsonify({'message': 'Notice file not found'}), 404
+
+@applicant_bp.route('/affidavit-form', methods=['GET'])
+@AuthHandler.token_required
+def get_affidavit_form(payload):
+    """Download official affidavit form as PDF"""
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    file_path = os.path.join(base_dir, 'data', "PCU AFFIDAVIT FOR GOOD CONDUCT - Copy.pdf")
+    
+    if os.path.exists(file_path):
+        with open(file_path, 'rb') as f:
+            pdf_bytes = f.read()
+        return Response(
+            pdf_bytes,
+            mimetype='application/pdf',
+            headers={'Content-Disposition': 'attachment;filename=pcu_affidavit_for_good_conduct.pdf'}
+        )
+    return jsonify({'message': 'Affidavit file not found'}), 404
 
 @applicant_bp.route('/payment-history', methods=['GET'])
 @AuthHandler.token_required

@@ -115,20 +115,16 @@ export default function ApplicationForm({
     setError(null);
   };
 
-  const uploadDocument = async (documentType: string, file: File) => {
-    if (!formId) {
+  const uploadDocument = async (documentType: string, file: File, currentFormId?: number) => {
+    const effectiveFormId = currentFormId || formId;
+    if (!effectiveFormId) {
       throw new Error('Form not saved. Please save form first.');
     }
-
-    const formDataObj = new FormData();
-    formDataObj.append('file', file);
-    formDataObj.append('form_id', formId.toString());
-    formDataObj.append('document_type', documentType);
 
     try {
       setUploadProgress((prev) => ({ ...prev, [documentType]: 0 }));
 
-      const response = await ApiClient.uploadDocument(file, formId, documentType);
+      const response = await ApiClient.uploadDocument(file, effectiveFormId, documentType);
 
       setUploadProgress((prev) => ({ ...prev, [documentType]: 100 }));
       setUploadedDocuments((prev) => ({
@@ -164,8 +160,9 @@ export default function ApplicationForm({
         ...formData,
       });
 
+      const actualFormId = response.form_id;
       if (!formId) {
-        setFormId(response.form_id);
+        setFormId(actualFormId);
       }
 
       // Upload any new documents
@@ -175,7 +172,7 @@ export default function ApplicationForm({
 
       for (const [docType, file] of documentsToUpload) {
         if (file) {
-          await uploadDocument(docType, file);
+          await uploadDocument(docType, file, actualFormId);
         }
       }
 

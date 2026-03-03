@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
 export default function ApplicantLayout({ children }: { children: React.ReactNode }) {
-  const { user, isAuthenticated, isLoading } = useAuth();
+  const { user, applicant, isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -16,11 +16,15 @@ export default function ApplicantLayout({ children }: { children: React.ReactNod
       return;
     }
 
-    if (!user?.program_id) {
+    const currentPath = window.location.pathname;
+    const isSelectingProgram = currentPath === '/applicant/select-program';
+
+    if (!applicant?.program_id && !isSelectingProgram) {
       router.replace('/applicant/select-program');
-      return;
+    } else if (applicant?.program_id && isSelectingProgram) {
+      router.replace('/applicant/dashboard');
     }
-  }, [isAuthenticated, isLoading, user, router]);
+  }, [isAuthenticated, isLoading, user, applicant, router]);
 
   return <>{children}</>;
 }

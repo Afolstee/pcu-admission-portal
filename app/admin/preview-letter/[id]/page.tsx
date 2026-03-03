@@ -59,7 +59,6 @@ export default function PreviewAdmissionLetterPage() {
       fetchAndPreviewLetter();
     }
 
-    // Cleanup object URL on unmount
     return () => {
       if (pdfUrl) {
         URL.revokeObjectURL(pdfUrl);

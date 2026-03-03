@@ -5,6 +5,7 @@ import { AuthProvider } from "@/context/AuthContext";
 import { BackgroundLayout } from "@/components/BackgroundLayout";
 import { NavBar } from "@/components/NavBar";
 import { Footer } from "@/components/Footer";
+import { KeepAlive } from "@/components/KeepAlive";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -21,6 +22,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
+        <KeepAlive />
         <AuthProvider>
           <BackgroundLayout>
             <NavBar />

@@ -225,6 +225,14 @@ export class ApiClient {
     return data;
   }
 
+  // Health endpoint for keeping Render server active
+  static async healthCheck() {
+    const { data } = await this.fetch("/health", {
+      method: "GET",
+    });
+    return data;
+  }
+
   // Applicant endpoints
   static async getPrograms() {
     const { data } = await this.fetch("/applicant/programs");

@@ -14,12 +14,13 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CardFooter,
 } from "@/components/ui/card";
-import { AlertCircle, X } from "lucide-react";
+import { AlertCircle, X, CheckCircle2 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, isLoading, error, isAuthenticated, user, applicant } =
+  const { login, logout, isLoading, error, isAuthenticated, user, applicant, student } =
     useAuth();
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [localError, setLocalError] = useState("");
@@ -58,6 +59,11 @@ export default function LoginPage() {
       return;
     }
 
+    if (user.role === "student") {
+      // Do not auto-redirect; stay on page to show admission message
+      return;
+    }
+
     // Applicant: must select a program before accessing dashboard/application
     if (!applicant?.program_id) {
       router.replace("/applicant/select-program");
@@ -77,8 +83,9 @@ export default function LoginPage() {
     setLocalError("");
     setShowError(false);
 
-    if (!formData.email.includes("@")) {
-      setLocalError("Valid email is required");
+    // Basic validation: allow username (no @) or email
+    if (!formData.email) {
+      setLocalError("Email or Username is required");
       setShowError(true);
       return;
     }
@@ -96,6 +103,40 @@ export default function LoginPage() {
   };
 
   const displayError = localError || error;
+
+  if (isAuthenticated && user?.role === "student") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <Card className="w-full max-w-md border-primary/20 shadow-xl text-center">
+          <CardHeader>
+            <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+              <CheckCircle2 className="h-10 w-10 text-green-600" />
+            </div>
+            <CardTitle className="text-2xl text-primary">Congratulations!</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-lg">
+              You have been admitted to <strong>{student?.program_name || "your program"}</strong>.
+            </p>
+            <p className="text-sm text-muted-foreground mt-2">
+              Your account has been upgraded to a Student profile. Please, sign in to your student portal to continue.
+            </p>
+          </CardContent>
+          <CardFooter>
+            <Button 
+              className="w-full" 
+              onClick={async () => {
+                await logout();
+                router.push("/student/login");
+              }}
+            >
+              Sign In to Student Portal
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -180,12 +221,12 @@ export default function LoginPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email Address</Label>
+              <Label htmlFor="email">Email or Username</Label>
               <Input
                 id="email"
                 name="email"
-                type="email"
-                placeholder="Enter your email"
+                type="text"
+                placeholder="Enter your email or surname"
                 value={formData.email}
                 onChange={handleChange}
                 disabled={isLoading}
@@ -212,16 +253,26 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <div className="mt-6 text-center text-sm">
-            <span className="text-muted-foreground">
+          <div className="mt-6 text-center text-sm space-y-4">
+            <div className="text-muted-foreground">
               Don't have an account?{" "}
-            </span>
-            <Link
-              href="/auth/signup"
-              className="text-primary font-medium hover:underline"
-            >
-              Create one
-            </Link>
+              <Link
+                href="/auth/signup"
+                className="text-primary font-medium hover:underline"
+              >
+                Create one
+              </Link>
+            </div>
+            
+            <div className="pt-4 border-t border-slate-100">
+              <Link
+                href="/student/login"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#3d2b3d]/5 text-[#3d2b3d] font-bold hover:bg-[#3d2b3d]/10 transition-colors"
+              >
+                <span>Student Portal Login</span>
+                <span className="text-lg">→</span>
+              </Link>
+            </div>
           </div>
         </CardContent>
       </Card>

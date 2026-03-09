@@ -39,7 +39,7 @@ export default function SelectProgramPage() {
 
     const loadPrograms = async () => {
       try {
-        const response = await ApiClient.getPrograms();
+        const response = await ApiClient.getApplicantPrograms();
         setPrograms(response.programs || []);
       } catch (err) {
         setError("Failed to load programs. Please try again.");

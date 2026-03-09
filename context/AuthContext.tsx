@@ -1,34 +1,41 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { ApiClient } from '@/lib/api';
+
 
 interface User {
   id: number;
   name: string;
+  first_name?: string;
+  last_name?: string;
   email: string;
-  role: 'applicant' | 'admin';
+  username?: string;
+  role: 'applicant' | 'admin' | 'student';
 }
 
-interface ApplicantData {
+import { ApiClient, StudentData } from '@/lib/api';
+
+export interface ApplicantData {
   id: number;
   program_id: number;
   application_status: string;
   admission_status: string;
 }
 
-interface ApiResponse {
+export interface ApiResponse {
   user: User;
   token: string;
   applicant?: ApplicantData;
+  student?: StudentData;
 }
 
 interface AuthContextType {
   user: User | null;
   applicant: ApplicantData | null;
+  student: StudentData | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  signup: (name: string, email: string, password: string, phone_number: string) => Promise<void>;
+  signup: (first_name: string, last_name: string, email: string, password: string, phone_number: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshStatus: () => Promise<void>;
@@ -40,6 +47,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [applicant, setApplicant] = useState<ApplicantData | null>(null);
+  const [student, setStudent] = useState<StudentData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,31 +63,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const verifyToken = useCallback(async () => {
     try {
-      const response = await ApiClient.verifyToken() as { user: User };
+      const response = await ApiClient.verifyToken() as { user: User; student?: StudentData; applicant?: ApplicantData };
       setUser(response.user);
       
-      // If token is valid and user is applicant, try to get applicant status
       if (response.user.role === 'applicant') {
         const status = await ApiClient.getApplicantStatus();
         setApplicant(status.applicant);
+        setStudent(null);
+      } else if (response.user.role === 'student' && response.student) {
+        setStudent(response.student);
+        setApplicant(null);
       } else {
         setApplicant(null);
+        setStudent(null);
       }
     } catch (err) {
       ApiClient.setToken(null);
       setUser(null);
       setApplicant(null);
+      setStudent(null);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   const signup = useCallback(
-    async (name: string, email: string, password: string, phone_number: string) => {
+    async (first_name: string, last_name: string, email: string, password: string, phone_number: string) => {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await ApiClient.signup(name, email, password, phone_number) as ApiResponse;
+        const response = await ApiClient.signup(first_name, last_name, email, password, phone_number) as ApiResponse;
         ApiClient.setToken(response.token);
         setUser(response.user);
         if (response.applicant) {
@@ -106,6 +119,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (response.applicant) {
         setApplicant(response.applicant);
       }
+      if (response.student) {
+        setStudent(response.student);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed';
       setError(message);
@@ -125,6 +141,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ApiClient.setToken(null);
       setUser(null);
       setApplicant(null);
+      setStudent(null);
       setError(null);
       setIsLoading(false);
     }
@@ -132,16 +149,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshStatus = useCallback(async () => {
     try {
-      const status = await ApiClient.getApplicantStatus();
-      setApplicant(status.applicant);
+      if (user?.role === 'applicant') {
+        const status = await ApiClient.getApplicantStatus();
+        setApplicant(status.applicant);
+      } else if (user?.role === 'student') {
+        // We can use verifyToken or a dedicated student status endpoint
+        const response = await ApiClient.verifyToken() as { user: User; student?: StudentData };
+        if (response.student) setStudent(response.student);
+      }
     } catch (err) {
       console.error('Error refreshing status:', err);
     }
-  }, []);
+  }, [user]);
 
   const value: AuthContextType = {
     user,
     applicant,
+    student,
     isLoading,
     isAuthenticated: !!user,
     signup,

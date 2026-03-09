@@ -43,10 +43,12 @@ def create_app(config_name='development'):
     from routes.auth import auth_bp
     from routes.applicant import applicant_bp
     from routes.admin import admin_bp
+    from routes.student import student_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(applicant_bp, url_prefix='/api/applicant')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
+    app.register_blueprint(student_bp, url_prefix='/api/student')
 
     @app.route('/api/health', methods=['GET'])
     def health():

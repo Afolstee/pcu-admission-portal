@@ -21,7 +21,8 @@ export default function SignupPage() {
   const router = useRouter();
   const { signup, isLoading, error, isAuthenticated } = useAuth();
   const [formData, setFormData] = useState({
-    name: "",
+    first_name: "",
+    last_name: "",
     email: "",
     password: "",
     confirmPassword: "",
@@ -97,8 +98,13 @@ export default function SignupPage() {
     setShowError(false);
 
     // Validation
-    if (!formData.name.trim()) {
-      setLocalError("Full name is required");
+    if (!formData.first_name.trim()) {
+      setLocalError("First name is required");
+      setShowError(true);
+      return;
+    }
+    if (!formData.last_name.trim()) {
+      setLocalError("Surname is required");
       setShowError(true);
       return;
     }
@@ -132,7 +138,8 @@ export default function SignupPage() {
 
     try {
       await signup(
-        formData.name,
+        formData.first_name,
+        formData.last_name,
         formData.email,
         formData.password,
         formData.phone_number,
@@ -232,16 +239,31 @@ export default function SignupPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Full Name</Label>
-                <Input
-                  id="name"
-                  name="name"
-                  placeholder="Enter your full name"
-                  value={formData.name}
-                  onChange={handleChange}
-                  disabled={isLoading}
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="first_name">First Name</Label>
+                  <Input
+                    id="first_name"
+                    name="first_name"
+                    placeholder="John"
+                    value={formData.first_name}
+                    onChange={handleChange}
+                    disabled={isLoading}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="last_name">Surname</Label>
+                  <Input
+                    id="last_name"
+                    name="last_name"
+                    placeholder="Doe"
+                    value={formData.last_name}
+                    onChange={handleChange}
+                    disabled={isLoading}
+                    required
+                  />
+                </div>
               </div>
 
               <div className="space-y-2">

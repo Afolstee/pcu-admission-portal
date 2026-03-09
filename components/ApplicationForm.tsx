@@ -63,7 +63,7 @@ export default function ApplicationForm({
     const loadExistingForm = async () => {
       if (!applicantId) return;
       try {
-        const response = await ApiClient.getForm(applicantId);
+        const response: any = await ApiClient.getForm(applicantId);
         if (response.form) {
           setFormId(response.form.id);
           const data: Record<string, string> = {};
@@ -350,7 +350,13 @@ export default function ApplicationForm({
                 />
                 {documents[doc.type] && (
                   <Button
-                    onClick={() => uploadDocument(doc.type, documents[doc.type]!)}
+                    onClick={async () => {
+                      try {
+                        await uploadDocument(doc.type, documents[doc.type]!);
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Upload failed');
+                      }
+                    }}
                     disabled={saving || submitting}
                     size="sm"
                     className="gap-2"

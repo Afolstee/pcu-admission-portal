@@ -38,6 +38,8 @@ function PaymentContent() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<boolean>(false);
   const [transactionId, setTransactionId] = useState<string | null>(null);
+  const [isUpgraded, setIsUpgraded] = useState(false);
+  const [initialPassword, setInitialPassword] = useState("");
   
   // Payment selection
   const [selectedType, setSelectedType] = useState<"acceptance_fee" | "tuition" | null>(typeParam);
@@ -128,6 +130,12 @@ function PaymentContent() {
       );
 
       setTransactionId(response.transaction_id);
+      if (response.upgraded_to_student) {
+        setIsUpgraded(true);
+        if (response.initial_password) {
+          setInitialPassword(response.initial_password);
+        }
+      }
       setSuccess(true);
     } catch (err: any) {
       console.error("Payment error:", err);
@@ -179,10 +187,32 @@ function PaymentContent() {
             <p className="text-sm text-muted-foreground">
               A copy of your receipt has been sent to your email. You can also download it from your dashboard.
             </p>
+            {isUpgraded && (
+              <div className="mt-6 bg-primary/10 border-l-4 border-primary p-4 rounded-r-lg">
+                <h4 className="font-bold text-primary mb-1 text-lg">Congratulations!</h4>
+                <p className="text-sm">
+                  You have been fully enrolled and upgraded to a <strong>Student Account</strong>!
+                </p>
+                <p className="text-sm mt-2">
+                  Please sign in to the Student Portal.
+                  <br />
+                  <strong>Username:</strong> Your registered email
+                  <br />
+                  <strong>Password:</strong> <span className="font-mono bg-muted px-1 py-0.5 rounded">{initialPassword}</span>
+                </p>
+              </div>
+            )}
           </CardContent>
           <CardFooter>
-            <Button className="w-full" onClick={() => router.push("/applicant/dashboard")}>
-              Return to Dashboard
+            <Button className="w-full" onClick={async () => {
+              if (isUpgraded) {
+                await logout();
+                router.push("/student/login");
+              } else {
+                router.push("/applicant/dashboard");
+              }
+            }}>
+              {isUpgraded ? "Sign In to Student Portal" : "Return to Dashboard"}
             </Button>
           </CardFooter>
         </Card>

@@ -82,7 +82,7 @@ export default function ApplicationDetailPage() {
 
   const loadPrograms = async () => {
     try {
-      const response = await ApiClient.getPrograms();
+      const response = await ApiClient.getAdminPrograms();
       setPrograms((response as any).programs || []);
     } catch (err) {
       console.error("Error loading programs:", err);

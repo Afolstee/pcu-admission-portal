@@ -631,6 +631,47 @@ def process_payment(payload):
                 'UPDATE applicants SET has_paid_tuition = TRUE WHERE id = %s',
                 (applicant_id,)
             )
+            
+        # Check if both are paid, if so upgrade to student
+        applicant_status = Database.execute_query(
+            '''SELECT a.user_id, a.has_paid_acceptance_fee, a.has_paid_tuition, a.program_id,
+                      u.email, u.last_name, u.role
+               FROM applicants a JOIN users u ON a.user_id = u.id
+               WHERE a.id = %s''',
+            (applicant_id,)
+        )
+        
+        upgraded = False
+        initial_password = ""
+        if applicant_status and applicant_status[0]['role'] == 'applicant':
+            app_data = applicant_status[0]
+            if app_data.get('has_paid_acceptance_fee') and app_data.get('has_paid_tuition'):
+                # Upgrade to student
+                app_user_id = app_data['user_id']
+                surname = app_data.get('last_name') or "password"
+                initial_password = surname.strip().lower()
+                app_program_id = app_data['program_id']
+                
+                matric_number = f"PCU/{datetime.now().strftime('%Y')}/{applicant_id:04d}"
+                username = app_data['email']
+                password_hash = AuthHandler.hash_password(initial_password)
+                
+                try:
+                    success_user = Database.execute_update(
+                        'UPDATE users SET username = %s, password_hash = %s, role = %s WHERE id = %s',
+                        (username, password_hash, 'student', app_user_id)
+                    )
+                    
+                    success_student = Database.execute_update(
+                        '''INSERT INTO students (user_id, matric_number, program_id, current_level, session, is_first_login)
+                           VALUES (%s, %s, %s, %s, %s, TRUE) 
+                           ON CONFLICT (user_id) DO UPDATE SET matric_number = EXCLUDED.matric_number''',
+                        (app_user_id, matric_number, app_program_id, '100 Level', '2025/2026')
+                    )
+                    if success_user and success_student:
+                        upgraded = True
+                except Exception as e:
+                    print(f"Error upgrading applicant to student: {e}")
         
         # Prepare receipt data
         transaction_id = reference_id or f"PAY-{uuid.uuid4().hex[:12].upper()}"
@@ -642,7 +683,9 @@ def process_payment(payload):
             'payment_type': payment_type,
             'amount': amount,
             'status': 'completed',
-            'completed_at': datetime.now().isoformat()
+            'completed_at': datetime.now().isoformat(),
+            'upgraded_to_student': upgraded,
+            'initial_password': initial_password if upgraded else None
         }), 200
     
     except Exception as e:

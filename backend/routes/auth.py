@@ -11,7 +11,7 @@ def signup():
     data = request.get_json()
     
     # Validate input
-    if not data or not all(k in data for k in ['name', 'email', 'password', 'phone_number']):
+    if not data or not all(k in data for k in ['first_name', 'last_name', 'email', 'password', 'phone_number']):
         return jsonify({'message': 'Missing required fields'}), 400
     
     # Validate email format
@@ -37,8 +37,8 @@ def signup():
     
     # Insert new user
     user_id = Database.execute_update(
-        'INSERT INTO users (name, email, password_hash, phone_number, role) VALUES (%s, %s, %s, %s, %s) RETURNING id',
-        (data['name'], data['email'], password_hash, data['phone_number'], 'applicant'),
+        'INSERT INTO users (first_name, last_name, name, email, password_hash, phone_number, role) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id',
+        (data['first_name'], data['last_name'], f"{data['first_name']} {data['last_name']}", data['email'], password_hash, data['phone_number'], 'applicant'),
         return_id=True
     )
     
@@ -58,7 +58,9 @@ def signup():
         'token': token,
         'user': {
             'id': user_id,
-            'name': data['name'],
+            'first_name': data['first_name'],
+            'last_name': data['last_name'],
+            'name': f"{data['first_name']} {data['last_name']}",
             'email': data['email'],
             'role': 'applicant'
         }
@@ -72,10 +74,10 @@ def login():
     if not data or not all(k in data for k in ['email', 'password']):
         return jsonify({'message': 'Missing email or password'}), 400
     
-    # Query user by email
+    # Query user by email or username
     users = Database.execute_query(
-        'SELECT id, name, email, password_hash, role, status FROM users WHERE email = %s',
-        (data['email'],)
+        'SELECT id, name, first_name, last_name, email, username, password_hash, role, status FROM users WHERE email = %s OR username = %s',
+        (data['email'], data['email'])
     )
     
     if not users:
@@ -94,15 +96,26 @@ def login():
     # Generate token
     token = AuthHandler.generate_token(user['id'], user['role'])
     
-    # Get applicant status if user is applicant
-    applicant_data = None
+    # Get applicant or student status
+    extra_data = {}
     if user['role'] == 'applicant':
         applicants = Database.execute_query(
             'SELECT id, program_id, application_status, admission_status FROM applicants WHERE user_id = %s',
             (user['id'],)
         )
         if applicants:
-            applicant_data = applicants[0]
+            extra_data['applicant'] = applicants[0]
+            
+    elif user['role'] == 'student':
+        students = Database.execute_query(
+            '''SELECT s.id, s.matric_number, s.program_id, s.current_level, s.session, s.is_first_login, p.name as program_name 
+               FROM students s 
+               LEFT JOIN programs p ON s.program_id = p.id 
+               WHERE s.user_id = %s''',
+            (user['id'],)
+        )
+        if students:
+            extra_data['student'] = students[0]
     
     return jsonify({
         'message': 'Login successful',
@@ -110,10 +123,13 @@ def login():
         'user': {
             'id': user['id'],
             'name': user['name'],
+            'first_name': user.get('first_name'),
+            'last_name': user.get('last_name'),
             'email': user['email'],
+            'username': user.get('username'),
             'role': user['role']
         },
-        'applicant': applicant_data
+        **extra_data
     }), 200
 
 @auth_bp.route('/verify-token', methods=['GET'])
@@ -123,21 +139,48 @@ def verify_token(payload):
     user_id = payload['user_id']
     
     user = Database.execute_query(
-        'SELECT id, name, email, role FROM users WHERE id = %s',
+        'SELECT id, name, first_name, last_name, email, username, role FROM users WHERE id = %s',
         (user_id,)
     )
     
     if not user:
         return jsonify({'message': 'User not found'}), 404
         
+    user_data = user[0]
+    
+    # Get applicant or student status
+    extra_data = {}
+    if user_data['role'] == 'applicant':
+        applicants = Database.execute_query(
+            'SELECT id, program_id, application_status, admission_status FROM applicants WHERE user_id = %s',
+            (user_id,)
+        )
+        if applicants:
+            extra_data['applicant'] = applicants[0]
+            
+    elif user_data['role'] == 'student':
+        students = Database.execute_query(
+            '''SELECT s.id, s.matric_number, s.program_id, s.current_level, s.session, s.is_first_login, p.name as program_name 
+               FROM students s 
+               LEFT JOIN programs p ON s.program_id = p.id 
+               WHERE s.user_id = %s''',
+            (user_id,)
+        )
+        if students:
+            extra_data['student'] = students[0]
+            
     return jsonify({
         'message': 'Token is valid',
         'user': {
-            'id': user[0]['id'],
-            'name': user[0]['name'],
-            'email': user[0]['email'],
-            'role': user[0]['role']
-        }
+            'id': user_data['id'],
+            'name': user_data['name'],
+            'first_name': user_data.get('first_name'),
+            'last_name': user_data.get('last_name'),
+            'email': user_data['email'],
+            'username': user_data.get('username'),
+            'role': user_data['role']
+        },
+        **extra_data
     }), 200
 
 @auth_bp.route('/logout', methods=['POST'])

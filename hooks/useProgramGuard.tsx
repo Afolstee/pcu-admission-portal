@@ -7,13 +7,16 @@ import { useAuth } from '@/context/AuthContext';
 
 export function useProgramGuard() {
   const router = useRouter();
-  const { isAuthenticated, applicant } = useAuth();
-
+  const { isAuthenticated, user, applicant } = useAuth();
+ 
   useEffect(() => {
-    if (!isAuthenticated) return;
-
+    if (!isAuthenticated || !user) return;
+    
+    // Ignore guard for students and admins
+    if (user.role !== 'applicant') return;
+ 
     if (!applicant?.program_id) {
       router.replace('/applicant/select-program');
     }
-  }, [isAuthenticated, applicant, router]);
+  }, [isAuthenticated, user, applicant, router]);
 }

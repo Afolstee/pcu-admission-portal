@@ -206,6 +206,7 @@ def send_admission_letter(payload):
     # Generate PDF using the selected template
     pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
         candidateName=applicant_data['name'],
+        email=applicant_data['email'],
         programme=applicant_data['program_name'] or '',
         level=applicant_data.get('level') or '100 Level',
         department=applicant_data.get('department') or '',
@@ -312,6 +313,7 @@ def preview_admission_letter(payload):
     # Generate PDF using selected template (default to 'default' if not specified)
     pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
         candidateName=applicant_data['name'],
+        email=applicant_data['email'],
         programme=applicant_data['program_name'] or '',
         level=applicant_data.get('level') or '100 Level',
         department=applicant_data.get('department') or '',
@@ -401,6 +403,7 @@ def send_batch_letters(payload):
             # Generate PDF
             pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
                 candidateName=applicant_data['name'],
+                email=applicant_data['email'],
                 programme=applicant_data['program_name'] or '',
                 level=applicant_data.get('level') or '100 Level',
                 department=applicant_data.get('department') or '',
@@ -731,6 +734,7 @@ def send_department_letters(payload):
                 # Generate PDF
                 pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
                     candidateName=applicant_data['name'],
+                    email=applicant_data['email'],
                     programme=applicant_data['program_name'] or '',
                     level=applicant_data.get('level') or '100 Level',
                     department=applicant_data.get('department') or '',
@@ -961,6 +965,7 @@ def resend_letter(payload, applicant_id):
         # Generate PDF
         pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
             candidateName=applicant_data['name'],
+            email=applicant_data['email'],
             programme=applicant_data['program_name'] or '',
             level=applicant_data.get('level') or '100 Level',
             department=applicant_data.get('department') or '',
@@ -1105,6 +1110,7 @@ def preview_letter(payload, applicant_id):
         # Generate PDF
         pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
             candidateName=applicant_data['name'],
+            email=applicant_data['email'],
             programme=applicant_data['program_name'] or '',
             level=applicant_data.get('level') or '100 Level',
             department=applicant_data.get('department') or '',
@@ -1132,3 +1138,112 @@ def preview_letter(payload, applicant_id):
             'message': 'Error generating preview',
             'error': str(e)
         }), 500
+
+# ==========================================
+# STAGE 2: PORTAL MANAGEMENT ROUTES
+# ==========================================
+
+@admin_bp.route('/programs', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.admin_required
+def get_programs(payload):
+    """Retrieve all academic programs for management"""
+    programs = Database.execute_query(
+        '''SELECT p.*, pf.acceptance_fee, pf.tuition_fee, pf.other_fees 
+           FROM programs p 
+           LEFT JOIN program_fees pf ON p.id = pf.program_id
+           ORDER BY p.name'''
+    )
+    return jsonify({'programs': programs or []}), 200
+
+@admin_bp.route('/program/<int:program_id>', methods=['PUT'])
+@AuthHandler.token_required
+@AuthHandler.admin_required
+def update_program(payload, program_id):
+    """Update program details (including registration deadline)"""
+    data = request.get_json()
+    if not data:
+        return jsonify({'message': 'No data provided'}), 400
+        
+    allowed_fields = [
+        'name', 'description', 'faculty', 'department', 
+        'level', 'mode', 'session', 'resumption_date', 
+        'registration_deadline'
+    ]
+    
+    updates = []
+    params = []
+    
+    for field in allowed_fields:
+        if field in data:
+            updates.append(f"{field} = %s")
+            params.append(data[field])
+            
+    if not updates:
+        return jsonify({'message': 'No valid fields provided for update'}), 400
+        
+    params.append(program_id)
+    
+    try:
+        Database.execute_update(
+            f"UPDATE programs SET {', '.join(updates)}, updated_at = NOW() WHERE id = %s",
+            tuple(params)
+        )
+        return jsonify({'message': 'Program updated successfully'}), 200
+    except Exception as e:
+        return jsonify({'message': f'Error updating program: {e}'}), 500
+
+@admin_bp.route('/students', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.admin_required
+def get_students(payload):
+    """Retrieve all students (Stage 2 focus)"""
+    program_id = request.args.get('program_id')
+    level = request.args.get('level')
+    
+    query = '''SELECT s.id, u.name, u.email, s.matric_number, p.name as program_name, 
+                      s.current_level, s.session, s.is_first_login
+               FROM students s 
+               JOIN users u ON s.user_id = u.id 
+               LEFT JOIN programs p ON s.program_id = p.id
+               WHERE 1=1'''
+    params = []
+    
+    if program_id:
+        query += ' AND s.program_id = %s'
+        params.append(program_id)
+    if level:
+        query += ' AND s.current_level = %s'
+        params.append(level)
+        
+    students = Database.execute_query(query, tuple(params))
+    return jsonify({'students': students or []}), 200
+
+@admin_bp.route('/student/<int:student_id>/registration', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.admin_required
+def get_student_registration(payload, student_id):
+    """View a student's course registration details"""
+    semester = request.args.get('semester', 'First')
+    session = request.args.get('session', '2025/2026')
+    
+    registration = Database.execute_query(
+        'SELECT * FROM course_registrations WHERE student_id = %s AND semester = %s AND session = %s',
+        (student_id, semester, session)
+    )
+    
+    if not registration:
+        return jsonify({'message': 'No registration found for this student/semester'}), 404
+        
+    courses = Database.execute_query(
+        '''SELECT c.course_code, c.course_title, c.credit_units, c.category 
+           FROM registered_courses rc 
+           JOIN courses c ON rc.course_id = c.id 
+           WHERE rc.registration_id = %s''',
+        (registration[0]['id'],)
+    )
+    
+    return jsonify({
+        'registration': registration[0],
+        'courses': courses or []
+    }), 200

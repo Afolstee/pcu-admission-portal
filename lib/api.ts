@@ -21,6 +21,32 @@ export interface ApplicantStatus {
   accepted_recommended_program_id?: number | null;
 }
 
+export interface StudentData {
+  id: number;
+  matric_number: string;
+  program_id: number;
+  program_name?: string;
+  current_level: string;
+  session: string;
+  is_first_login: boolean;
+}
+
+export interface CourseData {
+  id: number;
+  course_code: string;
+  course_title: string;
+  credit_units: number;
+  category: string;
+}
+
+export interface CourseRegistrationResponse {
+  courses: CourseData[];
+  registration_status: string | null;
+  registered_course_ids: number[];
+  student: StudentData;
+  registration_deadline: string | null;
+}
+
 // ===== Letter Management Types =====
 
 export interface FacultyDepartmentsResponse {
@@ -121,6 +147,8 @@ export interface PaymentResponse {
   amount: number;
   status: string;
   completed_at: string;
+  upgraded_to_student?: boolean;
+  initial_password?: string;
 }
 
 export interface Recommendation {
@@ -161,7 +189,7 @@ export class ApiClient {
     return this.token;
   }
 
-  private static async fetch<T>(
+  private static async fetch<T = any>(
     endpoint: string,
     options: RequestInit = {},
   ): Promise<{ data: T; status: number }> {
@@ -191,14 +219,15 @@ export class ApiClient {
 
   // Auth endpoints
   static async signup(
-    name: string,
+    first_name: string,
+    last_name: string,
     email: string,
     password: string,
     phone_number: string,
   ) {
     const { data } = await this.fetch("/auth/signup", {
       method: "POST",
-      body: JSON.stringify({ name, email, password, phone_number }),
+      body: JSON.stringify({ first_name, last_name, email, password, phone_number }),
     });
     return data;
   }
@@ -234,7 +263,7 @@ export class ApiClient {
   }
 
   // Applicant endpoints
-  static async getPrograms() {
+  static async getApplicantPrograms() {
     const { data } = await this.fetch("/applicant/programs");
     return data;
   }
@@ -659,6 +688,57 @@ export class ApiClient {
       method: "POST",
       body: JSON.stringify({ review_id, response }),
     });
+    return data;
+  }
+
+  // ================= Stage 2: Student Endpoints =================
+  static async changePassword(new_password: string): Promise<{ message: string }> {
+    const { data } = await this.fetch<{ message: string }>("/student/change-password", {
+      method: "POST",
+      body: JSON.stringify({ new_password }),
+    });
+    return data;
+  }
+
+  static async getStudentCourses(semester: string = "First"): Promise<CourseRegistrationResponse> {
+    const { data } = await this.fetch<CourseRegistrationResponse>(`/student/courses?semester=${semester}`);
+    return data;
+  }
+
+  static async registerCourses(course_ids: number[], semester: string): Promise<{ message: string }> {
+    const { data } = await this.fetch<{ message: string }>("/student/register-courses", {
+      method: "POST",
+      body: JSON.stringify({ course_ids, semester }),
+    });
+    return data;
+  }
+
+  // ===== Admin Management (Stage 2) =====
+  static async getAdminPrograms(): Promise<{ programs: any[] }> {
+    const { data } = await this.fetch<{ programs: any[] }>("/admin/programs");
+    return data;
+  }
+
+  static async updateProgram(programId: number, data: any): Promise<{ message: string }> {
+    const { data: responseData } = await this.fetch<{ message: string }>(`/admin/program/${programId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+    return responseData;
+  }
+
+  static async getStudents(filters?: { program_id?: number; level?: string }): Promise<{ students: any[] }> {
+    let url = "/admin/students";
+    const params = new URLSearchParams();
+    if (filters?.program_id) params.append("program_id", filters.program_id.toString());
+    if (filters?.level) params.append("level", filters.level);
+    if (params.toString()) url += `?${params.toString()}`;
+    const { data } = await this.fetch<{ students: any[] }>(url);
+    return data;
+  }
+
+  static async getStudentRegistration(studentId: number, semester: string = "First"): Promise<{ registration: any; courses: any[] }> {
+    const { data } = await this.fetch<{ registration: any; courses: any[] }>(`/admin/student/${studentId}/registration?semester=${semester}`);
     return data;
   }
 }

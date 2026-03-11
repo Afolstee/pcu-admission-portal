@@ -108,9 +108,11 @@ def get_dept_courses(payload):
 
     courses = Database.execute_query(
         '''SELECT c.id, c.course_code, c.course_title, c.credit_units,
-                  c.remark, c.lecturer,
+                  c.remark, l.name as lecturer,
                   COALESCE(lc_staff.name,'Unassigned') AS assigned_lecturer
            FROM courses c
+           LEFT JOIN staff st ON c.lecturer_id = st.id
+           LEFT JOIN users l ON st.user_id = l.id
            LEFT JOIN (
                SELECT lc.course_id, u.name
                FROM lecturer_courses lc

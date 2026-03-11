@@ -31,6 +31,19 @@ export default function SignupPage() {
   const [localError, setLocalError] = useState("");
   const [showError, setShowError] = useState(false);
 
+  const [isPortalLocked, setIsPortalLocked] = useState(false);
+  const [loadingConfig, setLoadingConfig] = useState(true);
+
+  useEffect(() => {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"}/applicant/programs`)
+      .then(res => res.json())
+      .then(data => {
+         setIsPortalLocked(data.global_admission_locked);
+         setLoadingConfig(false);
+      })
+      .catch(() => setLoadingConfig(false));
+  }, []);
+
   // Valid email providers
   const validEmailProviders = [
     "gmail.com",
@@ -220,8 +233,33 @@ export default function SignupPage() {
         <Link href="/" className="inline-block mb-8">
           <Button variant="ghost">← Back</Button>
         </Link>
+        <Card className="w-full relative overflow-hidden">
+          {loadingConfig ? (
+            <div className="absolute inset-0 z-50 bg-white/80 backdrop-blur flex items-center justify-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto" />
+            </div>
+          ) : isPortalLocked ? (
+            <div className="absolute inset-0 z-50 bg-white flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-700">
+              <div className="mb-6 relative">
+                <div className="absolute inset-0 bg-red-100 rounded-full animate-ping opacity-75"></div>
+                <div className="relative bg-red-50 text-red-500 rounded-full h-24 w-24 flex items-center justify-center shadow-lg">
+                  <AlertCircle className="h-10 w-10" />
+                </div>
+              </div>
+              <h2 className="text-3xl font-black text-slate-800 mb-4 tracking-tight">Portal Closed</h2>
+              <p className="text-slate-500 max-w-sm mx-auto leading-relaxed">
+                We are sorry, but the admissions portal is currently closed. We are not accepting new logins or applications at this time. Please check back later!
+              </p>
+              <Button 
+                variant="outline" 
+                className="mt-8 shadow-sm rounded-xl font-semibold border-slate-200"
+                onClick={() => router.push("/")}
+              >
+                Return to Home
+              </Button>
+            </div>
+          ) : null}
 
-        <Card className="w-full">
           <CardHeader className="space-y-4 text-center">
             <div className="flex justify-center">
               <Image

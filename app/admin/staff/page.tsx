@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ApiClient } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 
 type StaffMember = {
   id: number; name: string; email: string; role: string; status: string;

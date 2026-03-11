@@ -16,7 +16,7 @@ applicant_bp = Blueprint('applicant', __name__)
 def get_programs():
     """Get list of available programs grouped by faculty and department"""
     programs = Database.execute_query(
-        '''SELECT p.id, p.name, p.description, p.level, p.session,
+        '''SELECT p.id, p.name, p.description, p.level, p.session, p.is_locked,
                   d.name as department, f.name as faculty, pt.name as mode
            FROM programs p
            JOIN departments d ON p.department_id = d.id
@@ -24,8 +24,35 @@ def get_programs():
            JOIN program_types pt ON p.program_type_id = pt.id
            ORDER BY f.name, d.name, p.name'''
     )
+    
+    global_lock = False
+    pt_status = {
+        'undergraduate': True,
+        'postgraduate': False,
+        'part-time': False,
+        'jupeb': False
+    }
+    
+    try:
+        settings_res = Database.execute_query("SELECT key, value FROM system_settings WHERE key IN ('admission_registration_locked', 'pt_undergraduate_enabled', 'pt_postgraduate_enabled', 'pt_part_time_enabled', 'pt_jupeb_enabled')")
+        for s in (settings_res or []):
+            if s['key'] == 'admission_registration_locked' and s['value'] == 'true':
+                global_lock = True
+            elif s['key'] == 'pt_undergraduate_enabled':
+                pt_status['undergraduate'] = (s['value'] == 'true')
+            elif s['key'] == 'pt_postgraduate_enabled':
+                pt_status['postgraduate'] = (s['value'] == 'true')
+            elif s['key'] == 'pt_part_time_enabled':
+                pt_status['part-time'] = (s['value'] == 'true')
+            elif s['key'] == 'pt_jupeb_enabled':
+                pt_status['jupeb'] = (s['value'] == 'true')
+    except:
+        pass
+        
     return jsonify({
-        'programs': programs or []
+        'programs': programs or [],
+        'global_admission_locked': global_lock,
+        'program_types_status': pt_status
     }), 200
 
 @applicant_bp.route('/select-program', methods=['POST'])

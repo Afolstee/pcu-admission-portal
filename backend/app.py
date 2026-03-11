@@ -66,6 +66,24 @@ def create_app(config_name='development'):
     def health():
         return {'status': 'ok'}, 200
 
+    @app.errorhandler(404)
+    def handle_404(e):
+        try:
+            from database import Database
+            Database.execute_update("INSERT INTO error_logs (error_type, message, path) VALUES (%s, %s, %s)", ('404', 'Page Not Found', request.path))
+        except:
+            pass
+        return {'error': 'Not found'}, 404
+
+    @app.errorhandler(500)
+    def handle_500(e):
+        try:
+            from database import Database
+            Database.execute_update("INSERT INTO error_logs (error_type, message, path) VALUES (%s, %s, %s)", ('500', str(e), request.path))
+        except:
+            pass
+        return {'error': 'Internal server error'}, 500
+
     return app
 
 

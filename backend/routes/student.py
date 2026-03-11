@@ -8,10 +8,13 @@ student_bp = Blueprint('student', __name__)
 
 def check_registration_status():
     """Verify if the registration portal is globally locked."""
-    res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'registration_locked'")
-    if res and res[0]['value'] == 'true':
-        return True
-    return False
+    try:
+        res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'registration_locked'")
+        if res and res[0]['value'] == 'true':
+            return True
+        return False
+    except:
+        return False
 
 @student_bp.route('/change-password', methods=['POST'])
 @AuthHandler.token_required
@@ -110,9 +113,11 @@ def get_courses(payload):
             # 2) Courses for this program / level / semester
             cur.execute(
                 '''SELECT c.id, c.course_code, c.course_title, c.credit_units,
-                          c.remark, c.lecturer, pc.category
+                          c.remark, l.name as lecturer, pc.category
                    FROM program_courses pc
                    JOIN courses c ON pc.course_id = c.id
+                   LEFT JOIN staff st ON c.lecturer_id = st.id
+                   LEFT JOIN users l ON st.user_id = l.id
                    WHERE pc.program_id = %s
                      AND pc.level      = %s
                      AND pc.semester   = %s
@@ -144,6 +149,7 @@ def get_courses(payload):
             'registered_course_ids': registered_ids,
             'student':               dict(student),
             'registration_deadline': str(reg_deadline) if reg_deadline else None,
+            'is_global_locked':      check_registration_status()
         }), 200
 
     except Exception as e:
@@ -199,9 +205,11 @@ def register_courses(payload):
     
     # Validate courses against program curriculum (NEW SCHEMA via program_courses)
     valid_courses = Database.execute_query(
-         '''SELECT c.id, c.credit_units, c.remark, c.lecturer, pc.category 
+         '''SELECT c.id, c.credit_units, c.remark, l.name as lecturer, pc.category 
             FROM program_courses pc
             JOIN courses c ON pc.course_id = c.id
+            LEFT JOIN staff st ON c.lecturer_id = st.id
+            LEFT JOIN users l ON st.user_id = l.id
             WHERE pc.program_id = %s AND pc.level = %s AND pc.semester = %s''',
          (s_data['program_id'], s_data['current_level'], semester)
     )
@@ -270,10 +278,12 @@ def search_courses(payload):
     term_no_space = f"%{query.replace(' ', '')}%"
     try:
         courses = Database.execute_query(
-            '''SELECT id, course_code, course_title, credit_units, remark, lecturer, category 
-               FROM courses 
-               WHERE REPLACE(course_code, ' ', '') ILIKE %s OR course_title ILIKE %s
-               ORDER BY course_code
+            '''SELECT c.id, c.course_code, c.course_title, c.credit_units, c.remark, l.name as lecturer, c.category 
+               FROM courses c
+               LEFT JOIN staff st ON c.lecturer_id = st.id
+               LEFT JOIN users l ON st.user_id = l.id
+               WHERE REPLACE(c.course_code, ' ', '') ILIKE %s OR c.course_title ILIKE %s
+               ORDER BY c.course_code
                LIMIT 20''',
             (term_no_space, term)
         )

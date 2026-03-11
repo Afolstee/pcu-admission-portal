@@ -21,7 +21,8 @@ import {
   Search, 
   AlertCircle,
   Plus,
-  ShieldCheck
+  ShieldCheck,
+  Save
 } from "lucide-react";
 import { useProgramGuard } from "@/hooks/useProgramGuard";
 
@@ -44,6 +45,7 @@ export default function CourseRegistration() {
   const [searchQuery, setSearchQuery] = useState("");
   const [globalSearchRes, setGlobalSearchRes] = useState<CourseData[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [isGlobalLocked, setIsGlobalLocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useProgramGuard();
@@ -58,6 +60,8 @@ export default function CourseRegistration() {
         ApiClient.getStudentCourses("Second")
       ]);
       
+      setIsGlobalLocked(!!firstData.is_global_locked);
+      
       setFirstCourses(firstData.courses);
       setFirstStatus(firstData.registration_status);
       setDeadline(firstData.registration_deadline || secondData.registration_deadline);
@@ -67,7 +71,7 @@ export default function CourseRegistration() {
         : Array.from(new Set([
             ...firstData.registered_course_ids,
             ...firstData.courses
-              .filter(c => c.category.toLowerCase() === 'compulsory' || c.category.toLowerCase() === 'core')
+              .filter(c => (c.category || "").toLowerCase() === 'compulsory' || (c.category || "").toLowerCase() === 'core')
               .map(c => c.id)
           ]));
       setFirstSelectedIds(firstInitialSelected);
@@ -80,7 +84,7 @@ export default function CourseRegistration() {
         : Array.from(new Set([
             ...secondData.registered_course_ids,
             ...secondData.courses
-              .filter(c => c.category.toLowerCase() === 'compulsory' || c.category.toLowerCase() === 'core')
+              .filter(c => (c.category || "").toLowerCase() === 'compulsory' || (c.category || "").toLowerCase() === 'core')
               .map(c => c.id)
           ]));
       setSecondSelectedIds(secondInitialSelected);
@@ -125,8 +129,8 @@ export default function CourseRegistration() {
   }, [searchQuery, firstSelectedIds, secondSelectedIds]);
 
   const isDeadlinePassed = deadline ? new Date(deadline) < new Date() : false;
-  const isFirstLocked = isDeadlinePassed;
-  const isSecondLocked = isDeadlinePassed;
+  const isFirstLocked = isGlobalLocked || isDeadlinePassed;
+  const isSecondLocked = isGlobalLocked || isDeadlinePassed;
 
   const toggleFirstCourse = (courseId: number, isCompulsory: boolean) => {
     if (isFirstLocked) return;
@@ -260,33 +264,31 @@ export default function CourseRegistration() {
 
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
         {/* Top Info Bar */}
-        <div className="grid md:grid-cols-2 gap-6">
-          <Card className="shadow-md bg-white border-none flex items-center p-6 gap-4">
-              <div className="bg-primary/10 p-3 rounded-xl h-fit">
-                <BookOpen className="text-primary h-6 w-6" />
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground font-medium uppercase tracking-wider">Total Credit Load</p>
-                <div className="flex items-end gap-2">
-                  <p className="text-3xl font-black text-primary">{calculateTotalCredits()}</p>
-                  <p className="text-sm text-muted-foreground mb-1">Units Selected</p>
+          <div className="flex flex-col gap-6">
+            <Card className="shadow-md bg-white border-none flex items-center p-6 gap-4">
+                <div className="bg-primary/10 p-3 rounded-xl h-fit">
+                  <BookOpen className="text-primary h-6 w-6" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground font-medium uppercase tracking-wider">Total Credit Load</p>
+                  <div className="flex items-end gap-2">
+                    <p className="text-3xl font-black text-primary">{calculateTotalCredits()}</p>
+                    <p className="text-sm text-muted-foreground mb-1">Units Selected</p>
+                  </div>
+                </div>
+            </Card>
+
+            {/* Notification Banner */}
+            {isGlobalLocked && (
+              <div className="bg-red-50 text-red-800 p-4 rounded-xl border border-red-200 flex items-center gap-3">
+                <AlertCircle className="w-6 h-6 shrink-0" />
+                <div>
+                  <h4 className="font-bold">Course Registration is Closed</h4>
+                  <p className="text-sm opacity-90">The institutional registration window is currently locked. You may view and print your active courses, but modifications are not allowed.</p>
                 </div>
               </div>
-          </Card>
-
-          <Card className="shadow-md border-none flex items-center p-6 gap-4 bg-primary text-primary-foreground relative overflow-hidden">
-              <div className="bg-white/10 p-3 rounded-xl h-fit relative z-10">
-                <ShieldCheck className="text-white h-6 w-6" />
-              </div>
-              <div className="space-y-1 relative z-10">
-                <p className="text-sm text-primary-foreground/70 font-medium uppercase tracking-wider">Status</p>
-                <p className="text-lg font-bold uppercase tracking-tight">
-                  {isDeadlinePassed ? "Locked (Deadline Passed)" : "Registration Open"}
-                </p>
-              </div>
-              <div className="absolute inset-0 bg-gradient-to-r from-primary to-primary-foreground/20 opacity-50 pointer-events-none" />
-          </Card>
-        </div>
+            )}
+          </div>
 
         {error && (
             <div className="bg-destructive/10 text-destructive text-sm p-4 rounded-xl border border-destructive/20 flex items-center gap-3">
@@ -313,6 +315,7 @@ export default function CourseRegistration() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-12 h-14 bg-transparent border-none text-base w-full focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none rounded-2xl"
+              disabled={isGlobalLocked}
             />
             {isSearching && (
               <div className="absolute right-4 top-1/2 -translate-y-1/2">
@@ -321,7 +324,8 @@ export default function CourseRegistration() {
             )}
           </div>
           
-          {searchQuery.length >= 2 && !isSearching && (
+          {/* Search Dropdown Popover */}
+          {!isGlobalLocked && searchQuery.length >= 2 && !isSearching && (
             <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl border p-4 max-h-[400px] overflow-y-auto">
               <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider mb-4 border-b pb-2">Database Search Results</h3>
               {globalSearchRes.length === 0 ? (
@@ -453,10 +457,19 @@ export default function CourseRegistration() {
                     <div className="pt-6">
                        <Button 
                          onClick={handleRegister} 
-                         disabled={submitting || isDeadlinePassed || (firstSelectedIds.length === 0 && secondSelectedIds.length === 0)}
+                         disabled={submitting || isGlobalLocked || (firstSelectedIds.length === 0 && secondSelectedIds.length === 0)}
                          className="w-full font-black py-6 text-base rounded-xl shadow-xl shadow-primary/20 hover:scale-[1.02] transition-transform"
                        >
-                         {submitting ? "SUBMITTING..." : (isDeadlinePassed ? "LOCKED" : "SUBMIT REGISTRATION")}
+                         {submitting ? (
+                            <span className="animate-spin relative flex h-4 w-4">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-4 w-4 bg-white"></span>
+                            </span>
+                          ) : (
+                            <>
+                              <Save className="h-4 w-4" /> Save Selection
+                            </>
+                          )}
                        </Button>
                        <p className="text-[10px] text-center text-muted-foreground font-bold mt-4 px-2 uppercase tracking-tight leading-tight">
                          You can freely edit and resubmit your choices until the registration deadline passes.
@@ -467,16 +480,16 @@ export default function CourseRegistration() {
            </div>
         </div>
 
-        {/* Bottom Available Courses Area */}
-        <div className="mt-8">
-           <Card className="shadow-lg border-none overflow-hidden bg-white pt-2">
-             <CardHeader className="pb-4">
-                <CardTitle className="text-xl font-black text-slate-800 flex items-center gap-2">
-                  <BookOpen className="text-primary w-5 h-5" /> Available Unselected Courses
-                </CardTitle>
-                <p className="text-sm text-muted-foreground">Select courses below to add them to your registration board.</p>
-             </CardHeader>
-             <CardContent>
+        {!isGlobalLocked && (
+          <div className="mt-8">
+            <Card className="shadow-lg border-none overflow-hidden bg-white pt-2">
+              <CardHeader className="pb-4">
+                  <CardTitle className="text-xl font-black text-slate-800 flex items-center gap-2">
+                    <BookOpen className="text-primary w-5 h-5" /> Available Unselected Courses
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">Select courses below to add them to your registration board.</p>
+              </CardHeader>
+              <CardContent>
                 <div className="grid md:grid-cols-2 gap-8 border-t pt-6">
                    {/* 1st Sem Available */}
                    <div className="space-y-4">
@@ -520,7 +533,8 @@ export default function CourseRegistration() {
                 </div>
              </CardContent>
            </Card>
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

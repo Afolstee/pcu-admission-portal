@@ -47,6 +47,7 @@ export interface CourseRegistrationResponse {
   registered_course_ids: number[];
   student: StudentData;
   registration_deadline: string | null;
+  is_global_locked?: boolean;
 }
 
 // ===== Letter Management Types =====
@@ -203,6 +204,7 @@ export interface Program {
   tuition_fee?: number;
   other_fees?: number;
   registration_deadline?: string | null;
+  is_locked?: boolean;
 }
 
 export interface StudentProfile {
@@ -964,6 +966,27 @@ export class ApiClient {
 
   static async issueTranscript(logId: number): Promise<{ message: string }> {
     const { data } = await this.fetch<{ message: string }>(`/registrar/transcripts/${logId}/issue`, { method: "POST" });
+    return data;
+  }
+
+  static async getGlobalSettings(): Promise<any> {
+    const { data } = await this.fetch<any>("/admin/settings");
+    return data;
+  }
+
+  static async updateGlobalSettings(settings: Record<string, string>): Promise<{ message: string }> {
+    const { data } = await this.fetch<{ message: string }>("/admin/settings", {
+      method: "POST",
+      body: JSON.stringify(settings),
+    });
+    return data;
+  }
+
+  static async createLecturer(lecturerData: any): Promise<{ message: string; user_id: number }> {
+    const { data } = await this.fetch<{ message: string; user_id: number }>("/admin/staff/lecturer", {
+      method: "POST",
+      body: JSON.stringify(lecturerData),
+    });
     return data;
   }
 }

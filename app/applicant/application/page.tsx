@@ -133,8 +133,8 @@ export default function ApplicationPage() {
         {formTemplate && (
           <ApplicationFormComponent
             template={formTemplate}
-            applicantId={applicant?.id}
-            programId={applicant?.program_id}
+            applicantId={applicant?.id || 0}
+            programId={applicant?.program_id || 0}
             onSuccess={() => {
               router.push("/applicant/dashboard");
             }}

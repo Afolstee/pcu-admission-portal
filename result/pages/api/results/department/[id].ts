@@ -1,0 +1,30 @@
+import type { NextApiRequest, NextApiResponse } from 'next'
+import sql from 'mssql'
+import { getConnection } from '@/lib/db'
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const pool = await getConnection()
+
+  if (req.method === 'DELETE') {
+    try {
+      const departmentId = parseInt(req.query.id as string, 10)
+      if (isNaN(departmentId)) return res.status(400).json({ error: 'Invalid department ID' })
+
+      await pool.request()
+        .input('dept_id', sql.Int, departmentId)
+        .query(`
+          DELETE r
+          FROM results r
+          JOIN students s ON s.id = r.student_id
+          WHERE s.department_id = @dept_id
+        `)
+      
+      return res.status(200).json({ message: `Department results cleared for ID ${departmentId}` })
+    } catch (err) {
+      console.error('[/api/results/department/[id]]', err)
+      return res.status(500).json({ error: (err as Error).message })
+    }
+  }
+
+  return res.status(405).json({ message: 'Method not allowed' })
+}

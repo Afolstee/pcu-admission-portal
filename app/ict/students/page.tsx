@@ -44,7 +44,7 @@ export default function ICTStudentsPage() {
     setLoading(true);
     try {
       const resp = await ApiClient.fetch<any>(`/student/admin/list?q=${query}`);
-      setStudents(resp.students || []);
+      setStudents(resp.data?.students || []);
     } catch (err) {
       console.error("Error loading students:", err);
     } finally {

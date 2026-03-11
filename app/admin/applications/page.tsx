@@ -66,7 +66,7 @@ export default function ApplicationsPage() {
     setLoading(true);
     try {
       const response = await ApiClient.getApplications(status);
-      setApplications(response.applications || []);
+      setApplications((response.applications as any as Application[]) || []);
     } catch (err) {
       console.error("Error loading applications:", err);
     } finally {

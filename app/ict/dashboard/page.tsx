@@ -21,12 +21,14 @@ import { Label } from "@/components/ui/label";
 
 export default function ICTDashboard() {
   const router = useRouter();
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, logout, isLoading: authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<any[]>([]);
+  const [systemStatus, setSystemStatus] = useState<any>(null);
   const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
+    if (authLoading) return;
     if (!isAuthenticated || user?.role !== "admin") {
       router.replace("/auth/login");
       return;
@@ -38,7 +40,14 @@ export default function ICTDashboard() {
   const loadSettings = async () => {
     try {
       const response = await ApiClient.fetch<any>("/settings/all");
-      setSettings(response.settings || []);
+      setSettings(response.data?.settings || []);
+      
+      try {
+         const statusRes = await ApiClient.fetch<any>("/settings/system-status");
+         setSystemStatus(statusRes);
+      } catch (err) {
+         console.error("Failed to fetch system status:", err);
+      }
     } catch (err) {
       console.error("Error loading settings:", err);
     } finally {
@@ -226,20 +235,34 @@ export default function ICTDashboard() {
               <CardContent className="space-y-4">
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-slate-400">Database:</span>
-                  <span className="text-green-400 font-medium">Connected</span>
+                  <span className={`${systemStatus?.db_status === "Connected" ? "text-green-400" : "text-red-400"} font-medium`}>{systemStatus?.db_status || "Checking..."}</span>
                 </div>
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-slate-400">API Gateway:</span>
-                  <span className="text-green-400 font-medium">Healthy</span>
+                  <span className="text-green-400 font-medium">{systemStatus?.api_status || "Checking..."}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm border-t border-slate-800 pt-3">
+                  <span className="text-slate-400">Internal 500 Errors:</span>
+                  <span className={`${(systemStatus?.counts?.errors_500 || 0) > 0 ? "text-red-400 font-bold" : "text-green-400"} font-medium`}>
+                    {systemStatus?.counts?.errors_500 || 0} recent
+                  </span>
                 </div>
                 <div className="flex justify-between items-center text-sm">
-                  <span className="text-slate-400">Mailing Service:</span>
-                  <span className="text-green-400 font-medium">Active</span>
+                  <span className="text-slate-400">404 Errors:</span>
+                  <span className={`${(systemStatus?.counts?.errors_404 || 0) > 0 ? "text-yellow-400" : "text-green-400"} font-medium`}>
+                    {systemStatus?.counts?.errors_404 || 0} recent
+                  </span>
                 </div>
-                <div className="pt-4 border-t border-slate-800">
-                  <p className="text-xs text-slate-500 mb-2">LAST SYSTEM UPDATE</p>
-                  <p className="text-sm font-mono text-slate-300">Mar 11, 2026 - 15:30</p>
+                <div className="flex justify-between items-center text-sm border-t border-slate-800 pt-3">
+                  <span className="text-slate-400">Locked Programs:</span>
+                  <span className="text-orange-400 font-medium">{systemStatus?.locks?.programs_locked || 0} program(s)</span>
                 </div>
+                {(systemStatus?.locks?.admission || systemStatus?.locks?.course) && (
+                   <div className="pt-2">
+                     {systemStatus?.locks?.admission && <Badge className="bg-red-500/20 text-red-300 border-red-500/30 w-full justify-center mb-2 animate-pulse">Global Admission Closed</Badge>}
+                     {systemStatus?.locks?.course && <Badge className="bg-orange-500/20 text-orange-300 border-orange-500/30 w-full justify-center animate-pulse">Course Reg. Closed</Badge>}
+                   </div>
+                )}
               </CardContent>
             </Card>
 

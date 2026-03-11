@@ -24,9 +24,10 @@ interface Program {
   department?: string;
   faculty?: string;
   mode?: string;
+  is_locked?: boolean;
 }
 
-const PROGRAM_TYPES = [
+const INITIAL_PROGRAM_TYPES = [
   { id: "undergraduate", name: "Undergraduate", enabled: true },
   { id: "postgraduate", name: "Postgraduate", enabled: false },
   { id: "part-time", name: "Part-Time", enabled: false },
@@ -38,6 +39,7 @@ export default function SelectProgramPage() {
   const { isAuthenticated, user, refreshStatus } = useAuth();
   
   const [programs, setPrograms] = useState<Program[]>([]);
+  const [programTypes, setProgramTypes] = useState(INITIAL_PROGRAM_TYPES);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +60,12 @@ export default function SelectProgramPage() {
       try {
         const response = await ApiClient.getApplicantPrograms();
         setPrograms(response.programs || []);
+        if (response.program_types_status) {
+           setProgramTypes(INITIAL_PROGRAM_TYPES.map(pt => ({
+              ...pt,
+              enabled: !!response.program_types_status[pt.id]
+           })));
+        }
       } catch (err) {
         setError("Failed to load programs. Please try again.");
         console.error(err);
@@ -200,7 +208,7 @@ export default function SelectProgramPage() {
         {/* Step 1: Program Type */}
         {step === 1 && (
           <div className="grid sm:grid-cols-2 gap-4 mb-8">
-            {PROGRAM_TYPES.map((type) => (
+            {programTypes.map((type) => (
               <Card
                 key={type.id}
                 className={`transition-all ${
@@ -266,36 +274,49 @@ export default function SelectProgramPage() {
         {step === 3 && (
           <div className="grid md:grid-cols-2 gap-4 mb-8">
             {availablePrograms.length > 0 ? (
-              availablePrograms.map((program) => (
-                <Card
-                  key={program.id}
-                  className={`cursor-pointer transition-all ${
-                    selectedProgram?.id === program.id
-                      ? "ring-2 ring-primary border-primary bg-primary/5"
-                      : "hover:border-primary/50"
-                  }`}
-                  onClick={() => setSelectedProgram(program)}
-                >
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 pr-4">
-                        <CardTitle className="text-lg leading-tight">{program.name}</CardTitle>
-                        <p className="text-sm font-medium text-muted-foreground mt-1">
-                          {program.department} 
-                        </p>
-                      </div>
-                      {selectedProgram?.id === program.id && (
+              availablePrograms.map((program) => {
+                const isLocked = program.is_locked;
+                return (
+                  <Card
+                    key={program.id}
+                    className={`transition-all ${
+                      isLocked 
+                        ? 'opacity-60 cursor-not-allowed bg-gray-50 border-gray-200' 
+                        : selectedProgram?.id === program.id
+                          ? "cursor-pointer ring-2 ring-primary border-primary bg-primary/5"
+                          : "cursor-pointer hover:border-primary/50"
+                    }`}
+                    onClick={() => {
+                      if (!isLocked) setSelectedProgram(program);
+                    }}
+                  >
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 pr-4">
+                          <CardTitle className="text-lg leading-tight">{program.name}</CardTitle>
+                          <div className="flex items-center gap-2 mt-1">
+                            {isLocked && <Badge variant="destructive" className="text-[10px] leading-tight px-1.5 py-0">Closed</Badge>}
+                            <p className="text-sm font-medium text-muted-foreground">
+                              {program.department} 
+                            </p>
+                          </div>
+                        </div>
+                        {selectedProgram?.id === program.id && !isLocked && (
                         <CheckCircle className="text-primary h-6 w-6 shrink-0" />
                       )}
                     </div>
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm text-gray-600 line-clamp-2">
-                      {program.description || 'No description available for this program.'}
+                      {isLocked ? (
+                         "Registration for this program is currently closed."
+                      ) : (
+                         program.description || 'No description available for this program.'
+                      )}
                     </p>
                   </CardContent>
                 </Card>
-              ))
+              )})
             ) : (
               <div className="col-span-2 text-center py-12 text-muted-foreground bg-white rounded-xl border">
                 No programs found in this faculty.

@@ -4,9 +4,24 @@ import React from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import { BookOpen, GraduationCap, Users, Briefcase } from "lucide-react";
+import { BookOpen, GraduationCap, Users, Briefcase, AlertCircle } from "lucide-react";
 
 export default function UniversityLandingPage() {
+  const [portalStatus, setPortalStatus] = React.useState<{locked: boolean, programsLocked: number} | null>(null);
+
+  React.useEffect(() => {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"}/applicant/programs`)
+      .then(res => res.json())
+      .then(data => {
+         const programsLocked = data.programs?.filter((p: any) => p.is_locked)?.length || 0;
+         setPortalStatus({
+            locked: data.global_admission_locked,
+            programsLocked
+         });
+      })
+      .catch(() => {});
+  }, []);
+  
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 font-sans">
       {/* Navbar */}
@@ -60,6 +75,27 @@ export default function UniversityLandingPage() {
         <div className="absolute bottom-0 left-0 -ml-48 -mb-48 w-96 h-96 rounded-full bg-orange-100 blur-3xl opacity-50 pointer-events-none" />
         
         <div className="relative z-10 max-w-4xl mx-auto space-y-8">
+          
+          {portalStatus && (portalStatus.locked || portalStatus.programsLocked > 0) && (
+             <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-8 rounded-r-lg shadow-sm animate-in slide-in-from-top fade-in duration-500 flex items-start text-left gap-4 max-w-2xl mx-auto">
+                <div className="bg-red-100 p-2 rounded-full shrink-0">
+                  <AlertCircle className="h-6 w-6 text-red-600" />
+                </div>
+                <div>
+                   <h3 className="text-red-800 font-bold text-lg">Admission Update</h3>
+                   {portalStatus.locked ? (
+                     <p className="text-red-700 mt-1">
+                       The general admission portal is currently <strong>closed</strong>. We are not accepting new applications at this time.
+                     </p>
+                   ) : (
+                     <p className="text-red-700 mt-1">
+                       Please note that admission for <strong>{portalStatus.programsLocked} program(s)</strong> is currently closed. Other programs remain open.
+                     </p>
+                   )}
+                </div>
+             </div>
+          )}
+
           <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight text-gray-900 leading-tight">
             Discover Your <span className="text-[#d9251b]">True Potential</span>
           </h1>

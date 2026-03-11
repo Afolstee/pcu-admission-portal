@@ -1340,3 +1340,71 @@ def get_courses_list(payload):
     query += ' ORDER BY course_code'
     courses = Database.execute_query(query, params)
     return jsonify({'courses': courses or []}), 200
+
+
+@admin_bp.route('/settings', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.roles_required('admin')
+def get_global_settings(payload):
+    """Get global settings (e.g. locks for portals)"""
+    settings = Database.execute_query('SELECT key, value, description FROM system_settings')
+    return jsonify({s['key']: s['value'] for s in (settings or [])}), 200
+
+@admin_bp.route('/settings', methods=['POST'])
+@AuthHandler.token_required
+@AuthHandler.roles_required('admin')
+def bulk_update_settings(payload):
+    """Update global settings via dictionary payload"""
+    data = request.get_json()
+    for key, value in data.items():
+        if isinstance(value, bool):
+            value = str(value).lower()
+        Database.execute_update(
+            'UPDATE system_settings SET value = %s WHERE key = %s',
+            (value, key)
+        )
+    return jsonify({'message': 'Settings updated successfully'}), 200
+
+@admin_bp.route('/staff/lecturer', methods=['POST'])
+@AuthHandler.token_required
+@AuthHandler.roles_required('admin')
+def create_lecturer(payload):
+    """Create a new user+staff record with lecturer role."""
+    data = request.get_json()
+    required = ['name', 'email', 'password', 'department_id']
+    if not all(k in data for k in required):
+        return jsonify({'message': 'Missing required fields'}), 400
+        
+    import bcrypt
+    from database import Database
+    
+    # Check if email exists
+    existing = Database.execute_query("SELECT id FROM users WHERE email = %s", (data['email'],))
+    if existing:
+        return jsonify({'message': 'Email already exists'}), 400
+        
+    hashed = bcrypt.hashpw(data['password'].encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    
+    conn = Database.get_connection()
+    if not conn:
+        return jsonify({'message': 'DB Error'}), 500
+        
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO users (name, email, password_hash, role, status) VALUES (%s, %s, %s, 'lecturer', 'active') RETURNING id",
+                (data['name'], data['email'], hashed)
+            )
+            user_id = cur.fetchone()['id']
+            
+            cur.execute(
+                "INSERT INTO staff (user_id, department_id, title) VALUES (%s, %s, %s) RETURNING id",
+                (user_id, data['department_id'], data.get('title', 'Lecturer'))
+            )
+        conn.commit()
+        return jsonify({'message': 'Lecturer created successfully', 'user_id': user_id}), 201
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'message': str(e)}), 500
+    finally:
+        Database.release_connection(conn)

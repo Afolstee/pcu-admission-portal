@@ -15,7 +15,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { LogOut, FileText, Mail, BarChart3 } from "lucide-react";
+import { LogOut, FileText, Mail, BarChart3, Settings, Users } from "lucide-react";
 
 interface Statistics {
   total_applications: number;
@@ -26,11 +26,12 @@ interface Statistics {
 
 export default function AdminDashboard() {
   const router = useRouter();
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, logout, isLoading: authLoading } = useAuth();
   const [stats, setStats] = useState<Statistics | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return;
     if (!isAuthenticated || user?.role !== "admissions_officer") {
       router.replace("/auth/login");
       return;

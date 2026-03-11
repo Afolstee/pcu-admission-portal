@@ -1,16 +1,23 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
 
 export default function PreviewAdmissionLetterPage() {
+  const router = useRouter();
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
+  const { user, isAuthenticated } = useAuth();
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!isAuthenticated || user?.role !== "admissions_officer") {
+      router.replace("/auth/login");
+      return;
+    }
     const fetchAndPreviewLetter = async () => {
       try {
         setLoading(true);

@@ -101,7 +101,7 @@ export default function ApplicationForm({
     setError(null);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, documentType: string) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, documentType: string) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -113,6 +113,18 @@ export default function ApplicationForm({
 
     setDocuments((prev) => ({ ...prev, [documentType]: file }));
     setError(null);
+
+    // Auto-upload if we have a formId
+    if (!formId) {
+      setError("Please click 'Save Form' at the bottom to save your details before uploading documents.");
+      return;
+    }
+
+    try {
+      await uploadDocument(documentType, file, formId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed');
+    }
   };
 
   const uploadDocument = async (documentType: string, file: File, currentFormId?: number) => {
@@ -293,15 +305,6 @@ export default function ApplicationForm({
               </div>
             ))}
           </div>
-
-          <Button
-            onClick={saveForm}
-            disabled={saving || submitting}
-            className="gap-2"
-          >
-            <Save className="h-4 w-4" />
-            {saving ? 'Saving...' : 'Save Form'}
-          </Button>
         </CardContent>
       </Card>
 
@@ -348,22 +351,10 @@ export default function ApplicationForm({
                   disabled={saving || submitting || !!uploadedDocuments[doc.type]}
                   className="flex-1"
                 />
-                {documents[doc.type] && (
-                  <Button
-                    onClick={async () => {
-                      try {
-                        await uploadDocument(doc.type, documents[doc.type]!);
-                      } catch (err) {
-                        setError(err instanceof Error ? err.message : 'Upload failed');
-                      }
-                    }}
-                    disabled={saving || submitting}
-                    size="sm"
-                    className="gap-2"
-                  >
-                    <Upload className="h-4 w-4" />
-                    {uploadProgress[doc.type] ? `${uploadProgress[doc.type]}%` : 'Upload'}
-                  </Button>
+                {uploadProgress[doc.type] > 0 && uploadProgress[doc.type] < 100 && (
+                  <span className="text-sm text-muted-foreground self-center shrink-0">
+                    Uploading... {uploadProgress[doc.type]}%
+                  </span>
                 )}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
@@ -375,13 +366,22 @@ export default function ApplicationForm({
       </Card>
 
       {/* Submit Section */}
-      <div className="flex gap-4 justify-end">
+      <div className="flex gap-4 justify-end border-t pt-6 pb-12">
         <Button
           variant="outline"
           disabled={saving || submitting}
           onClick={() => window.history.back()}
         >
           Cancel
+        </Button>
+        <Button
+          variant="outline"
+          onClick={saveForm}
+          disabled={saving || submitting}
+          className="gap-2 border-primary/20 text-primary hover:bg-primary/5"
+        >
+          <Save className="h-4 w-4" />
+          {saving ? 'Saving...' : 'Save Form'}
         </Button>
         <Button
           onClick={submitApplication}

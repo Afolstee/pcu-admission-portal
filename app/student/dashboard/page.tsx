@@ -308,20 +308,6 @@ export default function StudentDashboard() {
                </CardDescription>
              </CardHeader>
              <CardContent className="space-y-4">
-               <div className="bg-muted/50 p-4 rounded-xl border border-border shadow-inner text-sm space-y-3">
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <CheckCircle2 className="w-4 h-4 text-green-500" />
-                    <span>Auto-detects compulsory courses</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <CheckCircle2 className="w-4 h-4 text-green-500" />
-                    <span>Dynamic elective selection</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Clock className="w-4 h-4 text-orange-500" />
-                    <span>Deadline restricted</span>
-                  </div>
-               </div>
                <Button 
                  variant={regStatus === 'submitted' ? "outline" : "default"}
                  className="w-full gap-2 font-bold py-6 text-lg hover:scale-[1.02] transition-transform shadow-lg"

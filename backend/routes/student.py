@@ -1,8 +1,17 @@
 from flask import Blueprint, request, jsonify
 from database import Database
 from utils.auth import AuthHandler
+import datetime
+import psycopg2
 
 student_bp = Blueprint('student', __name__)
+
+def check_registration_status():
+    """Verify if the registration portal is globally locked."""
+    res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'registration_locked'")
+    if res and res[0]['value'] == 'true':
+        return True
+    return False
 
 @student_bp.route('/change-password', methods=['POST'])
 @AuthHandler.token_required
@@ -19,7 +28,6 @@ def change_password(payload):
 
     hashed_pw = AuthHandler.hash_password(data['new_password'])
     
-    # Update password and disable first login flag
     try:
         Database.execute_update(
             'UPDATE users SET password_hash = %s WHERE id = %s',
@@ -33,64 +41,125 @@ def change_password(payload):
     except Exception as e:
         return jsonify({'message': f'Error updating password: {e}'}), 500
 
-@student_bp.route('/courses', methods=['GET'])
+@student_bp.route('/profile', methods=['GET'])
 @AuthHandler.token_required
-def get_courses(payload):
-    """Retrieve available courses for the student's program, level, and semester"""
+def get_profile(payload):
+    """Get student profile with faculty/department info"""
     user_id = payload['user_id']
-    semester = request.args.get('semester', 'First')
-    
-    # Get student info
+
     student = Database.execute_query(
-        '''SELECT s.id, s.program_id, s.current_level, s.session, p.registration_deadline 
-           FROM students s JOIN programs p ON s.program_id = p.id 
+        '''SELECT s.id, s.matric_number, s.current_level, s.session, s.is_first_login,
+                  u.name, u.email, u.phone_number,
+                  p.name as program_name, pt.name as program_type,
+                  d.name as department, f.name as faculty
+           FROM students s
+           JOIN users u ON s.user_id = u.id
+           JOIN programs p ON s.program_id = p.id
+           JOIN departments d ON p.department_id = d.id
+           JOIN faculties f ON d.faculty_id = f.id
+           JOIN program_types pt ON p.program_type_id = pt.id
            WHERE s.user_id = %s''',
         (user_id,)
     )
-    
+
     if not student:
         return jsonify({'message': 'Student record not found'}), 404
-        
-    s_data = student[0]
-    
-    # Fetch courses
-    courses = Database.execute_query(
-        '''SELECT id, course_code, course_title, credit_units, category 
-           FROM courses 
-           WHERE program_id = %s AND level = %s AND semester = %s
-           ORDER BY category, course_code''',
-        (s_data['program_id'], s_data['current_level'], semester)
-    )
-    
-    # Fetch existing registration if any
-    reg_status = None
-    registered_ids = []
-    
-    reg = Database.execute_query(
-        'SELECT id, status FROM course_registrations WHERE student_id = %s AND session = %s AND semester = %s',
-        (s_data['id'], s_data['session'], semester)
-    )
-    
-    if reg:
-        reg_status = reg[0]['status']
-        reg_courses = Database.execute_query(
-            'SELECT course_id FROM registered_courses WHERE registration_id = %s',
-            (reg[0]['id'],)
-        )
-        registered_ids = [rc['course_id'] for rc in (reg_courses or [])]
-        
-    return jsonify({
-        'courses': courses or [],
-        'registration_status': reg_status,
-        'registered_course_ids': registered_ids,
-        'student': s_data,
-        'registration_deadline': s_data.get('registration_deadline')
-    }), 200
+
+    return jsonify({'profile': student[0]}), 200
+
+
+@student_bp.route('/courses', methods=['GET'])
+@AuthHandler.token_required
+def get_courses(payload):
+    """Retrieve available courses for the student's program, level, and semester.
+
+    All queries run on a single pooled connection to avoid repeated TCP round-trips.
+    """
+    user_id = payload['user_id']
+    semester = request.args.get('semester', 'First')
+
+    conn = Database.get_connection()
+    if not conn:
+        return jsonify({'message': 'Database connection failed'}), 500
+
+    try:
+        # Check global lock
+        if check_registration_status():
+             return jsonify({'message': 'The registration portal is currently closed by the administration. Please contact the ICT center for details.'}), 403
+
+        with conn.cursor() as cur:
+            # 1) Student + program info
+            cur.execute(
+                '''SELECT s.id, s.program_id, s.current_level, s.session,
+                          p.registration_deadline
+                   FROM students s
+                   JOIN programs p ON s.program_id = p.id
+                   WHERE s.user_id = %s''',
+                (user_id,)
+            )
+            student = cur.fetchone()
+            if not student:
+                return jsonify({'message': 'Student record not found'}), 404
+
+            program_id    = student['program_id']
+            current_level = student['current_level']
+            session       = student['session']
+            student_id    = student['id']
+            reg_deadline  = student.get('registration_deadline')
+
+            # 2) Courses for this program / level / semester
+            cur.execute(
+                '''SELECT c.id, c.course_code, c.course_title, c.credit_units,
+                          c.remark, c.lecturer, pc.category
+                   FROM program_courses pc
+                   JOIN courses c ON pc.course_id = c.id
+                   WHERE pc.program_id = %s
+                     AND pc.level      = %s
+                     AND pc.semester   = %s
+                   ORDER BY pc.category, c.course_code''',
+                (program_id, current_level, semester)
+            )
+            courses = cur.fetchall()
+
+            # 3) Registration + registered course ids — one query with array_agg
+            cur.execute(
+                '''SELECT cr.id, cr.status,
+                          COALESCE(array_agg(rc.course_id) FILTER (WHERE rc.course_id IS NOT NULL), %s) AS registered_ids
+                   FROM course_registrations cr
+                   LEFT JOIN registered_courses rc ON rc.registration_id = cr.id
+                   WHERE cr.student_id = %s
+                     AND cr.session    = %s
+                     AND cr.semester   = %s
+                   GROUP BY cr.id, cr.status''',
+                ('{}', student_id, session, semester)
+            )
+            reg_row = cur.fetchone()
+
+        reg_status      = reg_row['status']         if reg_row else None
+        registered_ids  = list(reg_row['registered_ids']) if reg_row else []
+
+        return jsonify({
+            'courses':               [dict(c) for c in courses],
+            'registration_status':   reg_status,
+            'registered_course_ids': registered_ids,
+            'student':               dict(student),
+            'registration_deadline': str(reg_deadline) if reg_deadline else None,
+        }), 200
+
+    except Exception as e:
+        print(f'Error in get_courses: {e}')
+        return jsonify({'message': f'Server error: {e}'}), 500
+    finally:
+        Database.release_connection(conn)
 
 @student_bp.route('/register-courses', methods=['POST'])
 @AuthHandler.token_required
 def register_courses(payload):
     """Submit course registration"""
+    # Check global lock
+    if check_registration_status():
+         return jsonify({'message': 'Registration is currently locked.'}), 403
+
     user_id = payload['user_id']
     data = request.get_json()
     
@@ -119,23 +188,21 @@ def register_courses(payload):
     registration_deadline = s_data.get('registration_deadline')
     
     # Enforce deadline if set
-    import datetime
     if registration_deadline and datetime.datetime.now() > registration_deadline:
         return jsonify({'message': 'Registration deadline has passed'}), 403
         
-    # Check if already submitted
+    # Check for existing registration record (no longer locks if submitted)
     reg = Database.execute_query(
         'SELECT id, status FROM course_registrations WHERE student_id = %s AND session = %s AND semester = %s',
         (student_id, current_session, semester)
     )
     
-    if reg and reg[0]['status'] == 'submitted':
-        return jsonify({'message': 'Course registration already submitted and locked'}), 403
-        
-    # Validation against valid courses (prevent injection)
+    # Validate courses against program curriculum (NEW SCHEMA via program_courses)
     valid_courses = Database.execute_query(
-         '''SELECT id, credit_units, category FROM courses 
-            WHERE program_id = %s AND level = %s AND semester = %s''',
+         '''SELECT c.id, c.credit_units, c.remark, c.lecturer, pc.category 
+            FROM program_courses pc
+            JOIN courses c ON pc.course_id = c.id
+            WHERE pc.program_id = %s AND pc.level = %s AND pc.semester = %s''',
          (s_data['program_id'], s_data['current_level'], semester)
     )
     valid_map = {c['id']: c for c in (valid_courses or [])}
@@ -145,7 +212,6 @@ def register_courses(payload):
     selected_valid = []
     
     for cid in course_ids:
-        # Convert to int just in case
         try:
              cid = int(cid)
         except:
@@ -154,22 +220,23 @@ def register_courses(payload):
         if cid in valid_map:
              selected_valid.append(cid)
              total_credits += valid_map[cid]['credit_units']
+        else:
+             # Look it up globally if it is an external elective that they searched for explicitly
+             ext_course = Database.execute_query('SELECT id, credit_units FROM courses WHERE id = %s', (cid,))
+             if ext_course:
+                  selected_valid.append(cid)
+                  total_credits += ext_course[0]['credit_units']
              
-    # Ensure compulsory/core are met? Basic validation:
-    compulsory_courses = [c['id'] for c in (valid_courses or []) if c['category'].lower() in ('compulsory', 'core')]
-    missing = set(compulsory_courses) - set(selected_valid)
-    if missing:
-        return jsonify({'message': 'You must select all compulsory and core courses'}), 400
+    # Compulsory courses are pre-selected in the UI but students can remove them if needed
+    # so we no longer enforce that all compulsory courses must be selected.
         
     try:
         if reg:
             reg_id = reg[0]['id']
-            # Update
             Database.execute_update(
                 'UPDATE course_registrations SET total_credits = %s, status = %s, submitted_at = NOW() WHERE id = %s',
                 (total_credits, 'submitted', reg_id)
             )
-            # Replace courses
             Database.execute_update('DELETE FROM registered_courses WHERE registration_id = %s', (reg_id,))
         else:
             reg_id = Database.execute_update(
@@ -179,14 +246,79 @@ def register_courses(payload):
                 return_id=True
             )
             
-        # Insert selected
+        # Insert selected courses
         for cid in selected_valid:
              Database.execute_update(
                  'INSERT INTO registered_courses (registration_id, course_id) VALUES (%s, %s)',
                  (reg_id, cid)
              )
              
-        return jsonify({'message': 'Courses registered successfully'}), 200
+        return jsonify({'message': 'Courses registered successfully', 'total_credits': total_credits}), 200
         
     except Exception as e:
         return jsonify({'message': f'Error saving registration: {e}'}), 500
+
+@student_bp.route('/courses/search', methods=['GET'])
+@AuthHandler.token_required
+def search_courses(payload):
+    """Search for courses across the whole database"""
+    query = request.args.get('q', '').strip()
+    if not query or len(query) < 2:
+        return jsonify({'courses': []}), 200
+        
+    term = f"%{query}%"
+    term_no_space = f"%{query.replace(' ', '')}%"
+    try:
+        courses = Database.execute_query(
+            '''SELECT id, course_code, course_title, credit_units, remark, lecturer, category 
+               FROM courses 
+               WHERE REPLACE(course_code, ' ', '') ILIKE %s OR course_title ILIKE %s
+               ORDER BY course_code
+               LIMIT 20''',
+            (term_no_space, term)
+        )
+        return jsonify({'courses': [dict(c) for c in (courses or [])]}), 200
+    except Exception as e:
+         return jsonify({'message': f'Server error: {e}'}), 500
+@student_bp.route('/admin/list', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.admin_required
+def admin_get_students(payload):
+    """List all students for ICT Director management"""
+    search = request.args.get('q', '')
+    
+    query = '''SELECT s.id, s.matric_number, s.current_level, s.session,
+                      u.name, u.email, u.phone_number,
+                      p.name as program_name, d.name as department
+               FROM students s
+               JOIN users u ON s.user_id = u.id
+               JOIN programs p ON s.program_id = p.id
+               JOIN departments d ON p.department_id = d.id
+               WHERE u.name ILIKE %s OR u.email ILIKE %s OR s.matric_number ILIKE %s
+               ORDER BY s.matric_number DESC'''
+    
+    term = f"%{search}%"
+    students = Database.execute_query(query, (term, term, term))
+    
+    return jsonify({'students': students or []}), 200
+
+@student_bp.route('/admin/update', methods=['PUT'])
+@AuthHandler.token_required
+@AuthHandler.admin_required
+def admin_update_student(payload):
+    """Update student profile details as admin"""
+    data = request.get_json()
+    if not data or 'id' not in data:
+        return jsonify({'message': 'Student ID required'}), 400
+        
+    student_id = data['id']
+    
+    # Simple update for now (matric number, level, session)
+    try:
+        Database.execute_update(
+            'UPDATE students SET matric_number = %s, current_level = %s, session = %s WHERE id = %s',
+            (data.get('matric_number'), data.get('current_level'), data.get('session'), student_id)
+        )
+        return jsonify({'message': 'Student updated successfully'}), 200
+    except Exception as e:
+        return jsonify({'message': f'Error updating student: {e}'}), 500

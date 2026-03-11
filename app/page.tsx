@@ -4,7 +4,7 @@ import React from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import { BookOpen, GraduationCap, Users } from "lucide-react";
+import { BookOpen, GraduationCap, Users, Briefcase } from "lucide-react";
 
 export default function UniversityLandingPage() {
   return (
@@ -44,6 +44,12 @@ export default function UniversityLandingPage() {
               Student Login
             </Button>
           </Link>
+          <Link href="/staff/login">
+            <Button variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-50 rounded-full px-4 sm:px-6 shadow-sm hidden sm:flex">
+              <Briefcase className="h-4 w-4 mr-2" />
+              Staff
+            </Button>
+          </Link>
         </div>
       </header>
 
@@ -78,7 +84,7 @@ export default function UniversityLandingPage() {
       {/* Quick Links Section */}
       <section className="py-20 bg-white relative z-10">
         <div className="max-w-6xl mx-auto px-6">
-          <div className="grid md:grid-cols-3 gap-8">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
             <div className="p-8 rounded-2xl bg-gray-50 border border-gray-100 hover:shadow-xl transition-all hover:-translate-y-1 cursor-pointer group text-center">
               <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:bg-[#d9251b] transition-colors">
                 <BookOpen className="h-8 w-8 text-[#d9251b] group-hover:text-white" />
@@ -104,12 +110,25 @@ export default function UniversityLandingPage() {
                <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:bg-[#d9251b] transition-colors relative z-10">
                 <Users className="h-8 w-8 text-[#d9251b] group-hover:text-white" />
               </div>
-              <h3 className="text-xl font-bold mb-3 relative z-10">Student portal</h3>
+              <h3 className="text-xl font-bold mb-3 relative z-10">Student Portal</h3>
               <p className="text-gray-600 relative z-10">Log in to register courses, check results, and manage your student profile.</p>
               <Link href="/student/login" className="absolute inset-0 z-20">
                  <span className="sr-only">Go to Student Login</span>
               </Link>
             </div>
+
+            <div className="p-8 rounded-2xl bg-gray-900 border border-gray-800 hover:shadow-xl transition-all hover:-translate-y-1 cursor-pointer group text-center relative overflow-hidden">
+               <div className="absolute inset-0 border-2 border-white/10 rounded-2xl scale-105 pointer-events-none transition-transform opacity-0 group-hover:opacity-100 group-hover:scale-100" />
+               <div className="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:bg-white transition-colors relative z-10">
+                <Briefcase className="h-8 w-8 text-white group-hover:text-gray-900" />
+              </div>
+              <h3 className="text-xl font-bold mb-3 relative z-10 text-white">Staff Portal</h3>
+              <p className="text-gray-400 relative z-10">Lecturers, HODs, Deans, DEOs, Registrar &amp; Admin — sign in here.</p>
+              <Link href="/staff/login" className="absolute inset-0 z-20">
+                 <span className="sr-only">Go to Staff Login</span>
+              </Link>
+            </div>
+
           </div>
         </div>
       </section>

@@ -1,0 +1,22 @@
+Name,Email,Role,Staff ID,Department,Faculty,Login Page,Default Password
+ibk,adejumoibk702@gmail.com,admin,,,,/auth/login,(existing password)
+Temilade Afolabi,afolstee@gmail.com,admin,,,,/auth/login,(existing password)
+Prof. Adaeze Nwosu,dean.fsms@pcu.edu.ng,dean,DEAN-FSMS-001,,Faculty of Social and Management Sciences,/staff/login,Password@123
+Prof. Chukwuemeka Obi,dean.fpas@pcu.edu.ng,dean,DEAN-FPAS-001,,Faculty of Pure and Applied Sciences,/staff/login,Password@123
+Miss. Grace Effiong,deo.fpas@pcu.edu.ng,deo,DEO-FPAS-001,,Faculty of Pure and Applied Sciences,/staff/login,Password@123
+Mr. Solomon Taiwo,deo.fsms@pcu.edu.ng,deo,DEO-FSMS-001,,Faculty of Social and Management Sciences,/staff/login,Password@123
+Dr. Amara Obiora,hod.intlrel@pcu.edu.ng,hod,HOD-IRS-001,International Relations,Faculty of Social and Management Sciences,/staff/login,Password@123
+Dr. Chisom Okafor,hod.economics@pcu.edu.ng,hod,HOD-ECO-001,Economics,Faculty of Social and Management Sciences,/staff/login,Password@123
+Dr. Emeka Uzo,hod.natscience@pcu.edu.ng,hod,HOD-NSC-001,Natural Science,Faculty of Pure and Applied Sciences,/staff/login,Password@123
+Dr. Funmi Bello,hod.physcience@pcu.edu.ng,hod,HOD-PSC-001,Physical Science,Faculty of Pure and Applied Sciences,/staff/login,Password@123
+Dr. Kola Adeyemi,hod.accounting@pcu.edu.ng,hod,HOD-ACC-001,Accounting,Faculty of Social and Management Sciences,/staff/login,Password@123
+Dr. Ngozi Eze,hod.masscomm@pcu.edu.ng,hod,HOD-MCM-001,Mass Communication,Faculty of Social and Management Sciences,/staff/login,Password@123
+Dr. Segun Alade,hod.busadmin@pcu.edu.ng,hod,HOD-BUS-001,Business Administration,Faculty of Social and Management Sciences,/staff/login,Password@123
+Dr. Yusuf Garba,hod.procurement@pcu.edu.ng,hod,HOD-PRM-001,Procurement,Faculty of Social and Management Sciences,/staff/login,Password@123
+Dr. Adaora Igwe,a.igwe@pcu.edu.ng,lecturer,LEC-NSC-001,Natural Science,Faculty of Pure and Applied Sciences,/staff/login,Password@123
+Dr. Fatima Suleiman,f.suleiman@pcu.edu.ng,lecturer,LEC-MCM-001,Mass Communication,Faculty of Social and Management Sciences,/staff/login,Password@123
+Mr. Bashir Usman,b.usman@pcu.edu.ng,lecturer,LEC-ECO-001,Economics,Faculty of Social and Management Sciences,/staff/login,Password@123
+Mr. Emeka Nwachukwu,e.nwachukwu@pcu.edu.ng,lecturer,LEC-BUS-001,Business Administration,Faculty of Social and Management Sciences,/staff/login,Password@123
+Mrs. Blessing Okoro,b.okoro@pcu.edu.ng,lecturer,LEC-ACC-001,Accounting,Faculty of Social and Management Sciences,/staff/login,Password@123
+Mr. Tunde Lawal,t.lawal@pcu.edu.ng,lecturer,LEC-PSC-001,Physical Science,Faculty of Pure and Applied Sciences,/staff/login,Password@123
+Mrs. Patience Okafor,registrar@pcu.edu.ng,registrar,REG-001,,,/staff/login,Password@123

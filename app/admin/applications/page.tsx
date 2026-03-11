@@ -54,7 +54,7 @@ export default function ApplicationsPage() {
   const [status, setStatus] = useState<string>("submitted");
 
   useEffect(() => {
-    if (!isAuthenticated || user?.role !== "admin") {
+    if (!isAuthenticated || user?.role !== "admissions_officer") {
       router.replace("/auth/login");
       return;
     }

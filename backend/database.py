@@ -1,5 +1,6 @@
 import os
 import psycopg2
+import psycopg2.pool
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
 from dotenv import load_dotenv
@@ -7,42 +8,64 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Database:
+    _pool = None
 
-
-    @staticmethod
-    def get_connection():
-        try:
-            connection = psycopg2.connect(
-                os.getenv("DATABASE_URL"),  
+    @classmethod
+    def _get_pool(cls):
+        """Lazy initialise a persistent connection pool (min 2, max 10 connections)."""
+        if cls._pool is None:
+            cls._pool = psycopg2.pool.ThreadedConnectionPool(
+                minconn=2,
+                maxconn=10,
+                dsn=os.getenv("DATABASE_URL"),
                 cursor_factory=RealDictCursor,
-                sslmode="require"   # 
+                sslmode="require",
+                # Keep connections alive: send a keepalive every 60 s
+                keepalives=1,
+                keepalives_idle=60,
+                keepalives_interval=10,
+                keepalives_count=5,
             )
-            return connection
+        return cls._pool
+
+    @classmethod
+    def get_connection(cls):
+        """Get a connection from the pool."""
+        try:
+            return cls._get_pool().getconn()
         except psycopg2.Error as e:
             print(f"Database connection error: {e}")
             return None
 
+    @classmethod
+    def release_connection(cls, conn):
+        """Return a connection to the pool."""
+        try:
+            cls._get_pool().putconn(conn)
+        except Exception:
+            pass
+
     @staticmethod
     @contextmanager
     def get_cursor():
-        connection = Database.get_connection()
-        if not connection:
+        """Context manager: yields a cursor; commits or rolls back; returns conn to pool."""
+        conn = Database.get_connection()
+        if not conn:
             raise Exception("Failed to connect to database")
-
-        cursor = connection.cursor()
+        cursor = conn.cursor()
         try:
             yield cursor
-            connection.commit()
+            conn.commit()
         except Exception as e:
-            connection.rollback()
+            conn.rollback()
             raise e
         finally:
             cursor.close()
-            connection.close()
+            Database.release_connection(conn)
 
     @staticmethod
     def execute_query(query, params=None):
-        """Execute SELECT query"""
+        """Execute a SELECT query and return all rows."""
         try:
             with Database.get_cursor() as cursor:
                 cursor.execute(query, params or ())
@@ -53,7 +76,7 @@ class Database:
 
     @staticmethod
     def execute_update(query, params=None, return_id=False):
-        """Execute INSERT, UPDATE, DELETE"""
+        """Execute INSERT / UPDATE / DELETE."""
         try:
             with Database.get_cursor() as cursor:
                 cursor.execute(query, params or ())

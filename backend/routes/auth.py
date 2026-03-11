@@ -8,18 +8,39 @@ auth_bp = Blueprint('auth', __name__)
 @auth_bp.route('/signup', methods=['POST'])
 def signup():
     """Create new user account"""
+    # Check if admission registration is locked
+    res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'admission_registration_locked'")
+    if res and res[0]['value'] == 'true':
+        return jsonify({'message': 'Admission registration is currently closed.'}), 403
+        
     data = request.get_json()
     
-    # Validate input
-    if not data or not all(k in data for k in ['first_name', 'last_name', 'email', 'password', 'phone_number']):
-        return jsonify({'message': 'Missing required fields'}), 400
+    # Accept both (first_name + last_name) OR a single (name) field
+    if not data:
+        return jsonify({'message': 'Missing request body'}), 400
+
+    first_name = data.get('first_name', '').strip()
+    last_name  = data.get('last_name', '').strip()
+
+    # Allow full_name or name as an alternative
+    if not first_name and not last_name:
+        full_name = data.get('name', data.get('full_name', '')).strip()
+        if not full_name:
+            return jsonify({'message': 'Missing required fields'}), 400
+        parts = full_name.split(' ', 1)
+        first_name = parts[0]
+        last_name  = parts[1] if len(parts) > 1 else ''
     
+    full_name = f"{first_name} {last_name}".strip()
+
+    if not all(k in data for k in ['email', 'password', 'phone_number']):
+        return jsonify({'message': 'Missing required fields'}), 400
+
     # Validate email format
     email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     if not re.match(email_regex, data['email']):
         return jsonify({'message': 'Invalid email format'}), 400
     
-    # Validate password length
     if len(data['password']) < 6:
         return jsonify({'message': 'Password must be at least 6 characters'}), 400
     
@@ -28,17 +49,15 @@ def signup():
         'SELECT id FROM users WHERE email = %s',
         (data['email'],)
     )
-    
     if existing_user:
         return jsonify({'message': 'Email already registered'}), 409
     
-    # Hash password
     password_hash = AuthHandler.hash_password(data['password'])
     
-    # Insert new user
+    # Insert — new schema has only 'name', no first_name/last_name columns
     user_id = Database.execute_update(
-        'INSERT INTO users (first_name, last_name, name, email, password_hash, phone_number, role) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id',
-        (data['first_name'], data['last_name'], f"{data['first_name']} {data['last_name']}", data['email'], password_hash, data['phone_number'], 'applicant'),
+        'INSERT INTO users (name, email, password_hash, phone_number, role) VALUES (%s, %s, %s, %s, %s) RETURNING id',
+        (full_name, data['email'], password_hash, data['phone_number'], 'applicant'),
         return_id=True
     )
     
@@ -50,7 +69,6 @@ def signup():
         (user_id, None)
     )
     
-    # Generate token
     token = AuthHandler.generate_token(user_id, 'applicant')
     
     return jsonify({
@@ -58,9 +76,9 @@ def signup():
         'token': token,
         'user': {
             'id': user_id,
-            'first_name': data['first_name'],
-            'last_name': data['last_name'],
-            'name': f"{data['first_name']} {data['last_name']}",
+            'first_name': first_name,
+            'last_name': last_name,
+            'name': full_name,
             'email': data['email'],
             'role': 'applicant'
         }
@@ -74,9 +92,9 @@ def login():
     if not data or not all(k in data for k in ['email', 'password']):
         return jsonify({'message': 'Missing email or password'}), 400
     
-    # Query user by email or username
+    # Query user by email or username — new schema has no first_name/last_name
     users = Database.execute_query(
-        'SELECT id, name, first_name, last_name, email, username, password_hash, role, status FROM users WHERE email = %s OR username = %s',
+        'SELECT id, name, email, username, password_hash, role, status FROM users WHERE email = %s OR username = %s',
         (data['email'], data['email'])
     )
     
@@ -85,17 +103,19 @@ def login():
     
     user = users[0]
     
-    # Check if user is active
     if user['status'] != 'active':
         return jsonify({'message': 'Account is inactive or suspended'}), 403
     
-    # Verify password
     if not AuthHandler.verify_password(data['password'], user['password_hash']):
         return jsonify({'message': 'Invalid credentials'}), 401
     
-    # Generate token
     token = AuthHandler.generate_token(user['id'], user['role'])
     
+    # Derive first_name / last_name from the single 'name' field for frontend compatibility
+    name_parts = (user['name'] or '').split(' ', 1)
+    first_name = name_parts[0]
+    last_name  = name_parts[1] if len(name_parts) > 1 else ''
+
     # Get applicant or student status
     extra_data = {}
     if user['role'] == 'applicant':
@@ -123,8 +143,8 @@ def login():
         'user': {
             'id': user['id'],
             'name': user['name'],
-            'first_name': user.get('first_name'),
-            'last_name': user.get('last_name'),
+            'first_name': first_name,
+            'last_name': last_name,
             'email': user['email'],
             'username': user.get('username'),
             'role': user['role']
@@ -139,7 +159,7 @@ def verify_token(payload):
     user_id = payload['user_id']
     
     user = Database.execute_query(
-        'SELECT id, name, first_name, last_name, email, username, role FROM users WHERE id = %s',
+        'SELECT id, name, email, username, role FROM users WHERE id = %s',
         (user_id,)
     )
     
@@ -147,8 +167,12 @@ def verify_token(payload):
         return jsonify({'message': 'User not found'}), 404
         
     user_data = user[0]
+
+    # Derive first_name / last_name from the single 'name' field for frontend compatibility
+    name_parts = (user_data['name'] or '').split(' ', 1)
+    first_name = name_parts[0]
+    last_name  = name_parts[1] if len(name_parts) > 1 else ''
     
-    # Get applicant or student status
     extra_data = {}
     if user_data['role'] == 'applicant':
         applicants = Database.execute_query(
@@ -174,8 +198,8 @@ def verify_token(payload):
         'user': {
             'id': user_data['id'],
             'name': user_data['name'],
-            'first_name': user_data.get('first_name'),
-            'last_name': user_data.get('last_name'),
+            'first_name': first_name,
+            'last_name': last_name,
             'email': user_data['email'],
             'username': user_data.get('username'),
             'role': user_data['role']

@@ -88,7 +88,7 @@ export default function SendLettersPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated || user?.role !== "admin") {
+    if (!isAuthenticated || user?.role !== "admissions_officer") {
       router.replace("/auth/login");
       return;
     }
@@ -213,7 +213,7 @@ export default function SendLettersPage() {
     router.replace("/");
   };
 
-  if (!isAuthenticated || user?.role !== "admin") {
+  if (!isAuthenticated || user?.role !== "admissions_officer") {
     return null;
   }
 

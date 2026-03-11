@@ -44,7 +44,6 @@ def token_required(f):
     def decorated(*args, **kwargs):
         token = None
 
-        # Check for token in headers
         if 'Authorization' in request.headers:
             auth_header = request.headers['Authorization']
             try:
@@ -64,19 +63,47 @@ def token_required(f):
     return decorated
 
 def admin_required(f):
-    """Decorator to protect admin routes"""
+    """Decorator to protect admin-only routes (ICT Director)"""
     @wraps(f)
     def decorated(payload, *args, **kwargs):
         if payload.get('role') != 'admin':
             return jsonify({'message': 'Admin access required'}), 403
         return f(payload, *args, **kwargs)
-
     return decorated
 
-class AuthHandler:
-    hash_password = staticmethod(hash_password)
-    verify_password = staticmethod(verify_password)
-    generate_token = staticmethod(generate_token)
-    token_required = staticmethod(token_required)
-    admin_required = staticmethod(admin_required)
+def admissions_officer_required(f):
+    """Decorator to protect admissions officer routes (Strictly Admissions Officer)"""
+    @wraps(f)
+    def decorated(payload, *args, **kwargs):
+        if payload.get('role') != 'admissions_officer':
+            return jsonify({'message': 'Admissions Officer access required'}), 403
+        return f(payload, *args, **kwargs)
+    return decorated
 
+def roles_required(*roles):
+    """Restrict access to one or more roles. Must be stacked AFTER @token_required.
+
+    Usage:
+        @token_required
+        @roles_required('lecturer', 'deo', 'admin')
+        def my_view(payload): ...
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated(payload, *args, **kwargs):
+            if payload.get('role') not in roles:
+                allowed = ', '.join(roles)
+                return jsonify({'message': f'Access denied. Required role(s): {allowed}'}), 403
+            return f(payload, *args, **kwargs)
+        return decorated
+    return decorator
+
+
+class AuthHandler:
+    hash_password   = staticmethod(hash_password)
+    verify_password = staticmethod(verify_password)
+    generate_token  = staticmethod(generate_token)
+    token_required  = staticmethod(token_required)
+    admin_required  = staticmethod(admin_required)
+    admissions_officer_required = staticmethod(admissions_officer_required)
+    roles_required  = staticmethod(roles_required)

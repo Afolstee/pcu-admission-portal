@@ -10,7 +10,7 @@ admin_bp = Blueprint('admin', __name__)
 
 @admin_bp.route('/applications', methods=['GET'])
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def get_applications(payload):
     """Get list of all applications with filtering options"""
     status = request.args.get('status', 'submitted')
@@ -41,7 +41,7 @@ def get_applications(payload):
 
 @admin_bp.route('/application/<int:applicant_id>', methods=['GET'])
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def get_application_details(payload, applicant_id):
     """Get detailed application information"""
     
@@ -97,7 +97,7 @@ def get_application_details(payload, applicant_id):
 
 @admin_bp.route('/review-application', methods=['POST'])
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def review_application(payload, admin_id=None):
     """Review and approve/reject/recommend application"""
     admin_id = payload['user_id']
@@ -148,7 +148,7 @@ def review_application(payload, admin_id=None):
 
 @admin_bp.route('/send-admission-letter', methods=['POST'])
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def send_admission_letter(payload):
     """Send admission letter to single applicant using the selected template"""
     data = request.get_json()
@@ -173,11 +173,14 @@ def send_admission_letter(payload):
     # Get applicant details with all program info
     applicant = Database.execute_query(
         '''SELECT u.id, u.name, u.email, a.program_id, 
-           p.name as program_name, p.level, p.department, p.faculty, 
-           p.mode, p.session, p.resumption_date
+           p.name as program_name, p.level, d.name as department, f.name as faculty, 
+           pt.name as mode, p.session, p.resumption_date
            FROM applicants a
            JOIN users u ON a.user_id = u.id
            LEFT JOIN programs p ON a.program_id = p.id
+           LEFT JOIN departments d ON p.department_id = d.id
+           LEFT JOIN faculties f ON d.faculty_id = f.id
+           LEFT JOIN program_types pt ON p.program_type_id = pt.id
            WHERE a.id = %s AND a.application_status = %s''',
         (applicant_id, 'accepted')
     )
@@ -252,7 +255,7 @@ def send_admission_letter(payload):
     methods=['POST', 'OPTIONS']
 )
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def preview_admission_letter(payload):
 
     if request.method == 'OPTIONS':
@@ -280,10 +283,13 @@ def preview_admission_letter(payload):
     # Get applicant details with all program info
     applicant = Database.execute_query(
         '''SELECT u.id, u.name, u.email, a.program_id, p.name as program_name,
-                  p.level, p.department, p.faculty, p.mode, p.session, p.resumption_date
+           p.level, d.name as department, f.name as faculty, pt.name as mode, p.session, p.resumption_date
            FROM applicants a
            JOIN users u ON a.user_id = u.id
            LEFT JOIN programs p ON a.program_id = p.id
+           LEFT JOIN departments d ON p.department_id = d.id
+           LEFT JOIN faculties f ON d.faculty_id = f.id
+           LEFT JOIN program_types pt ON p.program_type_id = pt.id
            WHERE a.id = %s AND a.application_status = %s''',
         (applicant_id, 'accepted')
     )
@@ -336,7 +342,7 @@ def preview_admission_letter(payload):
 
 @admin_bp.route('/send-batch-letters', methods=['POST'])
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def send_batch_letters(payload):
     """Send admission letters to multiple applicants using SendGrid batch API (1 call for all)"""
     data = request.get_json()
@@ -369,11 +375,14 @@ def send_batch_letters(payload):
             # Get applicant details
             applicant = Database.execute_query(
                 '''SELECT u.id, u.name, u.email, a.program_id, 
-                   p.name as program_name, p.level, p.department, p.faculty, 
-                   p.mode, p.session, p.resumption_date
+                   p.name as program_name, p.level, d.name as department, f.name as faculty, 
+                   pt.name as mode, p.session, p.resumption_date
                    FROM applicants a
                    JOIN users u ON a.user_id = u.id
                    LEFT JOIN programs p ON a.program_id = p.id
+                   LEFT JOIN departments d ON p.department_id = d.id
+                   LEFT JOIN faculties f ON d.faculty_id = f.id
+                   LEFT JOIN program_types pt ON p.program_type_id = pt.id
                    WHERE a.id = %s AND a.application_status = %s''',
                 (applicant_id, 'accepted')
             )
@@ -536,7 +545,7 @@ def send_batch_letters(payload):
 
 @admin_bp.route('/revoke-admission', methods=['POST'])
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def revoke_admission(payload):
     """Revoke admission for an applicant"""
     data = request.get_json()
@@ -561,7 +570,7 @@ def revoke_admission(payload):
 
 @admin_bp.route('/statistics', methods=['GET'])
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def get_statistics(payload):
     """Get application statistics"""
     
@@ -598,7 +607,7 @@ def get_statistics(payload):
 
 @admin_bp.route('/letter-templates', methods=['GET'])
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def get_letter_templates(payload):
     """Get all available admission letter templates"""
     templates = get_all_templates()
@@ -606,21 +615,23 @@ def get_letter_templates(payload):
 
 @admin_bp.route('/faculty-departments', methods=['GET'])
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def get_faculty_departments(payload):
     """Get faculties and departments with pending applicants awaiting admission letters"""
     query = '''SELECT 
-                p.faculty,
-                p.department,
+                f.name as faculty,
+                d.name as department,
                 COUNT(a.id) as pending_count
             FROM programs p
+            JOIN departments d ON p.department_id = d.id
+            JOIN faculties f ON d.faculty_id = f.id
             JOIN applicants a ON p.id = a.program_id
             LEFT JOIN admission_letter_tracking alt ON a.id = alt.applicant_id
             WHERE a.application_status = 'accepted'
               AND (alt.status IS NULL OR alt.status = 'pending')
-            GROUP BY p.faculty, p.department
+            GROUP BY f.name, d.name
             HAVING COUNT(a.id) > 0
-            ORDER BY p.faculty, p.department'''
+            ORDER BY f.name, d.name'''
     
     results = Database.execute_query(query)
     
@@ -640,15 +651,17 @@ def get_faculty_departments(payload):
 
 @admin_bp.route('/department-applicants/<department_name>', methods=['GET'])
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def get_department_applicants(payload, department_name):
     """Get pending applicants for a department awaiting admission letters"""
-    query = '''SELECT a.id, u.name, u.email, p.name as program_name, p.faculty, p.department
+    query = '''SELECT a.id, u.name, u.email, p.name as program_name, f.name as faculty, d.name as department
             FROM applicants a
             JOIN users u ON a.user_id = u.id
             JOIN programs p ON a.program_id = p.id
+            JOIN departments d ON p.department_id = d.id
+            JOIN faculties f ON d.faculty_id = f.id
             LEFT JOIN admission_letter_tracking alt ON a.id = alt.applicant_id
-            WHERE p.department = %s
+            WHERE d.name = %s
               AND a.application_status = 'accepted'
               AND (alt.status IS NULL OR alt.status = 'pending')
             ORDER BY u.name ASC'''
@@ -662,7 +675,7 @@ def get_department_applicants(payload, department_name):
 
 @admin_bp.route('/send-department-letters', methods=['POST'])
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def send_department_letters(payload):
     """Send admission letters to all pending applicants in a department"""
     from sendgrid import SendGridAPIClient
@@ -697,11 +710,14 @@ def send_department_letters(payload):
                 
                 applicant = Database.execute_query(
                     '''SELECT u.id, u.name, u.email, a.program_id, 
-                       p.name as program_name, p.level, p.department, p.faculty, 
-                       p.mode, p.session, p.resumption_date
+                       p.name as program_name, p.level, d.name as department, f.name as faculty, 
+                       pt.name as mode, p.session, p.resumption_date
                        FROM applicants a
                        JOIN users u ON a.user_id = u.id
                        LEFT JOIN programs p ON a.program_id = p.id
+                       LEFT JOIN departments d ON p.department_id = d.id
+                       LEFT JOIN faculties f ON d.faculty_id = f.id
+                       LEFT JOIN program_types pt ON p.program_type_id = pt.id
                        WHERE a.id = %s AND a.application_status = %s''',
                     (applicant_id, 'accepted')
                 )
@@ -858,7 +874,7 @@ def send_department_letters(payload):
 
 @admin_bp.route('/letter-status-summary', methods=['GET'])
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def get_letter_status_summary(payload):
     """Get summary of all letter statuses: sent, failed, pending"""
     query = '''SELECT a.id, u.name, u.email, p.name as program_name, 
@@ -909,7 +925,7 @@ def get_letter_status_summary(payload):
 
 @admin_bp.route('/resend-letter/<int:applicant_id>', methods=['POST'])
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def resend_letter(payload, applicant_id):
     """Resend admission letter to an applicant"""
     from sendgrid import SendGridAPIClient
@@ -932,11 +948,14 @@ def resend_letter(payload, applicant_id):
         # Get applicant
         applicant = Database.execute_query(
             '''SELECT u.id, u.name, u.email, a.program_id, 
-               p.name as program_name, p.level, p.department, p.faculty, 
-               p.mode, p.session, p.resumption_date
+               p.name as program_name, p.level, d.name as department, f.name as faculty, 
+               pt.name as mode, p.session, p.resumption_date
                FROM applicants a
                JOIN users u ON a.user_id = u.id
                LEFT JOIN programs p ON a.program_id = p.id
+               LEFT JOIN departments d ON p.department_id = d.id
+               LEFT JOIN faculties f ON d.faculty_id = f.id
+               LEFT JOIN program_types pt ON p.program_type_id = pt.id
                WHERE a.id = %s AND a.application_status = %s''',
             (applicant_id, 'accepted')
         )
@@ -1059,7 +1078,7 @@ def resend_letter(payload, applicant_id):
 
 @admin_bp.route('/preview-letter/<int:applicant_id>', methods=['GET'])
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def preview_letter(payload, applicant_id):
     """Generate and return a preview PDF of the admission letter"""
     admission_date_str = request.args.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
@@ -1077,11 +1096,14 @@ def preview_letter(payload, applicant_id):
         # Get applicant
         applicant = Database.execute_query(
             '''SELECT u.id, u.name, u.email, a.program_id, 
-               p.name as program_name, p.level, p.department, p.faculty, 
-               p.mode, p.session, p.resumption_date
+               p.name as program_name, p.level, d.name as department, f.name as faculty, 
+               pt.name as mode, p.session, p.resumption_date
                FROM applicants a
                JOIN users u ON a.user_id = u.id
                LEFT JOIN programs p ON a.program_id = p.id
+               LEFT JOIN departments d ON p.department_id = d.id
+               LEFT JOIN faculties f ON d.faculty_id = f.id
+               LEFT JOIN program_types pt ON p.program_type_id = pt.id
                WHERE a.id = %s AND a.application_status = %s''',
             (applicant_id, 'accepted')
         )
@@ -1145,45 +1167,100 @@ def preview_letter(payload, applicant_id):
 
 @admin_bp.route('/programs', methods=['GET'])
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def get_programs(payload):
     """Retrieve all academic programs for management"""
     programs = Database.execute_query(
-        '''SELECT p.*, pf.acceptance_fee, pf.tuition_fee, pf.other_fees 
-           FROM programs p 
+        '''SELECT p.*, pf.acceptance_fee, pf.tuition_fee, pf.other_fees, 
+           d.name as department, f.name as faculty, pt.name as mode
+           FROM programs p
+           LEFT JOIN departments d ON p.department_id = d.id
+           LEFT JOIN faculties f ON d.faculty_id = f.id
+           LEFT JOIN program_types pt ON p.program_type_id = pt.id
            LEFT JOIN program_fees pf ON p.id = pf.program_id
            ORDER BY p.name'''
     )
     return jsonify({'programs': programs or []}), 200
 
+@admin_bp.route('/faculties', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.admissions_officer_required
+def get_faculties(payload):
+    """Get all faculties"""
+    faculties = Database.execute_query('SELECT * FROM faculties ORDER BY name')
+    return jsonify({'faculties': faculties or []}), 200
+
+@admin_bp.route('/departments', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.admissions_officer_required
+def get_departments(payload):
+    """Get all departments, optionally filtered by faculty_id"""
+    faculty_id = request.args.get('faculty_id')
+    if faculty_id:
+        departments = Database.execute_query(
+            '''SELECT d.*, f.name as faculty_name FROM departments d
+               JOIN faculties f ON d.faculty_id = f.id
+               WHERE d.faculty_id = %s ORDER BY d.name''',
+            (faculty_id,)
+        )
+    else:
+        departments = Database.execute_query(
+            '''SELECT d.*, f.name as faculty_name FROM departments d
+               JOIN faculties f ON d.faculty_id = f.id ORDER BY f.name, d.name'''
+        )
+    return jsonify({'departments': departments or []}), 200
+
+@admin_bp.route('/program-types', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.admissions_officer_required
+def get_program_types(payload):
+    """Get all program types (Undergraduate, Postgraduate, etc.)"""
+    types = Database.execute_query('SELECT * FROM program_types ORDER BY name')
+    return jsonify({'program_types': types or []}), 200
+
+
 @admin_bp.route('/program/<int:program_id>', methods=['PUT'])
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def update_program(payload, program_id):
     """Update program details (including registration deadline)"""
     data = request.get_json()
     if not data:
         return jsonify({'message': 'No data provided'}), 400
-        
-    allowed_fields = [
-        'name', 'description', 'faculty', 'department', 
-        'level', 'mode', 'session', 'resumption_date', 
-        'registration_deadline'
-    ]
-    
+
     updates = []
     params = []
-    
-    for field in allowed_fields:
+
+    # Direct columns on programs table
+    direct_fields = ['name', 'description', 'level', 'session', 'resumption_date', 'registration_deadline']
+    for field in direct_fields:
         if field in data:
             updates.append(f"{field} = %s")
             params.append(data[field])
-            
+
+    # department_id: resolve by name
+    if 'department' in data:
+        dept = Database.execute_query(
+            'SELECT id FROM departments WHERE name = %s', (data['department'],)
+        )
+        if dept:
+            updates.append("department_id = %s")
+            params.append(dept[0]['id'])
+
+    # program_type_id: resolve mode/type by name
+    if 'mode' in data:
+        pt = Database.execute_query(
+            'SELECT id FROM program_types WHERE name = %s', (data['mode'],)
+        )
+        if pt:
+            updates.append("program_type_id = %s")
+            params.append(pt[0]['id'])
+
     if not updates:
         return jsonify({'message': 'No valid fields provided for update'}), 400
-        
+
     params.append(program_id)
-    
+
     try:
         Database.execute_update(
             f"UPDATE programs SET {', '.join(updates)}, updated_at = NOW() WHERE id = %s",
@@ -1195,7 +1272,7 @@ def update_program(payload, program_id):
 
 @admin_bp.route('/students', methods=['GET'])
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def get_students(payload):
     """Retrieve all students (Stage 2 focus)"""
     program_id = request.args.get('program_id')
@@ -1221,7 +1298,7 @@ def get_students(payload):
 
 @admin_bp.route('/student/<int:student_id>/registration', methods=['GET'])
 @AuthHandler.token_required
-@AuthHandler.admin_required
+@AuthHandler.admissions_officer_required
 def get_student_registration(payload, student_id):
     """View a student's course registration details"""
     semester = request.args.get('semester', 'First')
@@ -1247,3 +1324,19 @@ def get_student_registration(payload, student_id):
         'registration': registration[0],
         'courses': courses or []
     }), 200
+
+
+@admin_bp.route('/courses-list', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.admissions_officer_required
+def get_courses_list(payload):
+    """Lightweight course list for dropdowns (admin/staff management)."""
+    dept_id = request.args.get('department_id')
+    query = 'SELECT id, course_code, course_title FROM courses'
+    params = None
+    if dept_id:
+        query += ' WHERE department_id = %s'
+        params = (dept_id,)
+    query += ' ORDER BY course_code'
+    courses = Database.execute_query(query, params)
+    return jsonify({'courses': courses or []}), 200

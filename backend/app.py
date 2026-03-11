@@ -44,11 +44,23 @@ def create_app(config_name='development'):
     from routes.applicant import applicant_bp
     from routes.admin import admin_bp
     from routes.student import student_bp
+    from routes.scores import scores_bp
+    from routes.staff import staff_bp
+    from routes.hod import hod_bp
+    from routes.dean import dean_bp
+    from routes.registrar import registrar_bp
+    from routes.settings import settings_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(applicant_bp, url_prefix='/api/applicant')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(student_bp, url_prefix='/api/student')
+    app.register_blueprint(scores_bp, url_prefix='/api/scores')
+    app.register_blueprint(staff_bp, url_prefix='/api/staff')
+    app.register_blueprint(hod_bp, url_prefix='/api/hod')
+    app.register_blueprint(dean_bp, url_prefix='/api/dean')
+    app.register_blueprint(registrar_bp, url_prefix='/api/registrar')
+    app.register_blueprint(settings_bp, url_prefix='/api/settings')
 
     @app.route('/api/health', methods=['GET'])
     def health():

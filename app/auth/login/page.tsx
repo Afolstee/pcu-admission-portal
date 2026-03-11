@@ -54,13 +54,28 @@ export default function LoginPage() {
   useEffect(() => {
     if (!isAuthenticated || !user) return;
 
-    if (user.role === "admin") {
+    const role = user.role;
+
+    // Admissions admin → admissions admin panel
+    if (role === "admissions_officer") {
       router.replace("/admin/dashboard");
       return;
     }
 
-    if (user.role === "student") {
-      // Do not auto-redirect; stay on page to show admission message
+    // ICT Director -> ICT dashboard
+    if (role === "admin") {
+      router.replace("/ict/dashboard");
+      return;
+    }
+
+    // Any other staff role accidentally hit this page → send to staff portal
+    if (["lecturer", "deo", "hod", "dean", "registrar"].includes(role)) {
+      router.replace("/staff/login");
+      return;
+    }
+
+    // Admitted student — stay on this page to show the upgrade message
+    if (role === "student") {
       return;
     }
 

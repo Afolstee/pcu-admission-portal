@@ -14,16 +14,29 @@ applicant_bp = Blueprint('applicant', __name__)
 
 @applicant_bp.route('/programs', methods=['GET'])
 def get_programs():
-    """Get list of available programs"""
-    programs = Database.execute_query('SELECT id, name, description FROM programs')
+    """Get list of available programs grouped by faculty and department"""
+    programs = Database.execute_query(
+        '''SELECT p.id, p.name, p.description, p.level, p.session,
+                  d.name as department, f.name as faculty, pt.name as mode
+           FROM programs p
+           JOIN departments d ON p.department_id = d.id
+           JOIN faculties f ON d.faculty_id = f.id
+           JOIN program_types pt ON p.program_type_id = pt.id
+           ORDER BY f.name, d.name, p.name'''
+    )
     return jsonify({
-        'programs': programs
+        'programs': programs or []
     }), 200
 
 @applicant_bp.route('/select-program', methods=['POST'])
 @AuthHandler.token_required
 def select_program(payload):
     """Select a program for application"""
+    # Check if admission registration is locked
+    res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'admission_registration_locked'")
+    if res and res[0]['value'] == 'true':
+        return jsonify({'message': 'Admission registration is currently closed.'}), 403
+
     user_id = payload['user_id']
     data = request.get_json()
     
@@ -334,6 +347,11 @@ def get_form(payload, applicant_id):
 @AuthHandler.token_required
 def submit_application(payload):
     """Submit completed application for review"""
+    # Check if admission registration is locked
+    res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'admission_registration_locked'")
+    if res and res[0]['value'] == 'true':
+        return jsonify({'message': 'Admission registration is currently closed.'}), 403
+
     user_id = payload['user_id']
     data = request.get_json()
     applicant_id = data.get('applicant_id')
@@ -423,8 +441,12 @@ def get_admission_letter(payload):
 
     # Get program details for letter
     program_details = Database.execute_query(
-        '''SELECT faculty, department, level, mode, session, resumption_date
-           FROM programs WHERE id = %s''',
+        '''SELECT f.name as faculty, d.name as department, p.level, pt.name as mode, p.session, p.resumption_date
+           FROM programs p 
+           LEFT JOIN departments d ON p.department_id = d.id
+           LEFT JOIN faculties f ON d.faculty_id = f.id
+           LEFT JOIN program_types pt ON p.program_type_id = pt.id
+           WHERE p.id = %s''',
         (applicant_data['program_id'],)
     )
 
@@ -502,8 +524,12 @@ def print_admission_letter(payload):
 
     # Get program details for letter
     program_details = Database.execute_query(
-        '''SELECT faculty, department, level, mode, session, resumption_date
-           FROM programs WHERE id = %s''',
+        '''SELECT f.name as faculty, d.name as department, p.level, pt.name as mode, p.session, p.resumption_date
+           FROM programs p 
+           LEFT JOIN departments d ON p.department_id = d.id
+           LEFT JOIN faculties f ON d.faculty_id = f.id
+           LEFT JOIN program_types pt ON p.program_type_id = pt.id
+           WHERE p.id = %s''',
         (applicant_data['program_id'],)
     )
 
@@ -595,18 +621,18 @@ def process_payment(payload):
         'SELECT acceptance_fee, tuition_fee FROM program_fees WHERE program_id = %s',
         (program_id,)
     )
-    
+
     if fees:
         fee_map = {
-            'acceptance_fee': fees[0]['acceptance_fee'],
-            'tuition': fees[0]['tuition_fee']
+            'acceptance_fee': float(fees[0]['acceptance_fee'] or 0),
+            'tuition': float(fees[0]['tuition_fee'] or 0)
         }
         expected_amount = fee_map.get(payment_type, 0)
-        if expected_amount and amount != expected_amount:
-            return jsonify({
-                'message': f'Amount mismatch. Expected {expected_amount} for {payment_type}',
-                'expected_amount': expected_amount
-            }), 400
+        # Log discrepancy but do NOT block — amount shown on frontend already came from DB
+        if expected_amount and round(amount, 2) != round(expected_amount, 2):
+            print(f"[WARN] Payment amount discrepancy: sent={amount}, expected={expected_amount} for {payment_type}")
+        # Use the authoritative DB amount for the transaction record
+        amount = expected_amount if expected_amount else amount
     
     # Create payment transaction record
     try:
@@ -635,7 +661,7 @@ def process_payment(payload):
         # Check if both are paid, if so upgrade to student
         applicant_status = Database.execute_query(
             '''SELECT a.user_id, a.has_paid_acceptance_fee, a.has_paid_tuition, a.program_id,
-                      u.email, u.last_name, u.role
+                      u.email, u.name, u.role
                FROM applicants a JOIN users u ON a.user_id = u.id
                WHERE a.id = %s''',
             (applicant_id,)
@@ -648,7 +674,9 @@ def process_payment(payload):
             if app_data.get('has_paid_acceptance_fee') and app_data.get('has_paid_tuition'):
                 # Upgrade to student
                 app_user_id = app_data['user_id']
-                surname = app_data.get('last_name') or "password"
+                # Derive surname from the full name (last word) — used as initial password
+                full_name = app_data.get('name') or 'password'
+                surname = full_name.strip().split(' ')[-1]
                 initial_password = surname.strip().lower()
                 app_program_id = app_data['program_id']
                 

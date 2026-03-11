@@ -59,7 +59,7 @@ export default function ApplicationDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated || user?.role !== "admin") {
+    if (!isAuthenticated || user?.role !== "admissions_officer") {
       router.replace("/auth/login");
       return;
     }

@@ -57,8 +57,6 @@ export default function StudentLoginPage() {
     } else if (user.role === "admin") {
       router.replace("/admin/dashboard");
     } else if (user.role === "applicant") {
-      // If someone logs in as an applicant but is on the student portal,
-      // redirect them back to the appropriate admissions dashboard.
       router.replace("/applicant/dashboard");
     }
   }, [isAuthenticated, user, router]);
@@ -163,7 +161,7 @@ export default function StudentLoginPage() {
                 </div>
                 <span className="text-xs font-bold uppercase tracking-wider text-[#3d2b3d]/70">Secure Login</span>
             </div>
-            <CardTitle className="text-xl">Welcome back, Student</CardTitle>
+            <CardTitle className="text-xl">Welcome back</CardTitle>
             <CardDescription>
               Enter your email and password to access your dashboard
             </CardDescription>

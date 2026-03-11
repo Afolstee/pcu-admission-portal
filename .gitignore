@@ -1,5 +1,38 @@
+# ── Dependencies ──────────────────────────────────────────────────────────────
 node_modules/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ── Build output ──────────────────────────────────────────────────────────────
 .next/
+dist/
+build/
+out/
+tsconfig.tsbuildinfo
+
+# ── Environment / secrets ─────────────────────────────────────────────────────
 .env
 .env.local
+.env.*.local
+backend/.env
+
+# ── Uploads / user content ────────────────────────────────────────────────────
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# ── Debug / scratch files ─────────────────────────────────────────────────────
+*.log
+*.tmp
+backend/check_*.py
+backend/test_*.py
+backend/meta.txt
+backend/staff_list.json
+backend/staff_report.txt
+
+# ── OS artefacts ─────────────────────────────────────────────────────────────
 .DS_Store
+Thumbs.db
+desktop.ini

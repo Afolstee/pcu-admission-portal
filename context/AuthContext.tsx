@@ -3,6 +3,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 
+type StaffRole = 'lecturer' | 'deo' | 'hod' | 'dean' | 'registrar' | 'admissions_officer';
+
 interface User {
   id: number;
   name: string;
@@ -10,8 +12,10 @@ interface User {
   last_name?: string;
   email: string;
   username?: string;
-  role: 'applicant' | 'admin' | 'student';
+  role: 'applicant' | 'admin' | 'student' | StaffRole;
 }
+
+export const STAFF_ROLES: string[] = ['lecturer', 'deo', 'hod', 'dean', 'registrar', 'admissions_officer'];
 
 import { ApiClient, StudentData } from '@/lib/api';
 
@@ -74,6 +78,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setStudent(response.student);
         setApplicant(null);
       } else {
+        // admin or any staff role — no applicant/student data needed
         setApplicant(null);
         setStudent(null);
       }

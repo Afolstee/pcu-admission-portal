@@ -15,7 +15,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { LogOut, Users, Lock, Unlock, Settings, ShieldCheck, UserCog } from "lucide-react";
+import { LogOut, Users, Lock, Unlock, Settings, ShieldCheck, UserCog, FileSpreadsheet } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 
@@ -26,6 +26,7 @@ export default function ICTDashboard() {
   const [settings, setSettings] = useState<any[]>([]);
   const [systemStatus, setSystemStatus] = useState<any>(null);
   const [updating, setUpdating] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
     if (authLoading) return;
@@ -35,7 +36,18 @@ export default function ICTDashboard() {
     }
 
     loadSettings();
+    loadPendingCount();
   }, [isAuthenticated, user, router]);
+
+  const loadPendingCount = async () => {
+    try {
+      const res = await fetch("/api/results/pending");
+      if (res.ok) {
+        const data = await res.json();
+        setPendingCount(data.length);
+      }
+    } catch {}
+  };
 
   const loadSettings = async () => {
     try {
@@ -136,10 +148,27 @@ export default function ICTDashboard() {
           </p>
         </div>
 
+        {pendingCount > 0 && (
+          <div className="mb-8 p-4 bg-orange-50 border border-orange-200 rounded-xl flex items-center justify-between animate-pulse">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-orange-100 rounded-lg text-orange-600">
+                <FileSpreadsheet className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="font-bold text-orange-900">Pending Results Submissions</p>
+                <p className="text-orange-700 text-sm">There are {pendingCount} bulk result files from lecturers awaiting processing.</p>
+              </div>
+            </div>
+            <Link href="/ict/result-processor">
+              <Button size="sm" className="bg-orange-600 hover:bg-orange-700 text-white">Review Submissions →</Button>
+            </Link>
+          </div>
+        )}
+
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Quick Actions */}
           <div className="lg:col-span-2 space-y-8">
-            <div className="grid md:grid-cols-2 gap-4">
+            <div className="grid md:grid-cols-3 gap-4">
               <Link href="/ict/staff">
                 <Card className="hover:shadow-md transition-all cursor-pointer h-full border-l-4 border-l-blue-500 group">
                   <CardHeader>
@@ -173,6 +202,25 @@ export default function ICTDashboard() {
                     </p>
                     <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
                       Portal Admin
+                    </Badge>
+                  </CardContent>
+                </Card>
+              </Link>
+
+              <Link href="/ict/result-processor">
+                <Card className="hover:shadow-md transition-all cursor-pointer h-full border-l-4 border-l-emerald-500 group">
+                  <CardHeader>
+                    <CardTitle className="text-xl flex items-center gap-2 group-hover:text-emerald-600 transition-colors">
+                      <FileSpreadsheet className="h-6 w-6" />
+                      Result Processor
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Process CSV results, normalise data, and calculate student grades across departments.
+                    </p>
+                    <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                      Utility
                     </Badge>
                   </CardContent>
                 </Card>

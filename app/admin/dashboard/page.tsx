@@ -33,7 +33,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (authLoading) return;
     if (!isAuthenticated || user?.role !== "admissions_officer") {
-      router.replace("/auth/login");
+      router.replace("/staff/login");
       return;
     }
 
@@ -53,7 +53,7 @@ export default function AdminDashboard() {
 
   const handleLogout = async () => {
     await logout();
-    router.replace("/");
+    router.replace("/staff/login");
   };
 
   if (loading) {

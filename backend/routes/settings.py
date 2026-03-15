@@ -58,16 +58,36 @@ def get_system_status(payload):
         db_status = "Error"
         
     # Check locks
-    settings = Database.execute_query("SELECT key, value FROM system_settings WHERE key IN ('admission_registration_locked', 'course_registration_locked')")
+    settings_keys = [
+        'admission_registration_locked', 
+        'course_registration_locked', 
+        'result_upload_locked',
+        'undergraduate_admission_locked',
+        'postgraduate_admission_locked',
+        'part_time_admission_locked',
+        'jupeb_admission_locked'
+    ]
+    settings = Database.execute_query(f"SELECT key, value FROM system_settings WHERE key IN ({','.join(['%s']*len(settings_keys))})", tuple(settings_keys))
     
-    admission_locked = False
-    course_locked = False
+    locks = {
+        'admission': False,
+        'course': False,
+        'result': False,
+        'undergraduate': False,
+        'postgraduate': False,
+        'part_time': False,
+        'jupeb': False
+    }
     
     for s in (settings or []):
-        if s['key'] == 'admission_registration_locked' and s['value'] == 'true':
-            admission_locked = True
-        if s['key'] == 'course_registration_locked' and s['value'] == 'true':
-            course_locked = True
+        val = (s['value'] == 'true')
+        if s['key'] == 'admission_registration_locked': locks['admission'] = val
+        elif s['key'] == 'course_registration_locked': locks['course'] = val
+        elif s['key'] == 'result_upload_locked': locks['result'] = val
+        elif s['key'] == 'undergraduate_admission_locked': locks['undergraduate'] = val
+        elif s['key'] == 'postgraduate_admission_locked': locks['postgraduate'] = val
+        elif s['key'] == 'part_time_admission_locked': locks['part_time'] = val
+        elif s['key'] == 'jupeb_admission_locked': locks['jupeb'] = val
             
     programs_locked = Database.execute_query("SELECT COUNT(*) as count FROM programs WHERE is_locked = True")
     prog_locked_count = programs_locked[0]['count'] if programs_locked else 0
@@ -80,10 +100,6 @@ def get_system_status(payload):
             'errors_404': len(errors_404),
             'errors_500': len(errors_500)
         },
-        'locks': {
-            'admission': admission_locked,
-            'course': course_locked,
-            'programs_locked': prog_locked_count
-        },
+        'locks': locks,
         'recent_errors': error_logs or []
     }), 200

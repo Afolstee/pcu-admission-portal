@@ -1,8 +1,9 @@
 "use client";
 
 import type React from "react";
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   Upload, 
@@ -171,37 +172,27 @@ const formatScoreWithGrade = (score: any): string => {
 };
 
 // --- API Helpers ---
-async function enrichCoursesFromDB(courses: Course[], department: string): Promise<Course[]> {
-  const uniqueCodes = [...new Set(courses.map((c) => c.code))];
-  const lookups = await Promise.allSettled(
-    uniqueCodes.map((code) =>
-      fetch(`/api/courses?code=${encodeURIComponent(code)}&department=${encodeURIComponent(department)}`)
-        .then((r) => (r.ok ? r.json() : null))
-    )
+async function enrichCoursesBatch(courseCodes: string[], department: string): Promise<Map<string, { title: string; units: number; remark: string }>> {
+  const uniqueCodes = [...new Set(courseCodes)];
+  const result = new Map<string, { title: string; units: number; remark: string }>();
+  
+  // Fetch course details in parallel for the whole sheet
+  await Promise.all(
+    uniqueCodes.map(async (code) => {
+      try {
+        const r = await fetch(`/api/courses?code=${encodeURIComponent(code)}&department=${encodeURIComponent(department)}`);
+        if (r.ok) {
+          const row = await r.json();
+          result.set(code, {
+            title: row.course_title,
+            units: row.units,
+            remark: row.remark ?? "",
+          });
+        }
+      } catch {}
+    })
   );
-
-  const courseMap = new Map<string, { title: string; units: number; remark: string }>();
-  lookups.forEach((result, i) => {
-    if (result.status === "fulfilled" && result.value) {
-      const row = result.value;
-      courseMap.set(uniqueCodes[i], {
-        title: row.course_title,
-        units: row.units,
-        remark: row.remark ?? "",
-      });
-    }
-  });
-
-  return courses.map((c) => {
-    const db = courseMap.get(c.code);
-    if (!db) return c;
-    return {
-      ...c,
-      title: db.title,
-      unit: db.units ?? c.unit,
-      remark: db.remark,
-    };
-  });
+  return result;
 }
 
 // --- Parser ---
@@ -311,7 +302,7 @@ function parseExcelSheet(sheet: XLSX.WorkSheet): ExcelData {
 
 // --- Main Component ---
 export default function ModernResultSystem() {
-  const [view, setView] = useState<"upload" | "processing" | "results" | "saved" | "converter">("upload");
+  const [view, setView] = useState<"upload" | "processing" | "results" | "saved" | "converter" | "pending">("upload");
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [sheets, setSheets] = useState<string[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>("");
@@ -320,29 +311,91 @@ export default function ModernResultSystem() {
   const [progress, setProgress] = useState(0);
   const [isZipping, setIsZipping] = useState(false);
   const [zipProgress, setZipProgress] = useState(0);
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!isAuthenticated || (user?.role !== "admin" && user?.role !== "ict_director")) {
+      router.replace("/staff/login");
+      return;
+    }
+  }, [isAuthenticated, user, authLoading, router]);
 
   const [pendingSubmissions, setPendingSubmissions] = useState<any[]>([]);
+  const [processedSubmissions, setProcessedSubmissions] = useState<any[]>([]);
   const [loadingPending, setLoadingPending] = useState(false);
+  const [currentPendingId, setCurrentPendingId] = useState<number | null>(null);
 
   const fetchPendingSubmissions = async () => {
     setLoadingPending(true);
     try {
-      const res = await fetch("/api/results/pending");
-      if (res.ok) {
-        setPendingSubmissions(await res.json());
-      }
+      const [pendRes, procRes] = await Promise.all([
+        fetch("/api/results/pending?status=pending"),
+        fetch("/api/results/pending?status=processed")
+      ]);
+      if (pendRes.ok) setPendingSubmissions(await pendRes.json());
+      if (procRes.ok) setProcessedSubmissions(await procRes.json());
     } catch (err) {
-      toast.error("Failed to load pending submissions");
+      toast.error("Failed to load submissions");
     } finally {
       setLoadingPending(false);
     }
   };
 
   const importPending = async (submission: any) => {
-    // Fill the calculator with the pending payload
+    if (submission.file_content) {
+      setIsProcessing(true);
+      setView("processing");
+      setProgress(0);
+      toast.info("Normalizing raw sheet from submission...");
+      
+      try {
+        const base64Data = submission.file_content.split(',')[1];
+        const binaryString = window.atob(base64Data);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        
+        const wb = XLSX.read(bytes.buffer, { type: "array" });
+        
+        // Detection: Should we normalize?
+        // Raw files have blocks starting with "DEPARTMENT OF" as the ONLY content in a row
+        const firstSheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as any[][];
+        const isRaw = rows.some(r => {
+          const nonNull = r.filter(c => c !== null && String(c).trim() !== "");
+          return nonNull.length === 1 && String(nonNull[0]).toUpperCase().includes("DEPARTMENT OF");
+        });
+
+        let finalWb = wb;
+        if (isRaw) {
+          toast.info("Raw collation detected. Normalizing...");
+          finalWb = normalizeRawWorkbook(wb, convSession, convSemester);
+        } else {
+          toast.info("Standard sheet detected. Processing directly.");
+        }
+        
+        setWorkbook(finalWb);
+        setSheets(finalWb.SheetNames);
+        
+        setCurrentPendingId(submission.id);
+        await runCalculation(true, finalWb);
+        toast.success("Results processed successfully!");
+      } catch (err: any) {
+        toast.error("Failed to normalize/process: " + err.message);
+        setIsProcessing(false);
+        setView("upload");
+      }
+      return;
+    }
+
+    // Fallback to pre-parsed payload if no file_content
     const payload = typeof submission.payload === 'string' ? JSON.parse(submission.payload) : submission.payload;
+    setCurrentPendingId(submission.id);
     
-    // Group by department/semester for the UI
     const results: CalculatedResult[] = payload.map((item: any) => {
       const enriched = item.courses.map((c: any) => ({
         ...c,
@@ -365,7 +418,7 @@ export default function ModernResultSystem() {
       };
     });
 
-    const deptName = submission.sheet_name || submission.payload[0]?.studentInfo.department || "Imported";
+    const deptName = submission.sheet_name || payload[0]?.studentInfo.department || "Imported";
     setResultsByDept({ [deptName]: results });
     setActiveDeptTab(deptName);
     setView("results");
@@ -406,12 +459,227 @@ export default function ModernResultSystem() {
   const [activeDeptTab, setActiveDeptTab] = useState<string>("");
   const [selectedResult, setSelectedResult] = useState<CalculatedResult | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const router = useRouter();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const converterInputRef = useRef<HTMLInputElement>(null);
   const [convSession, setConvSession] = useState("2023/2024");
   const [convSemester, setConvSemester] = useState("FIRST");
+
+  const normalizeRawWorkbook = (wb: XLSX.WorkBook, session: string, semester: string) => {
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as any[][];
+
+    // --- 1. Parsing Pass ---
+    interface Block {
+      blockDept: string;
+      level: string;
+      courseCode: string;
+      students: { matric: string; name: string; total: number | string | null }[];
+    }
+
+    const blocks: Block[] = [];
+    let i = 0;
+    while (i < rows.length) {
+      const row = rows[i];
+      const nonNull = row.filter(c => c !== null && String(c).trim() !== "");
+      if (nonNull.length === 1 && String(nonNull[0]).toUpperCase().includes("DEPARTMENT OF")) {
+        const blockDept = normalizeDeptName(String(nonNull[0]));
+        let levelStr = "";
+        let courseCode = "";
+        i++;
+
+        while (i < rows.length) {
+          const r = rows[i].filter(c => c !== null && String(c).trim() !== "");
+          if (r.length > 0) {
+            const m = String(r[0]).match(/(\d+)/);
+            levelStr = m ? m[1] : "";
+            i++;
+            break;
+          }
+          i++;
+        }
+        while (i < rows.length) {
+          const r = rows[i].filter(c => c !== null && String(c).trim() !== "");
+          if (r.length > 0) {
+            courseCode = String(r[0]).replace(/COURSE CODE:/i, "").trim();
+            i++;
+            break;
+          }
+          i++;
+        }
+        while (i < rows.length) {
+          if (rows[i].some(c => c !== null && String(c).trim() !== "")) { i++; break; }
+          i++;
+        }
+        while (i < rows.length) {
+          if (rows[i].some(c => c !== null && String(c).trim() !== "")) { i++; break; }
+          i++;
+        }
+
+        const students: Block["students"] = [];
+        while (i < rows.length) {
+          const r = rows[i];
+          const nonNullR = r.filter(c => c !== null && String(c).trim() !== "");
+          if (nonNullR.length === 0) { i++; break; }
+          if (nonNullR.length === 1 && String(nonNullR[0]).toUpperCase().includes("DEPARTMENT OF")) break;
+
+          let matric = "";
+          for (const cell of r) {
+            // Updated regex: Matches common PCU patterns: 2024/0001, 2024/CSC/001, 2024/PTE/001
+            if (cell && String(cell).match(/\d{4}\/[A-Z0-9\/]+\/\d+/i)) {
+              matric = String(cell).trim();
+              break;
+            }
+          }
+
+          if (matric) {
+            const name = nonNullR.length >= 2 ? String(nonNullR[1]).trim() : "";
+            let total: number | string | null = null;
+            for (let j = r.length - 1; j >= 0; j--) {
+              const cellVal = String(r[j]).trim();
+              if (cellVal === "-") {
+                total = "-";
+                break;
+              }
+              const val = parseFloat(cellVal);
+              if (!isNaN(val) && r[j] !== null && cellVal !== "" && val !== parseFloat(String(nonNullR[0]))) {
+                total = val;
+                break;
+              }
+            }
+            students.push({ matric, name, total });
+          }
+          i++;
+        }
+
+        if (courseCode && students.length > 0) {
+          blocks.push({ blockDept, level: levelStr, courseCode, students });
+        }
+      } else {
+        i++;
+      }
+    }
+
+    // --- 2. Resolution Pass ---
+    interface AppearanceInfo {
+      name: string;
+      clear: Set<string>;
+      combined: Set<string>;
+      levelMap: Record<string, string>;
+    }
+    const appearances: Record<string, AppearanceInfo> = {};
+
+    blocks.forEach(b => {
+      b.students.forEach(s => {
+        if (!appearances[s.matric]) {
+          appearances[s.matric] = { name: s.name, clear: new Set(), combined: new Set(), levelMap: {} };
+        }
+        const info = appearances[s.matric];
+        if (!info.name && s.name) info.name = s.name;
+        if (isCombinedDept(b.blockDept)) {
+          info.combined.add(b.blockDept);
+          splitCombinedDept(b.blockDept).forEach(p => {
+            if (!info.levelMap[p]) info.levelMap[p] = b.level;
+          });
+        } else {
+          info.clear.add(b.blockDept);
+          info.levelMap[b.blockDept] = b.level;
+        }
+      });
+    });
+
+    const resolution: Record<string, { dept: string; level: string }> = {};
+    Object.entries(appearances).forEach(([matric, info]) => {
+      let resolvedDept = "";
+      let resolvedLevel = "";
+      if (info.clear.size === 1) {
+        resolvedDept = Array.from(info.clear)[0];
+        resolvedLevel = info.levelMap[resolvedDept] || "";
+      } else if (info.clear.size > 1) {
+        resolvedDept = Array.from(info.clear)[0];
+        resolvedLevel = info.levelMap[resolvedDept] || "";
+      } else {
+        const candidates: string[] = [];
+        info.combined.forEach(combo => {
+          splitCombinedDept(combo).forEach(p => {
+            if (!candidates.includes(p)) candidates.push(p);
+          });
+        });
+        resolvedDept = candidates[0] || "GENERAL";
+        resolvedLevel = info.levelMap[resolvedDept] || "";
+      }
+      resolution[matric] = { dept: resolvedDept, level: resolvedLevel };
+    });
+
+    // --- 3. Grouping Pass ---
+    const groups: Record<string, {
+      dept: string;
+      level: string;
+      courses: string[];
+      students: Record<string, string>;
+      scores: Record<string, Record<string, number | string | null>>;
+    }> = {};
+
+    blocks.forEach(block => {
+      block.students.forEach(s => {
+        const res = resolution[s.matric];
+        const key = `${res.dept}_${res.level}`;
+        if (!groups[key]) {
+          groups[key] = {
+            dept: res.dept,
+            level: res.level,
+            courses: [],
+            students: {},
+            scores: {}
+          };
+        }
+        const g = groups[key];
+        if (!g.courses.includes(block.courseCode)) g.courses.push(block.courseCode);
+        if (!g.students[s.matric]) g.students[s.matric] = s.name;
+        if (!g.scores[s.matric]) g.scores[s.matric] = {};
+        g.scores[s.matric][block.courseCode] = s.total;
+      });
+    });
+
+    // --- 4. Export Pass ---
+    const newWb = XLSX.utils.book_new();
+    const groupEntries = Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
+    
+    groupEntries.forEach(([key, data]) => {
+      const faculty = getFacultyFromDept(data.dept);
+      const totalCols = 3 + data.courses.length;
+      const aoa: any[][] = [
+        [],
+        ["", "PRECIOUS CORNERSTONE UNIVERSITY"],
+        ["", faculty],
+        ["", `DEPARTMENT OF ${data.dept}`],
+        ["", `${data.dept} RESULT SUMMARY`],
+        ["", `ACADEMIC SESSION: ${session}   SEMESTER: ${semester} SEMESTER   LEVEL: ${data.level}`],
+        [],
+        ["", "S/N", "Matric No", "NAME", ...data.courses]
+      ];
+
+      Object.entries(data.students).forEach(([matric, name], idx) => {
+        const row = ["", idx + 1, matric, name];
+        data.courses.forEach(code => {
+          row.push(formatScoreWithGrade(data.scores[matric][code]));
+        });
+        aoa.push(row);
+      });
+
+      const sheet = XLSX.utils.aoa_to_sheet(aoa);
+      sheet["!cols"] = [
+        { wch: 3 }, { wch: 5 }, { wch: 18 }, { wch: 35 },
+        ...data.courses.map(() => ({ wch: 14 }))
+      ];
+      sheet["!merges"] = [1, 2, 3, 4, 5].map(r => ({
+        s: { r, c: 1 }, e: { r, c: totalCols }
+      }));
+      XLSX.utils.book_append_sheet(newWb, sheet, `${data.dept} (${data.level})`.replace(/\//g, "-").substring(0, 31));
+    });
+
+    return newWb;
+  };
 
   const handleNormalization = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -424,235 +692,13 @@ export default function ModernResultSystem() {
     try {
       const data = await file.arrayBuffer();
       const wb = XLSX.read(data, { type: "array" });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as any[][];
-
-      // --- 1. Parsing Pass ---
-      interface Block {
-        blockDept: string;
-        level: string;
-        courseCode: string;
-        students: { matric: string; name: string; total: number | string | null }[];
-      }
-
-      const blocks: Block[] = [];
-      let i = 0;
-      while (i < rows.length) {
-        const row = rows[i];
-        const nonNull = row.filter(c => c !== null && String(c).trim() !== "");
-        if (nonNull.length === 1 && String(nonNull[0]).toUpperCase().includes("DEPARTMENT OF")) {
-          const blockDept = normalizeDeptName(String(nonNull[0]));
-          let levelStr = "";
-          let courseCode = "";
-          i++;
-
-          // level row
-          while (i < rows.length) {
-            const r = rows[i].filter(c => c !== null && String(c).trim() !== "");
-            if (r.length > 0) {
-              const m = String(r[0]).match(/(\d+)/);
-              levelStr = m ? m[1] : "";
-              i++;
-              break;
-            }
-            i++;
-          }
-          // course code row
-          while (i < rows.length) {
-            const r = rows[i].filter(c => c !== null && String(c).trim() !== "");
-            if (r.length > 0) {
-              courseCode = String(r[0]).replace(/COURSE CODE:/i, "").trim();
-              i++;
-              break;
-            }
-            i++;
-          }
-          // course title row (skip)
-          while (i < rows.length) {
-            if (rows[i].some(c => c !== null && String(c).trim() !== "")) { i++; break; }
-            i++;
-          }
-          // column header row (skip)
-          while (i < rows.length) {
-            if (rows[i].some(c => c !== null && String(c).trim() !== "")) { i++; break; }
-            i++;
-          }
-
-          const students: Block["students"] = [];
-          while (i < rows.length) {
-            const r = rows[i];
-            const nonNullR = r.filter(c => c !== null && String(c).trim() !== "");
-            if (nonNullR.length === 0) { i++; break; }
-            if (nonNullR.length === 1 && String(nonNullR[0]).toUpperCase().includes("DEPARTMENT OF")) break;
-
-            let matric = "";
-            for (const cell of r) {
-              if (cell && String(cell).match(/\d{4}\/PTE\/\d+/)) {
-                matric = String(cell).trim();
-                break;
-              }
-            }
-
-            if (matric) {
-              const name = nonNullR.length >= 2 ? String(nonNullR[1]).trim() : "";
-              let total: number | string | null = null;
-              for (let j = r.length - 1; j >= 0; j--) {
-                const cellVal = String(r[j]).trim();
-                if (cellVal === "-") {
-                  total = "-";
-                  break;
-                }
-                const val = parseFloat(cellVal);
-                if (!isNaN(val) && r[j] !== null && cellVal !== "" && val !== parseFloat(String(nonNullR[0]))) {
-                  total = val;
-                  break;
-                }
-              }
-              students.push({ matric, name, total });
-            }
-            i++;
-          }
-
-          if (courseCode && students.length > 0) {
-            blocks.push({ blockDept, level: levelStr, courseCode, students });
-          }
-        } else {
-          i++;
-        }
-        setProgress(Math.min(30, Math.round((i / rows.length) * 30)));
-      }
-
-      // --- 2. Resolution Pass (Clash Handling) ---
-      interface AppearanceInfo {
-        name: string;
-        clear: Set<string>;
-        combined: Set<string>;
-        levelMap: Record<string, string>;
-      }
-      const appearances: Record<string, AppearanceInfo> = {};
-
-      blocks.forEach(b => {
-        b.students.forEach(s => {
-          if (!appearances[s.matric]) {
-            appearances[s.matric] = { name: s.name, clear: new Set(), combined: new Set(), levelMap: {} };
-          }
-          const info = appearances[s.matric];
-          if (!info.name && s.name) info.name = s.name;
-          if (isCombinedDept(b.blockDept)) {
-            info.combined.add(b.blockDept);
-            splitCombinedDept(b.blockDept).forEach(p => {
-              if (!info.levelMap[p]) info.levelMap[p] = b.level;
-            });
-          } else {
-            info.clear.add(b.blockDept);
-            info.levelMap[b.blockDept] = b.level;
-          }
-        });
-      });
-
-      const resolution: Record<string, { dept: string; level: string }> = {};
-      Object.entries(appearances).forEach(([matric, info]) => {
-        let resolvedDept = "";
-        let resolvedLevel = "";
-
-        if (info.clear.size === 1) {
-          resolvedDept = Array.from(info.clear)[0];
-          resolvedLevel = info.levelMap[resolvedDept] || "";
-        } else if (info.clear.size > 1) {
-          // rare: student in multiple clear depts, pick first
-          resolvedDept = Array.from(info.clear)[0];
-          resolvedLevel = info.levelMap[resolvedDept] || "";
-        } else {
-          // only seen in combined labels
-          const candidates: string[] = [];
-          info.combined.forEach(combo => {
-            splitCombinedDept(combo).forEach(p => {
-              if (!candidates.includes(p)) candidates.push(p);
-            });
-          });
-          resolvedDept = candidates[0] || "GENERAL";
-          resolvedLevel = info.levelMap[resolvedDept] || "";
-        }
-        resolution[matric] = { dept: resolvedDept, level: resolvedLevel };
-      });
-
-      // --- 3. Grouping Pass ---
-      const groups: Record<string, {
-        dept: string;
-        level: string;
-        courses: string[];
-        students: Record<string, string>;
-        scores: Record<string, Record<string, number | string | null>>;
-      }> = {};
-
-      blocks.forEach(block => {
-        block.students.forEach(s => {
-          const res = resolution[s.matric];
-          const key = `${res.dept}_${res.level}`;
-          if (!groups[key]) {
-            groups[key] = {
-              dept: res.dept,
-              level: res.level,
-              courses: [],
-              students: {},
-              scores: {}
-            };
-          }
-          const g = groups[key];
-          if (!g.courses.includes(block.courseCode)) g.courses.push(block.courseCode);
-          if (!g.students[s.matric]) g.students[s.matric] = s.name;
-          if (!g.scores[s.matric]) g.scores[s.matric] = {};
-          g.scores[s.matric][block.courseCode] = s.total;
-        });
-      });
-
-      // --- 4. Export Pass ---
-      const newWb = XLSX.utils.book_new();
-      const groupEntries = Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
+      const normalizedWb = normalizeRawWorkbook(wb, convSession, convSemester);
       
-      groupEntries.forEach(([key, data], gIdx) => {
-        const faculty = getFacultyFromDept(data.dept);
-        const totalCols = 3 + data.courses.length;
-        
-        const aoa: any[][] = [
-          [],
-          ["", "PRECIOUS CORNERSTONE UNIVERSITY"],
-          ["", faculty],
-          ["", `DEPARTMENT OF ${data.dept}`],
-          ["", `${data.dept} RESULT SUMMARY`],
-          ["", `ACADEMIC SESSION: ${convSession}   SEMESTER: ${convSemester} SEMESTER   LEVEL: ${data.level}`],
-          [],
-          ["", "S/N", "Matric No", "NAME", ...data.courses]
-        ];
-
-        Object.entries(data.students).forEach(([matric, name], idx) => {
-          const row = ["", idx + 1, matric, name];
-          data.courses.forEach(code => {
-            row.push(formatScoreWithGrade(data.scores[matric][code]));
-          });
-          aoa.push(row);
-        });
-
-        const sheet = XLSX.utils.aoa_to_sheet(aoa);
-
-        sheet["!cols"] = [
-          { wch: 3 }, { wch: 5 }, { wch: 18 }, { wch: 35 },
-          ...data.courses.map(() => ({ wch: 14 }))
-        ];
-
-        sheet["!merges"] = [1, 2, 3, 4, 5].map(r => ({
-          s: { r, c: 1 }, e: { r, c: totalCols }
-        }));
-
-        XLSX.utils.book_append_sheet(newWb, sheet, `${data.dept} (${data.level})`.replace(/\//g, "-").substring(0, 31));
-        setProgress(30 + Math.round(((gIdx + 1) / groupEntries.length) * 70));
-      });
-
-      XLSX.writeFile(newWb, `NORMALIZED_RESULTS_${convSession.replace("/", "_")}.xlsx`);
+      XLSX.writeFile(normalizedWb, `NORMALIZED_RESULTS_${convSession.replace("/", "_")}.xlsx`);
       toast.success("Normalization complete! File downloaded.");
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      toast.error("Process failed. Check file structure.");
+      toast.error("Process failed: " + err.message);
     } finally {
       setIsNormalizing(false);
     }
@@ -680,20 +726,33 @@ export default function ModernResultSystem() {
     const department = cleanBracketNumber(sheetName) || "-";
     const results: CalculatedResult[] = [];
 
+    // 1. Collect all unique course codes in this sheet
+    const allCodes = new Set<string>();
+    data.students.forEach(s => s.courses.forEach(c => allCodes.add(c.code)));
+
+    // 2. Fetch metadata for all courses in one batch (optimized)
+    const courseMetaMap = await enrichCoursesBatch(Array.from(allCodes), department);
+
+    // 3. Process students
     for (let i = 0; i < data.students.length; i++) {
       const student = data.students[i];
-      const rawCourses: Course[] = student.courses.map((c, idx) => ({
-        id: `${student.matricNumber}-${idx}`,
-        code: c.code,
-        unit: c.unit,
-        score: c.score,
-        gradePoint: getGradePoint(c.score),
-      }));
+      
+      const enriched: Course[] = student.courses.map((c, idx) => {
+        const meta = courseMetaMap.get(c.code);
+        return {
+          id: `${student.matricNumber}-${idx}`,
+          code: c.code,
+          unit: meta?.units ?? c.unit ?? 3,
+          score: c.score,
+          gradePoint: getGradePoint(c.score),
+          title: meta?.title ?? c.code,
+          remark: meta?.remark ?? ""
+        };
+      });
 
-      const enriched = await enrichCoursesFromDB(rawCourses, department);
-      const totalUnits = enriched.reduce((s, c) => s + c.unit, 0);
-      const totalUnitsPassed = enriched.reduce((s, c) => (c.gradePoint === 0 ? s : s + c.unit), 0);
-      const totalWGP = enriched.reduce((s, c) => s + c.unit * c.gradePoint, 0);
+      const totalUnits = enriched.reduce((s, c) => s + (c.unit || 3), 0);
+      const totalUnitsPassed = enriched.reduce((s, c) => (c.gradePoint === 0 ? s : s + (c.unit || 3)), 0);
+      const totalWGP = enriched.reduce((s, c) => s + (c.unit || 3) * c.gradePoint, 0);
       const cgpa = totalUnits ? (totalWGP / totalUnits).toFixed(2) : "0.00";
 
       results.push({
@@ -716,18 +775,19 @@ export default function ModernResultSystem() {
     return results;
   };
 
-  const runCalculation = async (all = false) => {
-    if (!workbook) return;
+  const runCalculation = async (all = false, customWb?: XLSX.WorkBook) => {
+    const wbToUse = customWb || workbook;
+    if (!wbToUse) return;
     setIsProcessing(true);
     setView("processing");
     setProgress(0);
 
-    const sheetNames = all ? sheets : [selectedSheet];
+    const sheetNames = all ? wbToUse.SheetNames : [selectedSheet];
     const finalResults: Record<string, CalculatedResult[]> = {};
 
     for (let i = 0; i < sheetNames.length; i++) {
       const sName = sheetNames[i];
-      const res = await calculateSheet(workbook, sName);
+      const res = await calculateSheet(wbToUse, sName);
       finalResults[sName] = res;
       setProgress(Math.round(((i + 1) / sheetNames.length) * 100));
     }
@@ -763,8 +823,9 @@ export default function ModernResultSystem() {
     const savePromise = fetch("/api/results", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        results.map((r) => ({
+      body: JSON.stringify({
+        pendingId: currentPendingId,
+        results: results.map((r) => ({
           studentInfo: r.studentInfo,
           courses: r.courses.map((c) => ({
             code: c.code,
@@ -773,13 +834,15 @@ export default function ModernResultSystem() {
             gpa: c.gradePoint,
           })),
         }))
-      ),
+      }),
     });
 
     toast.promise(savePromise, {
       loading: `Saving ${deptName} results to database...`,
       success: (res) => {
         if (!res.ok) throw new Error("Failed to save");
+        setCurrentPendingId(null);
+        fetchPendingSubmissions(); // Refresh lists
         return `Successfully saved ${results.length} results for ${deptName}`;
       },
       error: "Error committing to database",
@@ -1245,74 +1308,127 @@ export default function ModernResultSystem() {
               initial={{ opacity:0, x:20 }} animate={{ opacity:1, x:0 }} exit={{ opacity:0, x:-20 }}
               className="space-y-8"
             >
-              <div className="flex justify-between items-end">
+              <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                 <div className="space-y-1">
-                  <Button variant="ghost" onClick={() => setView("upload")} className="p-0 h-auto hover:bg-transparent text-slate-500 mb-2">
-                    ← Back
-                  </Button>
-                  <h2 className="text-3xl font-bold text-slate-900 dark:text-slate-100 italic">Pending Submissions</h2>
-                  <p className="text-slate-500 font-medium">Results uploaded by lecturers awaiting processing</p>
+                  <h2 className="text-3xl font-bold text-slate-900 dark:text-slate-100 uppercase tracking-tight">Staff Submissions</h2>
+                  <p className="text-slate-500 dark:text-slate-400 font-medium">Verify and process results submitted by lecturers and HODs.</p>
                 </div>
-                <Button onClick={fetchPendingSubmissions} variant="outline" size="sm" className="rounded-lg">
-                  Refresh
+                <Button variant="outline" onClick={() => setView("upload")} className="rounded-xl border-slate-200">
+                  <Upload className="mr-2 h-4 w-4" /> Back to Upload
                 </Button>
               </div>
 
-              <div className="grid gap-4">
-                {loadingPending ? (
-                  <div className="py-20 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-slate-300" /></div>
-                ) : pendingSubmissions.length === 0 ? (
-                  <Card className="p-12 text-center border-dashed">
-                    <History className="h-12 w-12 mx-auto text-slate-200 mb-4" />
-                    <p className="text-slate-400 font-medium">No pending submissions found</p>
-                  </Card>
-                ) : (
-                  pendingSubmissions.map((sub) => (
-                    <Card key={sub.id} className="overflow-hidden border-slate-100 hover:shadow-md transition-shadow">
-                      <div className="p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                        <div className="flex items-center gap-4">
-                          <div className="bg-orange-100 p-3 rounded-xl text-orange-600">
-                            <FileText className="h-6 w-6" />
-                          </div>
-                          <div>
-                            <h4 className="font-bold text-slate-800 dark:text-slate-200 uppercase">{sub.file_name}</h4>
-                            <div className="flex items-center gap-3 text-xs text-slate-500 font-medium mt-1">
-                              <span className="flex items-center gap-1"><Users className="h-3 w-3" /> {sub.staff_name || "Lecturer"}</span>
-                              <span>•</span>
-                              <span>{new Date(sub.created_at).toLocaleDateString()}</span>
-                              <span>•</span>
-                              <Badge variant="outline" className="text-[10px] py-0">{sub.course_code || "Multiple"}</Badge>
+              <Tabs defaultValue="pending" className="w-full">
+                <TabsList className="bg-slate-100 dark:bg-slate-900 p-1 rounded-2xl mb-6">
+                  <TabsTrigger value="pending" className="rounded-xl px-8 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-800 data-[state=active]:shadow-sm">
+                    Pending ({pendingSubmissions.length})
+                  </TabsTrigger>
+                  <TabsTrigger value="processed" className="rounded-xl px-8 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-800 data-[state=active]:shadow-sm">
+                    Processed ({processedSubmissions.length})
+                  </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="pending" className="mt-0">
+                  {loadingPending ? (
+                    <div className="py-20 flex flex-col items-center gap-4 text-slate-400">
+                      <Loader2 className="h-10 w-10 animate-spin" />
+                      <p className="font-medium">Fetching Submissions...</p>
+                    </div>
+                  ) : pendingSubmissions.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-4">
+                      {pendingSubmissions.map((sub) => (
+                        <Card key={sub.id} className="overflow-hidden border-slate-100 hover:shadow-md transition-shadow">
+                          <div className="p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                            <div className="flex items-center gap-4">
+                              <div className="bg-orange-100 p-3 rounded-xl text-orange-600">
+                                <FileText className="h-6 w-6" />
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-slate-800 dark:text-slate-200 uppercase">{sub.file_name}</h4>
+                                <div className="flex items-center gap-3 text-xs text-slate-500 font-medium mt-1">
+                                  <span className="flex items-center gap-1"><Users className="h-3 w-3" /> {sub.staff_name || "Lecturer"}</span>
+                                  <span>•</span>
+                                  <span>{new Date(sub.created_at).toLocaleDateString()}</span>
+                                  <span>•</span>
+                                  <Badge variant="outline" className="text-[10px] py-0">{sub.course_code || "Multiple"}</Badge>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex gap-2 w-full md:w-auto">
+                              <Button 
+                                variant="ghost" 
+                                onClick={() => deletePending(sub.id)}
+                                className="text-red-500 hover:text-red-600 hover:bg-red-100 text-xs font-bold"
+                              >
+                                Delete
+                              </Button>
+                              <Button 
+                                variant="outline"
+                                onClick={() => downloadOriginal(sub)}
+                                className="border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-bold px-3"
+                              >
+                                <Download className="h-3 w-3 mr-1" />
+                                Download
+                              </Button>
+                              <Button 
+                                onClick={() => importPending(sub)}
+                                className="bg-slate-900 text-white hover:bg-black rounded-lg text-xs font-bold px-4"
+                              >
+                                Process Now →
+                              </Button>
                             </div>
                           </div>
-                        </div>
-                        <div className="flex gap-2 w-full md:w-auto">
-                          <Button 
-                            variant="ghost" 
-                            onClick={() => deletePending(sub.id)}
-                            className="text-red-500 hover:text-red-600 hover:bg-red-100 text-xs font-bold"
-                          >
-                            Delete
-                          </Button>
-                          <Button 
-                            variant="outline"
-                            onClick={() => downloadOriginal(sub)}
-                            className="border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-bold px-3"
-                          >
-                            <Download className="h-3 w-3 mr-1" />
-                            Download
-                          </Button>
-                          <Button 
-                            onClick={() => importPending(sub)}
-                            className="bg-slate-900 text-white hover:bg-black rounded-lg text-xs font-bold px-4"
-                          >
-                            Process Now →
-                          </Button>
-                        </div>
-                      </div>
-                    </Card>
-                  ))
-                )}
-              </div>
+                        </Card>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="py-20 text-center bg-white dark:bg-slate-900 rounded-3xl border-2 border-dashed border-slate-100 dark:border-slate-800">
+                      <Clock className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+                      <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300">No pending submissions</h3>
+                      <p className="text-slate-500 text-sm max-w-xs mx-auto mt-2">Check back later for new uploaded result sheets.</p>
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="processed" className="mt-0">
+                  {processedSubmissions.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-4">
+                      {processedSubmissions.map((sub) => (
+                        <Card key={sub.id} className="overflow-hidden border-slate-100 opacity-80">
+                          <div className="p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                            <div className="flex items-center gap-4">
+                              <div className="bg-emerald-100 p-3 rounded-xl text-emerald-600">
+                                <CheckCircle2 className="h-6 w-6" />
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-slate-800 dark:text-slate-200 uppercase">{sub.file_name}</h4>
+                                <div className="flex items-center gap-3 text-xs text-slate-500 font-medium mt-1">
+                                  <span className="flex items-center gap-1"><Users className="h-3 w-3" /> {sub.staff_name || "Lecturer"}</span>
+                                  <span>•</span>
+                                  <Badge className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-none text-[10px]">PROCESSED</Badge>
+                                </div>
+                              </div>
+                            </div>
+                            <Button 
+                              variant="outline"
+                              onClick={() => downloadOriginal(sub)}
+                              className="border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-bold px-3"
+                            >
+                              <Download className="h-3 w-3 mr-1" />
+                              Archived Original
+                            </Button>
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="py-20 text-center bg-white dark:bg-slate-900 rounded-3xl border-2 border-dashed border-slate-100 dark:border-slate-800">
+                      <CheckCircle2 className="h-12 w-12 text-slate-200 mx-auto mb-4" />
+                      <p className="text-slate-500 text-sm">No processed submissions found.</p>
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
             </motion.div>
           )}
         </AnimatePresence>

@@ -22,14 +22,13 @@ export default function LecturerDashboard() {
   const [courses, setCourses]     = useState<Course[]>([]);
   const [selected, setSelected]   = useState<Course | null>(null);
   const [students, setStudents]   = useState<Student[]>([]);
-  const [scores, setScores]       = useState<Record<number, { ca: string; exam: string }>>({});
-  const [saving, setSaving]       = useState(false);
   const [msg, setMsg]             = useState("");
-  const [tab, setTab]             = useState<"courses" | "entry" | "upload" | "submissions">("courses");
+  const [tab, setTab]             = useState<"courses" | "details" | "upload" | "submissions">("courses");
   const uploadInputRef            = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview]     = useState<any>(null);
   const [history, setHistory]     = useState<any[]>([]);
+  const [isLocked, setIsLocked]   = useState(false);
 
   useEffect(() => {
     const u = localStorage.getItem("staff_user");
@@ -41,7 +40,15 @@ export default function LecturerDashboard() {
     setUser(parsed);
     loadCourses();
     loadHistory(parsed.id);
+    checkPortalLock();
   }, []);
+
+  async function checkPortalLock() {
+    try {
+      const { data } = await ApiClient.fetch("/settings/result_upload_locked");
+      setIsLocked(data.value === "true");
+    } catch {}
+  }
 
   async function loadHistory(staffId: number) {
     try {
@@ -59,61 +66,12 @@ export default function LecturerDashboard() {
 
   async function selectCourse(course: Course) {
     setSelected(course);
-    setTab("entry");
+    setTab("details");
     try {
       const res = await ApiClient.fetch<any>(
         `/staff/courses/${course.course_id}/students?session=${course.session}&semester=${course.semester}`);
-      const studs: Student[] = res.data?.students ?? [];
-      setStudents(studs);
-      // Pre-fill existing scores
-      const init: Record<number, { ca: string; exam: string }> = {};
-      studs.forEach(s => {
-        init[s.student_id] = {
-          ca:   s.ca_score !== null && s.ca_score !== undefined ? String(s.ca_score) : "",
-          exam: s.exam_score !== null && s.exam_score !== undefined ? String(s.exam_score) : "",
-        };
-      });
-      setScores(init);
+      setStudents(res.data?.students ?? []);
     } catch (e: any) { setMsg(e.message); }
-  }
-
-  async function saveScores(submit = false) {
-    if (!selected) return;
-    setSaving(true); setMsg("");
-    const entries = students.map(s => ({
-      student_id: s.student_id,
-      ca_score:   parseFloat(scores[s.student_id]?.ca || "0"),
-      exam_score: parseFloat(scores[s.student_id]?.exam || "0"),
-    }));
-    try {
-      await ApiClient.fetch<any>("/scores/enter", {
-        method: "POST",
-        body: JSON.stringify({
-          course_id: selected.course_id,
-          session:   selected.session,
-          semester:  selected.semester,
-          scores:    entries,
-        }),
-      });
-      if (submit) {
-        await ApiClient.fetch<any>("/scores/submit", {
-          method: "POST",
-          body: JSON.stringify({
-            course_id: selected.course_id,
-            session:   selected.session,
-            semester:  selected.semester,
-          }),
-        });
-        setMsg("✅ Scores saved and submitted for HOD approval.");
-      } else {
-        setMsg("✅ Scores saved as draft.");
-      }
-    } catch (e: any) { setMsg("❌ " + e.message); }
-    finally { setSaving(false); }
-  }
-
-  function updateScore(studentId: number, field: "ca" | "exam", val: string) {
-    setScores(prev => ({ ...prev, [studentId]: { ...prev[studentId], [field]: val } }));
   }
 
   function logout() {
@@ -286,21 +244,34 @@ export default function LecturerDashboard() {
           width: 220, background: "rgba(255,255,255,0.03)",
           borderRight: "1px solid rgba(255,255,255,0.08)", padding: "1.5rem 1rem"
         }}>
-          {[
+          { [
             { id: "courses",     label: "📚 My Courses" },
-            { id: "entry",       label: "✏️ Score Entry" },
-            { id: "upload",      label: "📤 Bulk Upload" },
+            { id: "upload",      label: "📤 Upload Results", locked: isLocked },
             { id: "submissions", label: "📜 Upload History" },
           ].map(item => (
-            <button key={item.id} onClick={() => setTab(item.id as any)} style={{
-              display: "block", width: "100%", textAlign: "left",
-              background: tab === item.id ? "rgba(59,130,246,0.2)" : "transparent",
-              border: tab === item.id ? "1px solid rgba(59,130,246,0.4)" : "1px solid transparent",
-              borderRadius: "0.5rem", color: tab === item.id ? "#93c5fd" : "rgba(255,255,255,0.6)",
-              cursor: "pointer", fontSize: "0.88rem", fontWeight: tab === item.id ? 600 : 400,
-              padding: "0.6rem 0.75rem", marginBottom: "0.4rem"
-            }}>{item.label}</button>
-          ))}
+            <button 
+              key={item.id} 
+              onClick={() => {
+                if (item.locked) return;
+                setTab(item.id as any);
+              }} 
+              disabled={item.locked}
+              style={{
+                display: "block", width: "100%", textAlign: "left",
+                background: (tab === item.id || (item.id === "courses" && tab === "details")) ? "rgba(59,130,246,0.2)" : "transparent",
+                border: (tab === item.id || (item.id === "courses" && tab === "details")) ? "1px solid rgba(59,130,246,0.4)" : "1px solid transparent",
+                borderRadius: "0.5rem", color: (tab === item.id || (item.id === "courses" && tab === "details")) ? "#93c5fd" : (item.locked ? "rgba(255,100,100,0.3)" : "rgba(255,255,255,0.6)"),
+                cursor: item.locked ? "not-allowed" : "pointer", fontSize: "0.88rem", fontWeight: (tab === item.id || (item.id === "courses" && tab === "details")) ? 600 : 400,
+                padding: "0.6rem 0.75rem", marginBottom: "0.4rem",
+                opacity: item.locked ? 0.5 : 1
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{item.label}</span>
+                {item.locked && <span style={{ fontSize: "0.7rem", color: "#fca5a5" }}>🔒</span>}
+              </div>
+            </button>
+          )) }
         </aside>
 
         {/* Main */}
@@ -321,16 +292,71 @@ export default function LecturerDashboard() {
                         <div style={{ color: "#fff", fontWeight: 700, margin: "0.25rem 0 0.5rem" }}>{c.course_title}</div>
                         <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.8rem" }}>
                           {c.semester} · {c.session}<br />
-                          {c.enrolled_count} enrolled
+                          {c.credit_units} Units · {c.enrolled_count} Students
                         </div>
                         <button onClick={() => selectCourse(c)} style={{
-                          marginTop: "0.75rem", background: "linear-gradient(135deg,#3b82f6,#8b5cf6)",
-                          border: "none", borderRadius: "0.5rem", color: "#fff",
+                          marginTop: "0.75rem", background: "rgba(255,255,255,0.08)",
+                          border: "1px solid rgba(255,255,255,0.15)", borderRadius: "0.5rem", color: "#fff",
                           padding: "0.4rem 0.9rem", cursor: "pointer", fontSize: "0.82rem"
-                        }}>Enter Scores →</button>
+                        }}>View Students →</button>
                       </div>
                     ))}
                   </div>
+                )
+              }
+            </div>
+          )}
+
+          {tab === "details" && (
+            <div>
+              {!selected
+                ? <p style={{ color: "rgba(255,255,255,0.4)" }}>← Select a course first.</p>
+                : (
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.5rem" }}>
+                      <button onClick={() => setTab("courses")} style={{
+                        background: "transparent", border: "1px solid rgba(255,255,255,0.2)",
+                        color: "rgba(255,255,255,0.6)", borderRadius: "0.5rem",
+                        padding: "0.35rem 0.75rem", cursor: "pointer", fontSize: "0.82rem"
+                      }}>← Back</button>
+                      <div>
+                        <h2 style={{ color: "#fff", margin: 0 }}>{selected.course_code} — {selected.course_title}</h2>
+                        <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.8rem" }}>{selected.semester} · {selected.session} · {selected.credit_units} Units</div>
+                      </div>
+                    </div>
+
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.88rem" }}>
+                        <thead>
+                          <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+                            {["Matric No","Name","Current Level","Course Status"].map(h => (
+                              <th key={h} style={{ color: "rgba(255,255,255,0.5)", textAlign: "left", padding: "0.6rem 0.75rem", fontWeight: 600 }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {students.length === 0 ? (
+                            <tr><td colSpan={4} style={{ padding: "2rem", textAlign: "center", color: "rgba(255,255,255,0.3)" }}>No students enrolled in this course yet.</td></tr>
+                          ) : (
+                            students.map(s => (
+                              <tr key={s.student_id} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                                <td style={{ padding: "0.6rem 0.75rem", color: "#60a5fa" }}>{s.matric_number}</td>
+                                <td style={{ padding: "0.6rem 0.75rem", color: "#fff" }}>{s.student_name}</td>
+                                <td style={{ padding: "0.6rem 0.75rem", color: "rgba(255,255,255,0.5)" }}>{s.current_level || "100"}L</td>
+                                <td style={{ padding: "0.6rem 0.75rem" }}>
+                                  <span style={{
+                                    background: "rgba(34,197,94,0.1)",
+                                    color: "#86efac",
+                                    borderRadius: "999px", padding: "0.15rem 0.6rem", fontSize: "0.75rem"
+                                  }}>Enrolled</span>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 )
               }
             </div>
@@ -346,16 +372,32 @@ export default function LecturerDashboard() {
               <div style={{
                 background: "rgba(255,255,255,0.03)", border: "2px dashed rgba(255,255,255,0.1)",
                 borderRadius: "1rem", padding: "3rem", textAlign: "center", marginTop: "1.5rem",
-                cursor: "pointer"
-              }} onClick={() => uploadInputRef.current?.click()}>
+                cursor: isLocked ? "not-allowed" : "pointer",
+                opacity: isLocked ? 0.6 : 1
+              }} onClick={() => !isLocked && uploadInputRef.current?.click()}>
                 <div style={{ fontSize: "2.5rem", marginBottom: "1rem" }}>📄</div>
                 <div style={{ color: "#fff", fontWeight: 700 }}>Click to select Excel file</div>
                 <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", marginTop: "0.5rem" }}>Supports .xlsx, .xls</div>
                 <input 
                    type="file" ref={uploadInputRef} hidden accept=".xlsx,.xls"
                    onChange={e => handleFileChange(e)}
+                   disabled={isLocked}
                 />
               </div>
+
+              {isLocked && (
+                <div style={{
+                  marginTop: "1.5rem", padding: "1rem", borderRadius: "0.75rem",
+                  background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)",
+                  color: "#fca5a5", display: "flex", alignItems: "center", gap: "0.75rem"
+                }}>
+                  <div style={{ fontSize: "1.2rem" }}>🔒</div>
+                  <div>
+                    <div style={{ fontWeight: 700 }}>Portal Locked</div>
+                    <div style={{ fontSize: "0.8rem", opacity: 0.8 }}>The ICT Director has temporarily disabled result uploads. Please contact the ICT department for more information.</div>
+                  </div>
+                </div>
+              )}
 
               {preview && (
                 <div style={{ marginTop: "2rem" }}>
@@ -366,14 +408,18 @@ export default function LecturerDashboard() {
                     <h3 style={{ color: "#fff", margin: 0 }}>File Preview: {preview.fileName}</h3>
                     <button 
                       onClick={submitToICT}
-                      disabled={uploading}
+                      disabled={uploading || isLocked}
                       style={{
-                        background: "linear-gradient(135deg,#10b981,#34d399)", border: "none",
-                        color: "#fff", borderRadius: "0.5rem", padding: "0.6rem 1.5rem",
-                        cursor: "pointer", fontWeight: 700, boxShadow: "0 4px 12px rgba(16,185,129,0.2)"
+                        background: isLocked ? "rgba(255,255,255,0.1)" : "linear-gradient(135deg,#10b981,#34d399)", 
+                        border: "none",
+                        color: isLocked ? "rgba(255,255,255,0.3)" : "#fff", 
+                        borderRadius: "0.5rem", padding: "0.6rem 1.5rem",
+                        cursor: isLocked ? "not-allowed" : "pointer", 
+                        fontWeight: 700, 
+                        boxShadow: isLocked ? "none" : "0 4px 12px rgba(16,185,129,0.2)"
                       }}
                     >
-                      {uploading ? "Uploading..." : "Submit to ICT →"}
+                      {uploading ? "Uploading..." : isLocked ? "Portal Locked" : "Submit to ICT →"}
                     </button>
                   </div>
 
@@ -408,102 +454,6 @@ export default function LecturerDashboard() {
                   padding: "0.6rem 1rem", fontSize: "0.88rem"
                 }}>{msg}</div>
               )}
-            </div>
-          )}
-
-          {tab === "entry" && (
-            <div>
-              {!selected
-                ? <p style={{ color: "rgba(255,255,255,0.4)" }}>← Select a course first.</p>
-                : (
-                  <>
-                    <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.5rem" }}>
-                      <button onClick={() => setTab("courses")} style={{
-                        background: "transparent", border: "1px solid rgba(255,255,255,0.2)",
-                        color: "rgba(255,255,255,0.6)", borderRadius: "0.5rem",
-                        padding: "0.35rem 0.75rem", cursor: "pointer", fontSize: "0.82rem"
-                      }}>← Back</button>
-                      <div>
-                        <h2 style={{ color: "#fff", margin: 0 }}>{selected.course_code} — {selected.course_title}</h2>
-                        <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.8rem" }}>{selected.semester} · {selected.session}</div>
-                      </div>
-                    </div>
-
-                    {msg && (
-                      <div style={{
-                        background: msg.startsWith("✅") ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
-                        border: `1px solid ${msg.startsWith("✅") ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
-                        borderRadius: "0.5rem", color: msg.startsWith("✅") ? "#86efac" : "#fca5a5",
-                        padding: "0.6rem 1rem", marginBottom: "1rem", fontSize: "0.88rem"
-                      }}>{msg}</div>
-                    )}
-
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.88rem" }}>
-                        <thead>
-                          <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-                            {["Matric No","Name","Level","CA (40)","Exam (60)","Total","Grade","Status"].map(h => (
-                              <th key={h} style={{ color: "rgba(255,255,255,0.5)", textAlign: "left", padding: "0.6rem 0.75rem", fontWeight: 600 }}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {students.map(s => {
-                            const ca   = parseFloat(scores[s.student_id]?.ca || "0");
-                            const exam = parseFloat(scores[s.student_id]?.exam || "0");
-                            const tot  = ca + exam;
-                            const grade = tot>=70?"A":tot>=60?"B":tot>=50?"C":tot>=45?"D":tot>=40?"E":"F";
-                            return (
-                              <tr key={s.student_id} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                                <td style={{ padding: "0.6rem 0.75rem", color: "#60a5fa" }}>{s.matric_number}</td>
-                                <td style={{ padding: "0.6rem 0.75rem", color: "#fff" }}>{s.student_name}</td>
-                                <td style={{ padding: "0.6rem 0.75rem", color: "rgba(255,255,255,0.5)" }}>{s.current_level}</td>
-                                <td style={{ padding: "0.4rem 0.5rem" }}>
-                                  <input
-                                    type="number" min="0" max="40" step="0.5"
-                                    value={scores[s.student_id]?.ca ?? ""}
-                                    onChange={e => updateScore(s.student_id, "ca", e.target.value)}
-                                    style={{ width: 65, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "0.35rem", color: "#fff", padding: "0.3rem 0.5rem" }}
-                                  />
-                                </td>
-                                <td style={{ padding: "0.4rem 0.5rem" }}>
-                                  <input
-                                    type="number" min="0" max="60" step="0.5"
-                                    value={scores[s.student_id]?.exam ?? ""}
-                                    onChange={e => updateScore(s.student_id, "exam", e.target.value)}
-                                    style={{ width: 65, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "0.35rem", color: "#fff", padding: "0.3rem 0.5rem" }}
-                                  />
-                                </td>
-                                <td style={{ padding: "0.6rem 0.75rem", color: "#fff", fontWeight: 700 }}>{tot.toFixed(1)}</td>
-                                <td style={{ padding: "0.6rem 0.75rem", fontWeight: 700, color: grade==="A"?"#86efac":grade==="F"?"#fca5a5":"#fcd34d" }}>{grade}</td>
-                                <td style={{ padding: "0.6rem 0.75rem" }}>
-                                  <span style={{
-                                    background: s.score_status==="approved"?"rgba(34,197,94,0.15)":s.score_status==="submitted"?"rgba(251,191,36,0.15)":"rgba(255,255,255,0.08)",
-                                    color: s.score_status==="approved"?"#86efac":s.score_status==="submitted"?"#fcd34d":"rgba(255,255,255,0.4)",
-                                    borderRadius: "999px", padding: "0.15rem 0.6rem", fontSize: "0.75rem"
-                                  }}>{s.score_status || "draft"}</span>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    <div style={{ display: "flex", gap: "0.75rem", marginTop: "1.25rem" }}>
-                      <button onClick={() => saveScores(false)} disabled={saving} style={{
-                        background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)",
-                        color: "#fff", borderRadius: "0.6rem", padding: "0.6rem 1.25rem", cursor: "pointer"
-                      }}>💾 Save Draft</button>
-                      <button onClick={() => saveScores(true)} disabled={saving} style={{
-                        background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", border: "none",
-                        color: "#fff", borderRadius: "0.6rem", padding: "0.6rem 1.25rem",
-                        cursor: "pointer", fontWeight: 600
-                      }}>📤 Submit for Approval</button>
-                    </div>
-                  </>
-                )
-              }
             </div>
           )}
           {tab === "submissions" && (

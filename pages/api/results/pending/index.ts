@@ -14,10 +14,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         LEFT JOIN users u ON u.id = p.staff_id
       `;
       const params: any[] = [];
+      const whereClauses: string[] = [];
       
       if (staffId) {
-        query += ` WHERE p.staff_id = $1`;
         params.push(staffId);
+        whereClauses.push(`p.staff_id = $${params.length}`);
+      }
+      
+      if (req.query.status) {
+        params.push(req.query.status);
+        whereClauses.push(`p.status = $${params.length}`);
+      }
+
+      if (whereClauses.length > 0) {
+        query += ` WHERE ` + whereClauses.join(' AND ');
       }
       
       query += ` ORDER BY p.created_at DESC`;

@@ -5,6 +5,7 @@ import { ApiClient } from "@/lib/api";
 
 const ROLE_REDIRECTS: Record<string, string> = {
   admin:              "/ict/dashboard",
+  ict_director:       "/ict/dashboard",
   admissions_officer: "/admin/dashboard",
   lecturer:           "/lecturer/dashboard",
   deo:                "/deo/dashboard",

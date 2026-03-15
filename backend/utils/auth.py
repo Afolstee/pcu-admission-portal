@@ -66,7 +66,7 @@ def admin_required(f):
     """Decorator to protect admin-only routes (ICT Director)"""
     @wraps(f)
     def decorated(payload, *args, **kwargs):
-        if payload.get('role') != 'admin':
+        if payload.get('role') not in ['admin', 'ict_director']:
             return jsonify({'message': 'Admin access required'}), 403
         return f(payload, *args, **kwargs)
     return decorated

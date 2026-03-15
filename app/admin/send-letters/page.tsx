@@ -89,7 +89,7 @@ export default function SendLettersPage() {
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== "admissions_officer") {
-      router.replace("/auth/login");
+      router.replace("/staff/login");
       return;
     }
 
@@ -210,7 +210,7 @@ export default function SendLettersPage() {
 
   const handleLogout = async () => {
     await logout();
-    router.replace("/");
+    router.replace("/staff/login");
   };
 
   if (!isAuthenticated || user?.role !== "admissions_officer") {

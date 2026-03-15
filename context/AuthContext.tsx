@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 
-type StaffRole = 'lecturer' | 'deo' | 'hod' | 'dean' | 'registrar' | 'admissions_officer';
+type StaffRole = 'lecturer' | 'deo' | 'hod' | 'dean' | 'registrar' | 'admissions_officer' | 'ict_director';
 
 interface User {
   id: number;

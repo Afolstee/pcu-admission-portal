@@ -42,7 +42,7 @@ interface ApplicationDetail {
 export default function ApplicationDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const applicantId = parseInt(params.id as string);
+  const applicantId = params?.id ? parseInt(params.id as string) : 0;
   const { user, isAuthenticated, logout } = useAuth();
 
   const [application, setApplication] = useState<ApplicationDetail | null>(
@@ -60,7 +60,7 @@ export default function ApplicationDetailPage() {
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== "admissions_officer") {
-      router.replace("/auth/login");
+      router.replace("/staff/login");
       return;
     }
 
@@ -119,7 +119,7 @@ export default function ApplicationDetailPage() {
 
   const handleLogout = async () => {
     await logout();
-    router.replace("/");
+    router.replace("/staff/login");
   };
 
   if (loading) {

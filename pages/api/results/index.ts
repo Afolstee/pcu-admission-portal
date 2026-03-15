@@ -395,7 +395,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (req.method === 'POST') {
       const body = req.body
-      const items: IncomingResult[] = Array.isArray(body) ? body : [body]
+      const pendingId = body.pendingId
+      const resultsData = body.results || body
+      const items: IncomingResult[] = Array.isArray(resultsData) ? resultsData : [resultsData]
 
       if (items.length === 0) {
         return res.status(200).json({ message: 'No results to save' })
@@ -408,6 +410,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       const ids = await batchSaveResults(pool, items)
+
+      if (pendingId) {
+        try {
+          await pool.query(`UPDATE pending_results SET status = 'processed' WHERE id = $1`, [pendingId])
+        } catch (updateErr) {
+          console.error('[POST /api/results] Failed to update pending status', updateErr)
+          // Don't fail the whole request since results are already saved
+        }
+      }
+
       return res.status(201).json({ message: `${ids.length} result(s) saved`, ids })
     }
 

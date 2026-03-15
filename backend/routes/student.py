@@ -9,7 +9,7 @@ student_bp = Blueprint('student', __name__)
 def check_registration_status():
     """Verify if the registration portal is globally locked."""
     try:
-        res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'registration_locked'")
+        res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'course_registration_locked'")
         if res and res[0]['value'] == 'true':
             return True
         return False

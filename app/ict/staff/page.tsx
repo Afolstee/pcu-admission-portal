@@ -16,7 +16,7 @@ type Department = { id: number; name: string };
 type Faculty    = { id: number; name: string };
 type Course     = { id: number; course_code: string; course_title: string };
 
-const ROLES = ["lecturer","deo","hod","dean","registrar","admissions_officer","admin"];
+const ROLES = ["lecturer","deo","hod","dean","registrar","admissions_officer","ict_director","admin"];
 
 export default function ICTStaffPage() {
   const router  = useRouter();
@@ -40,8 +40,8 @@ export default function ICTStaffPage() {
   });
 
   useEffect(() => {
-    if (!isAuthenticated || user?.role !== "admin") {
-      router.replace("/auth/login");
+    if (!isAuthenticated || (user?.role !== "admin" && user?.role !== "ict_director")) {
+      router.replace("/staff/login");
       return;
     }
     loadStaff();
@@ -147,7 +147,7 @@ export default function ICTStaffPage() {
 
   const handleLogout = async () => {
     await logout();
-    router.replace("/");
+    router.replace("/staff/login");
   };
 
   const roleBadgeColor = (r: string) => ({

@@ -34,18 +34,19 @@ def get_programs():
     }
     
     try:
-        settings_res = Database.execute_query("SELECT key, value FROM system_settings WHERE key IN ('admission_registration_locked', 'pt_undergraduate_enabled', 'pt_postgraduate_enabled', 'pt_part_time_enabled', 'pt_jupeb_enabled')")
+        settings_res = Database.execute_query("SELECT key, value FROM system_settings WHERE key IN ('admission_registration_locked', 'undergraduate_admission_locked', 'postgraduate_admission_locked', 'part_time_admission_locked', 'jupeb_admission_locked')")
         for s in (settings_res or []):
-            if s['key'] == 'admission_registration_locked' and s['value'] == 'true':
+            is_locked = (s['value'] == 'true')
+            if s['key'] == 'admission_registration_locked' and is_locked:
                 global_lock = True
-            elif s['key'] == 'pt_undergraduate_enabled':
-                pt_status['undergraduate'] = (s['value'] == 'true')
-            elif s['key'] == 'pt_postgraduate_enabled':
-                pt_status['postgraduate'] = (s['value'] == 'true')
-            elif s['key'] == 'pt_part_time_enabled':
-                pt_status['part-time'] = (s['value'] == 'true')
-            elif s['key'] == 'pt_jupeb_enabled':
-                pt_status['jupeb'] = (s['value'] == 'true')
+            elif s['key'] == 'undergraduate_admission_locked':
+                pt_status['undergraduate'] = not is_locked
+            elif s['key'] == 'postgraduate_admission_locked':
+                pt_status['postgraduate'] = not is_locked
+            elif s['key'] == 'part_time_admission_locked':
+                pt_status['part-time'] = not is_locked
+            elif s['key'] == 'jupeb_admission_locked':
+                pt_status['jupeb'] = not is_locked
     except:
         pass
         

@@ -55,7 +55,7 @@ export default function ApplicationsPage() {
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== "admissions_officer") {
-      router.replace("/auth/login");
+      router.replace("/staff/login");
       return;
     }
 
@@ -76,7 +76,7 @@ export default function ApplicationsPage() {
 
   const handleLogout = async () => {
     await logout();
-    router.replace("/");
+    router.replace("/staff/login");
   };
 
   return (

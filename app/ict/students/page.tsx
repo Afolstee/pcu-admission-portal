@@ -33,8 +33,8 @@ export default function ICTStudentsPage() {
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
-    if (!isAuthenticated || user?.role !== "admin") {
-      router.replace("/auth/login");
+    if (!isAuthenticated || (user?.role !== "admin" && user?.role !== "ict_director")) {
+      router.replace("/staff/login");
       return;
     }
     loadStudents();
@@ -85,7 +85,7 @@ export default function ICTStudentsPage() {
 
   const handleLogout = async () => {
     await logout();
-    router.replace("/");
+    router.replace("/staff/login");
   };
 
   return (

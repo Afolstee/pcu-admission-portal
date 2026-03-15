@@ -23,15 +23,13 @@ export default function ICTDashboard() {
   const router = useRouter();
   const { user, isAuthenticated, logout, isLoading: authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [settings, setSettings] = useState<any[]>([]);
   const [systemStatus, setSystemStatus] = useState<any>(null);
-  const [updating, setUpdating] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
     if (authLoading) return;
-    if (!isAuthenticated || user?.role !== "admin") {
-      router.replace("/auth/login");
+    if (!isAuthenticated || (user?.role !== "admin" && user?.role !== "ict_director")) {
+      router.replace("/staff/login");
       return;
     }
 
@@ -41,7 +39,7 @@ export default function ICTDashboard() {
 
   const loadPendingCount = async () => {
     try {
-      const res = await fetch("/api/results/pending");
+      const res = await fetch("/api/results/pending?status=pending");
       if (res.ok) {
         const data = await res.json();
         setPendingCount(data.length);
@@ -51,41 +49,19 @@ export default function ICTDashboard() {
 
   const loadSettings = async () => {
     try {
-      const response = await ApiClient.fetch<any>("/settings/all");
-      setSettings(response.data?.settings || []);
-      
-      try {
-         const statusRes = await ApiClient.fetch<any>("/settings/system-status");
-         setSystemStatus(statusRes);
-      } catch (err) {
-         console.error("Failed to fetch system status:", err);
-      }
+       const statusRes = await ApiClient.fetch<any>("/settings/system-status");
+       setSystemStatus(statusRes);
     } catch (err) {
-      console.error("Error loading settings:", err);
+       console.error("Failed to fetch system status:", err);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleToggleSetting = async (key: string, currentValue: string) => {
-    setUpdating(true);
-    const newValue = currentValue === "true" ? "false" : "true";
-    try {
-      await ApiClient.fetch<any>("/settings/update", {
-        method: "POST",
-        body: JSON.stringify({ key, value: newValue }),
-      });
-      setSettings(prev => prev.map(s => s.key === key ? { ...s, value: newValue } : s));
-    } catch (err) {
-      console.error("Error updating setting:", err);
-    } finally {
-      setUpdating(false);
-    }
-  };
 
   const handleLogout = async () => {
     await logout();
-    router.replace("/");
+    router.replace("/staff/login");
   };
 
   if (loading) {
@@ -99,7 +75,6 @@ export default function ICTDashboard() {
     );
   }
 
-  const getSettingValue = (key: string) => settings.find(s => s.key === key)?.value === "true";
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -168,7 +143,7 @@ export default function ICTDashboard() {
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Quick Actions */}
           <div className="lg:col-span-2 space-y-8">
-            <div className="grid md:grid-cols-3 gap-4">
+            <div className="grid md:grid-cols-2 gap-4">
               <Link href="/ict/staff">
                 <Card className="hover:shadow-md transition-all cursor-pointer h-full border-l-4 border-l-blue-500 group">
                   <CardHeader>
@@ -225,49 +200,27 @@ export default function ICTDashboard() {
                   </CardContent>
                 </Card>
               </Link>
+
+              <Link href="/ict/settings">
+                <Card className="hover:shadow-md transition-all cursor-pointer h-full border-l-4 border-l-orange-500 group">
+                  <CardHeader>
+                    <CardTitle className="text-xl flex items-center gap-2 group-hover:text-orange-600 transition-colors">
+                      <Settings className="h-6 w-6" />
+                      Control Center
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Manage portal locks, toggle admissions, and control result upload permissions globally.
+                    </p>
+                    <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
+                      System Admin
+                    </Badge>
+                  </CardContent>
+                </Card>
+              </Link>
             </div>
 
-            {/* Portal Controls */}
-            <Card className="border-l-4 border-l-orange-500">
-              <CardHeader>
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="h-6 w-6 text-orange-600" />
-                  <CardTitle className="text-xl">Global Portal Controls</CardTitle>
-                </div>
-                <CardDescription>
-                  Enable or disable major portal functionalities instantly.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {settings.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">No settings found in system.</p>
-                ) : (
-                  settings.map((setting) => (
-                    <div key={setting.key} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-xl shadow-sm">
-                      <div className="space-y-0.5">
-                        <Label className="text-base font-semibold text-slate-900 capitalize">
-                          {setting.key.replace(/_/g, " ")}
-                        </Label>
-                        <p className="text-sm text-slate-500">
-                          {setting.description}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <Badge className={`${setting.value === "true" ? "bg-red-100 text-red-700 border-red-200" : "bg-green-100 text-green-700 border-green-200"}`}>
-                           {setting.value === "true" ? <Lock className="h-3 w-3 mr-1" /> : <Unlock className="h-3 w-3 mr-1" />}
-                           {setting.value === "true" ? "LOCKED" : "ACTIVE"}
-                        </Badge>
-                        <Switch
-                          checked={setting.value === "true"}
-                          onCheckedChange={() => handleToggleSetting(setting.key, setting.value)}
-                          disabled={updating}
-                        />
-                      </div>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
           </div>
 
           {/* System Info Sidebar */}
@@ -305,10 +258,15 @@ export default function ICTDashboard() {
                   <span className="text-slate-400">Locked Programs:</span>
                   <span className="text-orange-400 font-medium">{systemStatus?.locks?.programs_locked || 0} program(s)</span>
                 </div>
-                {(systemStatus?.locks?.admission || systemStatus?.locks?.course) && (
+                {(systemStatus?.locks?.admission || systemStatus?.locks?.course || systemStatus?.locks?.result || systemStatus?.locks?.undergraduate || systemStatus?.locks?.postgraduate || systemStatus?.locks?.part_time || systemStatus?.locks?.jupeb) && (
                    <div className="pt-2">
-                     {systemStatus?.locks?.admission && <Badge className="bg-red-500/20 text-red-300 border-red-500/30 w-full justify-center mb-2 animate-pulse">Global Admission Closed</Badge>}
-                     {systemStatus?.locks?.course && <Badge className="bg-orange-500/20 text-orange-300 border-orange-500/30 w-full justify-center animate-pulse">Course Reg. Closed</Badge>}
+                     {systemStatus?.locks?.admission && <Badge className="bg-red-500/20 text-red-300 border-red-500/30 w-full justify-center mb-2 animate-pulse font-bold">Admissions Locked</Badge>}
+                     {systemStatus?.locks?.course && <Badge className="bg-orange-500/20 text-orange-300 border-orange-500/30 w-full justify-center mb-2 animate-pulse font-bold">Course Registration Locked</Badge>}
+                     {systemStatus?.locks?.result && <Badge className="bg-red-500/20 text-red-100 border-red-500/50 w-full justify-center mb-2 animate-pulse font-bold uppercase py-1.5"><Lock className="h-3 w-3 mr-2" /> Result Upload Locked</Badge>}
+                     {systemStatus?.locks?.undergraduate && <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30 w-full justify-center mb-2 font-bold">Undergraduate Locked</Badge>}
+                     {systemStatus?.locks?.postgraduate && <Badge className="bg-purple-500/20 text-purple-300 border-purple-500/30 w-full justify-center mb-2 font-bold">Postgraduate Locked</Badge>}
+                     {systemStatus?.locks?.part_time && <Badge className="bg-indigo-500/20 text-indigo-300 border-indigo-500/30 w-full justify-center mb-2 font-bold">Part Time Locked</Badge>}
+                     {systemStatus?.locks?.jupeb && <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 w-full justify-center mb-2 font-bold">JUPEB Locked</Badge>}
                    </div>
                 )}
               </CardContent>

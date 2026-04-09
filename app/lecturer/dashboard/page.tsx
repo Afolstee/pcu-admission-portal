@@ -29,6 +29,7 @@ export default function LecturerDashboard() {
   const [preview, setPreview]     = useState<any>(null);
   const [history, setHistory]     = useState<any[]>([]);
   const [isLocked, setIsLocked]   = useState(false);
+  const [sysSettings, setSysSettings] = useState<any>(null);
 
   useEffect(() => {
     const u = localStorage.getItem("staff_user");
@@ -41,7 +42,15 @@ export default function LecturerDashboard() {
     loadCourses();
     loadHistory(parsed.id);
     checkPortalLock();
+    loadSysSettings();
   }, []);
+
+  async function loadSysSettings() {
+    try {
+      const settings = await ApiClient.getGlobalSettings();
+      setSysSettings(settings);
+    } catch {}
+  }
 
   async function checkPortalLock() {
     try {
@@ -91,7 +100,7 @@ export default function LecturerDashboard() {
         const data = new Uint8Array(evt.target?.result as ArrayBuffer);
         const wb = XLSX.read(data, { type: "array" });
         const sheet = wb.Sheets[wb.SheetNames[0]];
-        const parsed = parseExcelForUpload(sheet);
+        const parsed = parseExcelForUpload(sheet, sysSettings);
         
         const b64Reader = new FileReader();
         b64Reader.onload = (b64evt) => {
@@ -110,14 +119,23 @@ export default function LecturerDashboard() {
     reader.readAsArrayBuffer(file);
   }
 
-  function parseExcelForUpload(sheet: XLSX.WorkSheet) {
+  function parseExcelForUpload(sheet: XLSX.WorkSheet, currentSettings?: any) {
     const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
-    const metadata: any = {};
+    const metadata: any = { 
+      academicSession: currentSettings?.current_academic_session || "2024/2025", 
+      semester: currentSettings?.current_semester || "First Semester" 
+    };
     const students: any[] = [];
     
-    // Simple metadata extraction (similar to ICT logic but simplified)
-    for (let i = 0; i < Math.min(10, data.length); i++) {
+    // 1. Better Metadata Extraction
+    let courseCodeFromMeta = "";
+    for (let i = 0; i < Math.min(20, data.length); i++) {
+      if (!data[i]) continue;
       const rowStr = (data[i] || []).join(" ").toUpperCase();
+      // Try to find Course Code pattern e.g. CSC 101, GST 101
+      const courseMatch = rowStr.match(/([A-Z]{3,4}\s*\d{3})/);
+      if (courseMatch && !courseCodeFromMeta) courseCodeFromMeta = courseMatch[1];
+      
       if (rowStr.includes("SESSION")) {
         const m = rowStr.match(/(\d{4}\/\d{4})/);
         if (m) metadata.academicSession = m[1];
@@ -126,9 +144,13 @@ export default function LecturerDashboard() {
         if (rowStr.includes("FIRST")) metadata.semester = "First Semester";
         else if (rowStr.includes("SECOND")) metadata.semester = "Second Semester";
       }
+      if (rowStr.includes("DEPARTMENT")) {
+          const m = rowStr.match(/DEPARTMENT OF\s+(.+)/);
+          if (m) metadata.department = m[1].trim();
+      }
     }
 
-    // Find student header
+    // 2. Find Student Headers
     let headerIdx = -1;
     let matricIdx = -1, nameIdx = -1, scoreStartIdx = -1;
     for (let i = 0; i < data.length; i++) {
@@ -137,39 +159,112 @@ export default function LecturerDashboard() {
       for (let j = 0; j < r.length; j++) {
         const c = String(r[j] || "").toLowerCase();
         if (c.includes("matric")) { matricIdx = j; headerIdx = i; }
-        if (c.includes("name") && headerIdx === i) { nameIdx = j; scoreStartIdx = j + 1; }
+        else if (c.includes("name") && headerIdx === i) { nameIdx = j; scoreStartIdx = j + 1; }
       }
       if (headerIdx !== -1) break;
     }
 
     if (headerIdx === -1) throw new Error("Could not find student headers (Matric No/Name)");
 
-    const courses: string[] = [];
     const hRow = data[headerIdx];
+    const courseMap: Record<string, { caIdx: number, examIdx: number, totalIdx: number }> = {};
+    let caCol = -1, examCol = -1;
+
+    // Identify CA and Exam columns or specific course columns
     for (let j = scoreStartIdx; j < hRow.length; j++) {
-      const code = String(hRow[j] || "").trim().toUpperCase();
-      if (code && !["TOTAL","GRADE"].includes(code)) courses.push(code);
+      const rawCell = String(hRow[j] || "").toUpperCase().trim();
+      if (!rawCell || ["S/N", "SN", "NAME", "MATRIC", "TOTAL", "GRADE", "REMARK"].includes(rawCell)) continue;
+      
+      // Pattern 1: Column name is exactly a course code (e.g. CSC 101)
+      const courseMatch = rawCell.match(/^([A-Z]{3,4}\s*\d{3})$/);
+      if (courseMatch) {
+          const code = courseMatch[1];
+          if (!courseMap[code]) courseMap[code] = { caIdx: -1, examIdx: -1, totalIdx: j };
+          else courseMap[code].totalIdx = j;
+          continue;
+      }
+      
+      // Pattern 2: Column name contains course code and CA/Exam (e.g. CSC 101 CA)
+      const partMatch = rawCell.match(/^([A-Z]{3,4}\s*\d{3})\s*(CA|EXAM|TEST|TOTAL|EXAMINATION)/);
+      if (partMatch) {
+          const code = partMatch[1];
+          const type = partMatch[2];
+          if (!courseMap[code]) courseMap[code] = { caIdx: -1, examIdx: -1, totalIdx: -1 };
+          
+          if (type === "CA" || type === "TEST") courseMap[code].caIdx = j;
+          else if (type === "EXAM" || type === "EXAMINATION") courseMap[code].examIdx = j;
+          else if (type === "TOTAL") courseMap[code].totalIdx = j;
+          continue;
+      }
+      
+      // Pattern 3: Lone CA/Exam (associated with single course in metadata)
+      const cleanCell = rawCell.replace(/[().[\]%]/g, " ").trim();
+      const normalized = rawCell.replace(/[^A-Z0-9]/g, " ").replace(/\s+/g, " ").trim();
+      
+      const isCA = normalized.includes("C A") || normalized.startsWith("CA ") || normalized === "CA" || normalized.includes("ASSESSMENT") || normalized.includes("TEST");
+      const isExam = normalized.includes("EXAM") || normalized.includes("EXAMINATION");
+
+      if (isCA && !normalized.includes("TOTAL")) caCol = j;
+      if (isExam && !normalized.includes("TOTAL")) examCol = j;
+    }
+    
+    let courses: string[] = Object.keys(courseMap);
+    if (courses.length === 0) {
+        if (courseCodeFromMeta) {
+            courses = [courseCodeFromMeta];
+            courseMap[courseCodeFromMeta] = { caIdx: caCol, examIdx: examCol, totalIdx: -1 };
+        } else {
+            // Fallback: use any remaining column as course if no others found
+            for (let j = scoreStartIdx; j < hRow.length; j++) {
+                 const code = String(hRow[j] || "").trim().toUpperCase();
+                 if (code && !["TOTAL","GRADE","REMARK"].includes(code)) {
+                     courses.push(code);
+                     courseMap[code] = { caIdx: -1, examIdx: -1, totalIdx: j };
+                 }
+            }
+        }
+    } else if (caCol !== -1 || examCol !== -1) {
+        // If we found courses but also general CA/Exam cols, pair them if only one course
+        if (courses.length === 1) {
+            if (courseMap[courses[0]].caIdx === -1) courseMap[courses[0]].caIdx = caCol;
+            if (courseMap[courses[0]].examIdx === -1) courseMap[courses[0]].examIdx = examCol;
+        }
     }
 
+    // 3. Extract Student Rows
     for (let i = headerIdx + 1; i < data.length; i++) {
-      const r = data[i];
-      if (!r || !r[matricIdx]) continue;
-      
-      const studCourses: any[] = [];
-      courses.forEach((code, idx) => {
-        const score = parseFloat(String(r[scoreStartIdx + idx] || "0"));
-        if (!isNaN(score)) studCourses.push({ code, score });
-      });
+        const r = data[i];
+        if (!r || !String(r[matricIdx] || "").trim()) continue;
+        
+        const studCourses: any[] = [];
+        courses.forEach(code => {
+            const m = courseMap[code];
+            const ca = m.caIdx !== -1 ? parseFloat(String(r[m.caIdx] || "0")) : 0;
+            const exam = m.examIdx !== -1 ? parseFloat(String(r[m.examIdx] || "0")) : 0;
+            let total = m.totalIdx !== -1 ? parseFloat(String(r[m.totalIdx] || "0")) : (ca + exam);
+            
+            if (!isNaN(total)) {
+                studCourses.push({
+                    code,
+                    score: total,
+                    ca: isNaN(ca) ? 0 : ca,
+                    exam: isNaN(exam) ? 0 : exam
+                });
+            }
+        });
 
-      students.push({
-        matricNumber: String(r[matricIdx]).trim(),
-        name: String(r[nameIdx]).trim(),
-        courses: studCourses
-      });
+        if (studCourses.length > 0) {
+            students.push({
+              matricNumber: String(r[matricIdx]).trim(),
+              name: String(r[nameIdx]).trim(),
+              courses: studCourses
+            });
+        }
     }
 
     return { metadata, students, courses };
   }
+
 
   async function submitToICT() {
     if (!preview || !user) return;
@@ -441,6 +536,53 @@ export default function LecturerDashboard() {
                          <div style={{ color: "#fff", fontWeight: 600 }}>{preview.students.length} Students</div>
                        </div>
                     </div>
+
+                    {/* Result Breakdown List as requested */}
+                    <div style={{ padding: "1.5rem", maxHeight: "500px", overflowY: "auto" }}>
+                       <div style={{ marginBottom: "1.25rem", color: "rgba(255,255,255,0.6)", fontSize: "0.85rem", fontStyle: "italic" }}>
+                         Previewing converted results. Please verify CA and Exam scores:
+                       </div>
+                       {preview.courses.map((courseCode: string) => (
+                         <div key={courseCode} style={{ marginBottom: "2.5rem" }}>
+                            <div style={{ 
+                              color: "#60a5fa", fontWeight: 800, fontSize: "1.1rem", 
+                              borderBottom: "1px solid rgba(96,165,250,0.2)", paddingBottom: "0.5rem",
+                              marginBottom: "0.75rem"
+                            }}>{courseCode}</div>
+
+                            {/* Column Headers for alignment */}
+                            <div style={{ 
+                              display: "grid", gridTemplateColumns: "180px 60px 60px", gap: "1rem",
+                              color: "rgba(255,255,255,0.4)", fontSize: "0.7rem", fontWeight: 700, 
+                              textTransform: "uppercase", padding: "0 0.5rem 0.5rem", borderBottom: "1px solid rgba(255,255,255,0.05)"
+                            }}>
+                              <span>Matric Number</span>
+                              <span style={{ textAlign: "center" }}>CA</span>
+                              <span style={{ textAlign: "center" }}>Exam</span>
+                            </div>
+
+                            <div style={{ fontFamily: "monospace", fontSize: "0.95rem" }}>
+                              {preview.students
+                                .filter((s: any) => s.courses.some((c: any) => c.code === courseCode))
+                                .map((student: any) => {
+                                  const cData = student.courses.find((c: any) => c.code === courseCode);
+                                  return (
+                                    <div key={student.matricNumber} style={{ 
+                                      display: "grid", gridTemplateColumns: "180px 60px 60px", gap: "1rem",
+                                      color: "rgba(255,255,255,0.85)", padding: "0.4rem 0.5rem",
+                                      borderBottom: "1px solid rgba(255,255,255,0.03)"
+                                    }}>
+                                      <span style={{ color: "rgba(255,255,255,0.95)" }}>{student.matricNumber}</span>
+                                      <span style={{ color: "#fbbf24", textAlign: "center", fontWeight: 600 }}>{cData.ca ?? '0'}</span>
+                                      <span style={{ color: "#10b981", textAlign: "center", fontWeight: 600 }}>{cData.exam ?? '0'}</span>
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                         </div>
+                       ))}
+                    </div>
+
                   </div>
                 </div>
               )}

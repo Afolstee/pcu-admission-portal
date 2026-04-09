@@ -9,10 +9,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const departmentId = parseInt(req.query.id as string, 10)
       if (isNaN(departmentId)) return res.status(400).json({ error: 'Invalid department ID' })
 
+      // Only clearing master_results now as it is the single source of truth
+
       await pool.query(`
-          DELETE FROM processor_results
-          WHERE student_id IN (
-            SELECT id FROM processor_students WHERE department_id = $1
+          DELETE FROM master_results
+          WHERE matric_no IN (
+            SELECT matric_number FROM processor_students WHERE department_id = $1
           )
         `, [departmentId])
       

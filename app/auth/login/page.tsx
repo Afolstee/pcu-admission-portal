@@ -20,24 +20,14 @@ import { AlertCircle, X, CheckCircle2 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, logout, isLoading, error, isAuthenticated, user, applicant, student } =
+  const { login, logout, isLoading, error, isAuthenticated, user, applicant, student, portalStatus, isPortalLoading } =
     useAuth();
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [localError, setLocalError] = useState("");
   const [showError, setShowError] = useState(false);
   
-  const [isPortalLocked, setIsPortalLocked] = useState(false);
-  const [loadingConfig, setLoadingConfig] = useState(true);
-
-  useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"}/applicant/programs`)
-      .then(res => res.json())
-      .then(data => {
-         setIsPortalLocked(data.global_admission_locked);
-         setLoadingConfig(false);
-      })
-      .catch(() => setLoadingConfig(false));
-  }, []);
+  const isPortalLocked = portalStatus?.locked;
+  const loadingConfig = isPortalLoading;
 
   // Show error from auth context (e.g., invalid credentials)
   useEffect(() => {

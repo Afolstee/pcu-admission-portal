@@ -64,7 +64,7 @@ export default function DeanDashboard() {
           {[
             { id:"dashboard", label:"📊 Overview" },
             { id:"results",   label:"📋 Results" },
-            { id:"gpa",       label:"📈 GPA Summary" },
+            
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} style={{
               display:"block",width:"100%",textAlign:"left",

@@ -11,61 +11,49 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const pool = await getConnection()
 
-    // ── 1. Fetch all processor_results for this session ─────────────────────────────
+    // Get session name from ID
+    const sessRow = await pool.query('SELECT session_name FROM academic_sessions WHERE id = $1', [sessId])
+    if (sessRow.rows.length === 0) return res.status(404).json({ error: 'Session not found' })
+    const sessionName = sessRow.rows[0].session_name
+
+    // ── 1. Fetch all records from master_results for this session ─────────────────────────────
     const sessionRes = await pool.query(`
         SELECT
-          r.student_id,
-          r.course_id,
-          r.session_id,
-          r.semester,
-          r.score,
-          r.grade_point,
-          r.created_at,
-          s.full_name,
-          s.matric_number,
-          s.current_level,
+          r.matric_no, r.total AS score, r.grade_point, r.semester, r.session AS session_name,
+          r.course_code, r.course_unit AS units, 
+          s.id AS student_id, s.full_name, s.matric_number, s.current_level,
           d.id            AS department_id,
           d.name          AS department_name,
           f.name          AS faculty,
-          a.session_name,
-          c.course_code,
-          c.course_title,
-          c.remark,
-          c.credit_units  AS units
-        FROM processor_results r
-        JOIN processor_students s ON s.id = r.student_id
+          c.course_title, c.remark
+        FROM master_results r
+        JOIN processor_students s ON s.matric_number = r.matric_no
         JOIN departments       d ON d.id = s.department_id
         LEFT JOIN faculties    f ON f.id = d.faculty_id
-        JOIN academic_sessions a ON a.id = r.session_id
-        JOIN courses           c ON c.id = r.course_id
-        WHERE r.session_id = $1
-        ORDER BY s.full_name, r.semester, c.course_code
-      `, [sessId])
+        LEFT JOIN courses      c ON c.course_code = r.course_code
+        WHERE r.session = $1
+        ORDER BY s.full_name, r.semester, r.course_code
+      `, [sessionName])
     
     const sessionRows = sessionRes.rows;
 
     // ── 2. Fetch ALL historical results for each student (for running CGPA) ─
     const studentIds = [...new Set(sessionRows.map((r: any) => r.student_id))]
+    const matricNumbers = [...new Set(sessionRows.map((r: any) => r.matric_no))]
 
     let allHistoryRows: any[] = []
-    if (studentIds.length > 0) {
-      // Build parameterised IN list
-      const paramsIdx = studentIds.map((_, i) => `$${i + 1}`);
+    if (matricNumbers.length > 0) {
+      const paramsIdx = matricNumbers.map((_, i) => `$${i + 1}`);
       const historyRes = await pool.query(`
         SELECT
-          r.student_id,
-          r.session_id,
-          r.semester,
-          r.score,
-          r.grade_point,
-          c.credit_units as units,
-          a.session_name
-        FROM processor_results r
-        JOIN courses           c ON c.id = r.course_id
-        JOIN academic_sessions a ON a.id = r.session_id
-        WHERE r.student_id IN (${paramsIdx.join(',')})
-        ORDER BY r.student_id, a.session_name, r.semester
-      `, studentIds)
+          r.matric_no, r.session AS session_name, r.semester, r.total AS score, 
+          r.grade_point, r.course_unit AS units,
+          s.id AS student_id
+        FROM master_results r
+        JOIN processor_students s ON s.matric_number = r.matric_no
+        WHERE r.matric_no IN (${paramsIdx.join(',')})
+        ORDER BY s.id, r.session, r.semester
+      `, matricNumbers)
       allHistoryRows = historyRes.rows
     }
 

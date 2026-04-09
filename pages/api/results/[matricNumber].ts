@@ -26,16 +26,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const coursesRes = await pool.query(`
           SELECT
-            r.id AS result_id, r.session_id, r.semester, r.score, r.grade_point,
-            r.created_at,
-            c.id AS course_id, c.course_code, c.credit_units as units,
-            a.session_name
-          FROM processor_results r
-          JOIN courses           c ON c.id = r.course_id
-          JOIN academic_sessions a ON a.id = r.session_id
-          WHERE r.student_id = $1
-          ORDER BY r.created_at DESC
-        `, [student.id])
+            r.course_code, r.course_unit AS units, r.score, r.grade_point,
+            r.session AS session_name, r.semester, r.created_at
+          FROM master_results r
+          WHERE r.matric_no = $1
+          ORDER BY r.session DESC, r.semester DESC
+        `, [student.matric_number])
 
       return res.status(200).json({
         studentInfo: {
@@ -48,7 +44,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           semester:        coursesRes.rows[0]?.semester ?? '',
         },
         courses: coursesRes.rows.map((r: any) => ({
-          id:         String(r.course_id),
+          id:         r.course_code,
           code:       r.course_code,
           unit:       r.units,
           score:      r.score,
@@ -73,10 +69,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       await pool.query(`
-          DELETE FROM processor_results
-          WHERE student_id = $1
-            AND session_id = $2
-            AND semester   = $3
+          DELETE FROM master_results
+          WHERE matric_no = (SELECT matric_number FROM processor_students WHERE id = $1)
+            AND session = (SELECT session_name FROM academic_sessions WHERE id = $2)
+            AND semester = $3
         `, [studentId, sessionId, semester])
 
       return res.status(200).json({ message: 'Result deleted successfully' })

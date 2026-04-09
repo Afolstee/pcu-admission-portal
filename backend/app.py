@@ -13,7 +13,8 @@ def create_app(config_name='development'):
         supports_credentials=True,
         origins=[
             "http://localhost:3000",
-            "https://pcu-admission-portal.vercel.app"
+            "https://pcu-admission-portal.vercel.app",
+            "null"
         ]
     )
 
@@ -22,7 +23,8 @@ def create_app(config_name='development'):
         origin = request.headers.get("Origin")
         allowed_origins = [
             "http://localhost:3000",
-            "https://pcu-admission-portal.vercel.app"
+            "https://pcu-admission-portal.vercel.app",
+            "null"
         ]
         if origin in allowed_origins:
             response.headers["Access-Control-Allow-Origin"] = origin

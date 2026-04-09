@@ -12,7 +12,6 @@ class Database:
 
     @classmethod
     def _get_pool(cls):
-        """Lazy initialise a persistent connection pool (min 2, max 10 connections)."""
         if cls._pool is None:
             cls._pool = psycopg2.pool.ThreadedConnectionPool(
                 minconn=2,
@@ -20,7 +19,6 @@ class Database:
                 dsn=os.getenv("DATABASE_URL"),
                 cursor_factory=RealDictCursor,
                 sslmode="require",
-                # Keep connections alive: send a keepalive every 60 s
                 keepalives=1,
                 keepalives_idle=60,
                 keepalives_interval=10,

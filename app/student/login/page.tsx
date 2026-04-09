@@ -197,7 +197,7 @@ export default function StudentLoginPage() {
                   id="password"
                   name="password"
                   type="password"
-                  placeholder="Your Surname (in lowercase)"
+                  placeholder="First time? Try your Surname (in lowercase)"
                   className="h-11 border-slate-200 focus:border-[#3d2b3d] focus:ring-[#3d2b3d]/20 transition-all font-medium"
                   value={formData.password}
                   onChange={handleChange}

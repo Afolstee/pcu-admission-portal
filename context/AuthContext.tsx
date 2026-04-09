@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-
+import { ApiClient, StudentData } from '@/lib/api';
 
 type StaffRole = 'lecturer' | 'deo' | 'hod' | 'dean' | 'registrar' | 'admissions_officer' | 'ict_director';
 
@@ -17,8 +17,6 @@ interface User {
 
 export const STAFF_ROLES: string[] = ['lecturer', 'deo', 'hod', 'dean', 'registrar', 'admissions_officer'];
 
-import { ApiClient, StudentData } from '@/lib/api';
-
 export interface ApplicantData {
   id: number;
   program_id: number;
@@ -33,6 +31,11 @@ export interface ApiResponse {
   student?: StudentData;
 }
 
+interface PortalStatus {
+  locked: boolean;
+  programsLocked: number;
+}
+
 interface AuthContextType {
   user: User | null;
   applicant: ApplicantData | null;
@@ -44,6 +47,8 @@ interface AuthContextType {
   logout: () => Promise<void>;
   refreshStatus: () => Promise<void>;
   error: string | null;
+  portalStatus: PortalStatus | null;
+  isPortalLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -54,8 +59,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [student, setStudent] = useState<StudentData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // New Portal Status state
+  const [portalStatus, setPortalStatus] = useState<PortalStatus | null>(null);
+  const [isPortalLoading, setIsPortalLoading] = useState(true);
 
-  // Check if user is already logged in on mount
+  // Check if user is already logged in and fetch portal status on mount
   useEffect(() => {
     const token = ApiClient.getToken();
     if (token) {
@@ -63,7 +72,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else {
       setIsLoading(false);
     }
+    
+    // Fetch portal status globally
+    fetchPortalStatus();
   }, []);
+
+  const fetchPortalStatus = async () => {
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"}/applicant/programs`);
+      const data = await res.json();
+      const programsLocked = data.programs?.filter((p: any) => p.is_locked)?.length || 0;
+      setPortalStatus({
+        locked: data.global_admission_locked,
+        programsLocked: programsLocked
+      });
+    } catch (err) {
+      console.error('Failed to fetch portal status:', err);
+    } finally {
+      setIsPortalLoading(false);
+    }
+  };
 
   const verifyToken = useCallback(async () => {
     try {
@@ -78,7 +106,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setStudent(response.student);
         setApplicant(null);
       } else {
-        // admin or any staff role — no applicant/student data needed
         setApplicant(null);
         setStudent(null);
       }
@@ -158,7 +185,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const status = await ApiClient.getApplicantStatus();
         setApplicant(status.applicant);
       } else if (user?.role === 'student') {
-        // We can use verifyToken or a dedicated student status endpoint
         const response = await ApiClient.verifyToken() as { user: User; student?: StudentData };
         if (response.student) setStudent(response.student);
       }
@@ -178,6 +204,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     logout,
     refreshStatus,
     error,
+    portalStatus,
+    isPortalLoading
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

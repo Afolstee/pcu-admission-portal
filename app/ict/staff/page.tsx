@@ -206,7 +206,6 @@ export default function ICTStaffPage() {
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"1.5rem", flexWrap:"wrap", gap:"0.75rem" }}>
           <div>
             <h1 style={{ color:"#1e293b", margin:0, fontSize:"1.8rem", fontWeight:800 }}>Staff Management</h1>
-            <p style={{ color:"#64748b", margin:"0.25rem 0 0", fontSize:"0.9rem" }}>Create accounts, assign roles & course affiliations</p>
           </div>
           <div style={{ display:"flex", gap:"0.6rem", marginLeft:"auto" }}>
             <button onClick={()=>setShowAssign(true)} style={{ background:"#fff",border:"1px solid #e2e8f0",color:"#64748b",borderRadius:"0.6rem",padding:"0.5rem 1rem",cursor:"pointer",fontWeight:600,fontSize:"0.88rem", boxShadow:"0 1px 2px rgba(0,0,0,0.05)" }}>

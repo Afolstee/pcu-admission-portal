@@ -19,7 +19,7 @@ import { AlertCircle, X } from "lucide-react";
 
 export default function SignupPage() {
   const router = useRouter();
-  const { signup, isLoading, error, isAuthenticated } = useAuth();
+  const { signup, isLoading, error, isAuthenticated, portalStatus, isPortalLoading } = useAuth();
   const [formData, setFormData] = useState({
     first_name: "",
     last_name: "",
@@ -31,18 +31,8 @@ export default function SignupPage() {
   const [localError, setLocalError] = useState("");
   const [showError, setShowError] = useState(false);
 
-  const [isPortalLocked, setIsPortalLocked] = useState(false);
-  const [loadingConfig, setLoadingConfig] = useState(true);
-
-  useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"}/applicant/programs`)
-      .then(res => res.json())
-      .then(data => {
-         setIsPortalLocked(data.global_admission_locked);
-         setLoadingConfig(false);
-      })
-      .catch(() => setLoadingConfig(false));
-  }, []);
+  const isPortalLocked = portalStatus?.locked;
+  const loadingConfig = isPortalLoading;
 
   // Valid email providers
   const validEmailProviders = [
@@ -291,7 +281,7 @@ export default function SignupPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="last_name">Surname</Label>
+                  <Label htmlFor="last_name">Last name</Label>
                   <Input
                     id="last_name"
                     name="last_name"

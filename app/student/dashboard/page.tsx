@@ -220,15 +220,16 @@ export default function StudentDashboard() {
       {/* Navigation */}
       <nav className="bg-background border-b border-border sticky top-0 z-40 shadow-sm">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Image
-              src="/images/logo new.png"
-              alt="PCU Logo"
-              width={28}
-              height={28}
-              className="object-contain"
-            />
-            <span className="font-bold text-lg">Student Portal</span>
+          <div className="filter drop-shadow-[0_8px_12px_rgba(0,0,0,0.5)]">
+            <div className="flex items-center rounded-xl overflow-hidden">
+              <Image
+                src="/images/logo new.png"
+                alt="PCU Logo"
+                width={50}
+                height={50}
+                className="object-contain"
+              />
+            </div>
           </div>
           <div className="flex items-center gap-4">
             <div className="text-right hidden sm:block">

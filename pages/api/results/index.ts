@@ -7,6 +7,8 @@ interface IncomingCourse {
   code: string
   unit?: number
   score: number
+  ca?: number
+  exam?: number
   gradePoint?: number
   gpa?: number
 }
@@ -141,104 +143,75 @@ function gradePointFromScore(score: number): number {
   return 0
 }
 
-async function batchSaveResults(pool: any, items: IncomingResult[]): Promise<string[]> {
+function gradeFromScore(score: number): string {
+  if (score >= 70) return 'A'
+  if (score >= 60) return 'B'
+  if (score >= 50) return 'C'
+  if (score >= 45) return 'D'
+  if (score >= 40) return 'E'
+  return 'F'
+}
+
+async function batchSaveResults(pool: any, items: IncomingResult[], staffId: number | null = null): Promise<string[]> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     
-    // Using mapping dicts to reduce duplicate resolutions in same batch request
-    const studentIds: Record<string, number> = {};
-    const sessionIds: Record<string, number> = {};
-    const courseIds: Record<string, number> = {};
-    const deptIds: Record<string, number> = {};
     const savedIds: string[] = [];
+    const deptIds: Record<string, number> = {};
+    const programIdsByMatric: Record<string, number | null> = {};
 
-    const resultsToInsert: any[] = [];
-
-    // Pre-resolve students and sessions
-    for (const item of items) {
-      const { studentInfo } = item;
-      
-      if (!sessionIds[studentInfo.academicSession]) {
-        sessionIds[studentInfo.academicSession] = await resolveSession(client, studentInfo.academicSession);
-      }
-      if (!studentIds[studentInfo.matricNumber]) {
-        studentIds[studentInfo.matricNumber] = await resolveStudent(client, studentInfo);
-      }
-      
-      const sessId = sessionIds[studentInfo.academicSession];
-      const studId = studentIds[studentInfo.matricNumber];
-      savedIds.push(`${studId}_${sessId}_${studentInfo.semester}`);
-    }
-
-    // Process Courses and compute Results insertions
     for (const item of items) {
       const { studentInfo, courses } = item;
-      const studId = studentIds[studentInfo.matricNumber];
-      const sessId = sessionIds[studentInfo.academicSession];
       
-      // Determine department ID for this student context
+      // Resolve student/department context
       if (!deptIds[studentInfo.department]) {
         const deptRes = await client.query(`SELECT id FROM departments WHERE name = $1 LIMIT 1`, [studentInfo.department]);
         deptIds[studentInfo.department] = deptRes.rows[0]?.id ?? 1;
       }
       const departmentId = deptIds[studentInfo.department];
 
-      // Delete existing records before recreating
-      await client.query(`
-        DELETE FROM processor_results 
-        WHERE student_id = $1 AND session_id = $2 AND semester = $3
-      `, [studId, sessId, studentInfo.semester]);
-
-      // Deduplicate courses within this student's result to avoid ON CONFLICT duplicate issues in same query
-      const uniqueCourses = new Map();
-      for (const c of courses) {
-        uniqueCourses.set(c.code, c);
+      if (programIdsByMatric[studentInfo.matricNumber] === undefined) {
+        const studRes = await client.query(`SELECT program_id FROM students WHERE matric_number = $1`, [studentInfo.matricNumber]);
+        programIdsByMatric[studentInfo.matricNumber] = studRes.rows[0]?.program_id || null;
       }
+      const programId = programIdsByMatric[studentInfo.matricNumber];
 
-      for (const course of Array.from(uniqueCourses.values())) {
-        const cacheKey = `${course.code}_${departmentId}`;
-        if (!courseIds[cacheKey]) {
-          const resolvedCrs = await resolveCourse(client, course.code, course.unit ?? 3, departmentId);
-          courseIds[cacheKey] = resolvedCrs.id;
-        }
-        
-        const courseId = courseIds[cacheKey];
+      // Upsert into master_results
+      for (const course of courses) {
         const gradePoint = course.gradePoint ?? course.gpa ?? gradePointFromScore(course.score);
+        const grade = gradeFromScore(course.score);
+        const status = course.score >= 40 ? 'P' : 'F';
 
-        resultsToInsert.push({
-          student_id: studId,
-          course_id: courseId,
-          session_id: sessId,
-          semester: studentInfo.semester,
-          score: Math.round(course.score),
-          grade_point: gradePoint
-        });
+        await client.query(`
+          INSERT INTO master_results (
+            matric_no, course_code, course_unit, session, semester, level, 
+            ca, exam, total, grade, grade_point, status, program_id, lecturer_id
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+          ON CONFLICT (matric_no, course_code, session, semester) DO UPDATE SET
+            course_unit = EXCLUDED.course_unit,
+            level = EXCLUDED.level,
+            ca = EXCLUDED.ca,
+            exam = EXCLUDED.exam,
+            total = EXCLUDED.total,
+            grade = EXCLUDED.grade,
+            grade_point = EXCLUDED.grade_point,
+            status = EXCLUDED.status,
+            program_id = EXCLUDED.program_id,
+            lecturer_id = EXCLUDED.lecturer_id
+        `, [
+          studentInfo.matricNumber, course.code, course.unit || 3, studentInfo.academicSession,
+          studentInfo.semester, studentInfo.level, course.ca || 0, course.exam || 0,
+          course.score, grade, gradePoint, status, programId, staffId
+        ]);
       }
-    }
-
-    // Batch Insert Results
-    if (resultsToInsert.length > 0) {
-      const queryParts = [];
-      const values = [];
-      let paramId = 1;
       
-      for (const r of resultsToInsert) {
-        queryParts.push(`($${paramId++}, $${paramId++}, $${paramId++}, $${paramId++}, $${paramId++}, $${paramId++})`);
-        values.push(r.student_id, r.course_id, r.session_id, r.semester, r.score, r.grade_point);
-      }
-      
-      await client.query(`
-        INSERT INTO processor_results (student_id, course_id, session_id, semester, score, grade_point)
-        VALUES ${queryParts.join(', ')}
-        ON CONFLICT (student_id, course_id, session_id, semester) DO UPDATE 
-        SET score = EXCLUDED.score, grade_point = EXCLUDED.grade_point
-      `, values);
+      savedIds.push(studentInfo.matricNumber);
     }
 
     await client.query('COMMIT');
     return savedIds;
-
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -247,7 +220,6 @@ async function batchSaveResults(pool: any, items: IncomingResult[]): Promise<str
   }
 }
 
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const pool = await getConnection()
 
@@ -255,51 +227,35 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (req.method === 'GET') {
       const result = await pool.query(`
         SELECT
-          r.student_id,
-          r.course_id,
-          r.session_id,
-          r.semester,
-          r.score,
-          r.grade_point,
-          r.created_at,
-          s.full_name,
-          s.matric_number,
-          s.current_level,
-          d.id            AS department_id,
-          d.name          AS department_name,
-          f.name          AS faculty,
-          a.session_name,
-          c.course_code,
-          c.course_title,
-          c.credit_units  AS units,
-          c.remark
-        FROM processor_results r
-        JOIN processor_students s ON s.id = r.student_id
+          r.matric_no, r.total AS score, r.grade_point, r.semester, r.session AS session_name,
+          r.course_code, r.course_unit AS units, r.level AS current_level, r.created_at,
+          s.id AS student_id, s.full_name, s.matric_number,
+          d.id AS department_id, d.name AS department_name,
+          f.name AS faculty,
+          c.course_title
+        FROM master_results r
+        JOIN processor_students s ON s.matric_number = r.matric_no
         JOIN departments       d ON d.id = s.department_id
         LEFT JOIN faculties    f ON f.id = d.faculty_id
-        JOIN academic_sessions a ON a.id = r.session_id
-        JOIN courses           c ON c.id = r.course_id
-        ORDER BY d.name, a.session_name, r.semester, s.full_name
+        LEFT JOIN courses      c ON c.course_code = r.course_code
+        ORDER BY d.name, r.session, r.semester, s.full_name
       `);
       
       const recordset = result.rows;
 
       const SEMESTER_ORDER: Record<string, number> = {
-        'first semester':  1,
-        'second semester': 2,
-        'third semester':  3,
-        'first':  1,
-        'second': 2,
-        'third':  3,
+        'first semester': 1, 'first': 1,
+        'second semester': 2, 'second': 2,
+        'third semester': 3, 'third': 3,
       }
 
       const deptMap = new Map<number, any>()
 
       for (const row of recordset) {
         const deptId    = row.department_id
-        const sessionId = row.session_id
+        const sessionName = row.session_name
         const semester  = row.semester
-        const groupId   = `${row.student_id}_${sessionId}_${semester}`
+        const groupId   = `${row.matric_no}_${sessionName}_${semester}`
 
         if (!deptMap.has(deptId)) {
           deptMap.set(deptId, {
@@ -311,14 +267,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
         const dept = deptMap.get(deptId)!
 
-        if (!dept.sessions.has(sessionId)) {
-          dept.sessions.set(sessionId, {
-            id:        sessionId,
-            name:      row.session_name,
+        if (!dept.sessions.has(sessionName)) {
+          dept.sessions.set(sessionName, {
+            id:        sessionName,
+            name:      sessionName,
             semesters: new Map(),
           })
         }
-        const session = dept.sessions.get(sessionId)!
+        const session = dept.sessions.get(sessionName)!
 
         if (!session.semesters.has(semester)) {
           session.semesters.set(semester, { name: semester, students: new Map() })
@@ -349,13 +305,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const score      = row.score
 
         student.courses.push({
-          id:         String(row.course_id),
+          id:         row.course_code,
           code:       row.course_code,
           title:      row.course_title ?? row.course_code,
           unit:       units,
           score,
           gradePoint,
-          remark:     row.remark ?? '',
+          remark:     score >= 40 ? 'Pass' : 'Fail',
         })
         student.calculations.totalUnits += units
         student.calculations.totalWGP   += gradePoint * units
@@ -393,6 +349,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json(departments)
     }
 
+
     if (req.method === 'POST') {
       const body = req.body
       const pendingId = body.pendingId
@@ -409,14 +366,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       }
 
-      const ids = await batchSaveResults(pool, items)
+      let staffId = null;
+      if (pendingId) {
+        try {
+          const pendRes = await pool.query('SELECT staff_id FROM pending_results WHERE id = $1', [pendingId]);
+          if (pendRes.rows.length > 0) staffId = pendRes.rows[0].staff_id;
+        } catch (e) {}
+      }
+
+      const ids = await batchSaveResults(pool, items, staffId)
 
       if (pendingId) {
         try {
           await pool.query(`UPDATE pending_results SET status = 'processed' WHERE id = $1`, [pendingId])
         } catch (updateErr) {
           console.error('[POST /api/results] Failed to update pending status', updateErr)
-          // Don't fail the whole request since results are already saved
         }
       }
 
@@ -424,7 +388,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === 'DELETE') {
-      await pool.query(`DELETE FROM processor_results`)
+      await pool.query(`DELETE FROM master_results`)
       return res.status(200).json({ message: 'All results cleared' })
     }
 

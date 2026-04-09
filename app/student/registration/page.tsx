@@ -374,7 +374,7 @@ export default function CourseRegistration() {
 
               {firstStatus === 'submitted' && (
                 <div className="bg-green-100 text-green-800 p-3 rounded text-xs flex items-center gap-2 font-medium">
-                  <CheckCircle2 className="h-4 w-4 text-green-600" /> Submitted (Editable)
+                  <CheckCircle2 className="h-4 w-4 text-green-600" /> Submitted
                 </div>
               )}
 
@@ -406,7 +406,7 @@ export default function CourseRegistration() {
 
               {secondStatus === 'submitted' && (
                 <div className="bg-green-100 text-green-800 p-3 rounded text-xs flex items-center gap-2 font-medium">
-                  <CheckCircle2 className="h-4 w-4 text-green-600" /> Submitted (Editable)
+                  <CheckCircle2 className="h-4 w-4 text-green-600" /> Submitted
                 </div>
               )}
 

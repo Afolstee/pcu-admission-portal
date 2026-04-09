@@ -118,7 +118,6 @@ export default function ICTStudentsPage() {
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
           <div>
             <h1 className="text-3xl font-bold text-slate-900">Student Profile Management</h1>
-            <p className="text-slate-500">Edit student records, matric numbers, and level status.</p>
           </div>
           <form onSubmit={handleSearch} className="flex gap-2 w-full md:w-96">
             <div className="relative flex-1">

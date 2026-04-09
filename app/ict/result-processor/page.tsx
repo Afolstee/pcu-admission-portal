@@ -196,9 +196,15 @@ async function enrichCoursesBatch(courseCodes: string[], department: string): Pr
 }
 
 // --- Parser ---
-function parseExcelSheet(sheet: XLSX.WorkSheet): ExcelData {
+function parseExcelSheet(sheet: XLSX.WorkSheet, currentSettings?: any): ExcelData {
   const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as any[][];
-  const result: ExcelData = { metadata: {}, students: [] };
+  const result: ExcelData = { 
+    metadata: {
+      academicSession: currentSettings?.current_academic_session || "2024/2025",
+      semester: currentSettings?.current_semester || "First Semester"
+    }, 
+    students: [] 
+  };
 
   // Heuristic metadata extraction
   for (let i = 0; i < Math.min(15, data.length); i++) {
@@ -309,8 +315,20 @@ export default function ModernResultSystem() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isNormalizing, setIsNormalizing] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [isZipping, setIsZipping] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [sysSettings, setSysSettings] = useState<any>(null);
+
+  useEffect(() => {
+    async function loadSettings() {
+      try {
+        const data = await ApiClient.getGlobalSettings();
+        setSysSettings(data);
+      } catch {}
+    }
+    loadSettings();
+  }, []);
   const [zipProgress, setZipProgress] = useState(0);
+  const [isZipping, setIsZipping] = useState(false);
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const router = useRouter();
 
@@ -711,7 +729,9 @@ export default function ModernResultSystem() {
     const reader = new FileReader();
     reader.onload = (e) => {
       const data = new Uint8Array(e.target?.result as ArrayBuffer);
-      const wb = XLSX.read(data, { type: "array" });
+      const wb = XLSX.read(data, { type: "array", cellStyles: true });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const parsed = parseExcelSheet(sheet, sysSettings);
       setWorkbook(wb);
       setSheets(wb.SheetNames);
       if (wb.SheetNames.length > 0) setSelectedSheet(wb.SheetNames[0]);
@@ -1208,19 +1228,15 @@ export default function ModernResultSystem() {
                   Utility Tool
                 </Badge>
                 <h2 className="text-5xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">
-                  Intelligent <span className="text-emerald-600 dark:text-emerald-400">Sheet Normalizer.</span>
+                  <span className="text-emerald-600 dark:text-emerald-400">Excel Sheet Normalizer</span>
                 </h2>
               </div>
 
               <div className="max-w-2xl mx-auto">
                 <Card className="border-none shadow-[0_20px_50px_rgba(0,0,0,0.05)] bg-white  backdrop-blur-xl rounded-3xl overflow-hidden">
                   <CardHeader className="p-8 pb-0 text-center">
-                    <CardTitle className="text-2xl font-bold flex items-center justify-center gap-3">
-                      <ArrowRightLeft className="text-emerald-600 dark:text-emerald-400" />
-                      Cross-Sheet Collator
-                    </CardTitle>
-                    <CardDescription className="text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium pt-2">
-                       This will scan every sheet, merge duplicate student entries, and pivot vertical scores into columns.
+                    <CardDescription  className="text-slate-500 dark:text-slate-400 dark:text-slate-500 font-medium pt-2">
+                       This tool scans excel sheets, merge duplicate student entries, and collates individual scores into columns.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="p-8 space-y-8">

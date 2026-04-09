@@ -49,8 +49,8 @@ export default function ICTDashboard() {
 
   const loadSettings = async () => {
     try {
-       const statusRes = await ApiClient.fetch<any>("/settings/system-status");
-       setSystemStatus(statusRes);
+       const res = await ApiClient.fetch<any>("/settings/system-status");
+       setSystemStatus(res.data); // Set only the data part
     } catch (err) {
        console.error("Failed to fetch system status:", err);
     } finally {
@@ -81,17 +81,16 @@ export default function ICTDashboard() {
       {/* Navigation */}
       <nav className="bg-white border-b border-border sticky top-0 z-40 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Image
-              src="/images/logo new.png"
-              alt="PCU Logo"
-              width={28}
-              height={28}
-              className="object-contain"
-            />
-            <span className="font-bold text-lg text-slate-800">
-              PCU ICT Portal - Director
-            </span>
+          <div className="filter drop-shadow-[0_8px_12px_rgba(0,0,0,0.5)]">
+            <div className="flex items-center rounded-xl overflow-hidden">
+              <Image
+                src="/images/logo new.png"
+                alt="PCU Logo"
+                width={50}
+                height={50}
+                className="object-contain"
+              />
+            </div>
           </div>
           <div className="flex items-center gap-4">
             <div className="text-sm border-r pr-4 border-slate-200">
@@ -113,16 +112,6 @@ export default function ICTDashboard() {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">
-            ICT Management Dashboard
-          </h1>
-          <p className="text-slate-500">
-            Control portal access, manage staff roles, and oversee system settings.
-          </p>
-        </div>
-
         {pendingCount > 0 && (
           <div className="mb-8 p-4 bg-orange-50 border border-orange-200 rounded-xl flex items-center justify-between animate-pulse">
             <div className="flex items-center gap-3">
@@ -221,6 +210,8 @@ export default function ICTDashboard() {
               </Link>
             </div>
 
+            {/* Academic Session Management */}
+            <AcademicSessionManager />
           </div>
 
           {/* System Info Sidebar */}
@@ -297,5 +288,85 @@ export default function ICTDashboard() {
         </div>
       </div>
     </div>
+  );
+}
+function AcademicSessionManager() {
+  const [settings, setSettings] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  const loadSettings = async () => {
+    try {
+      const data = await ApiClient.getGlobalSettings();
+      setSettings(data);
+    } catch (err) {
+      console.error("Failed to load settings:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await ApiClient.updateGlobalSettings({
+        current_academic_session: settings.current_academic_session,
+        current_semester: settings.current_semester
+      });
+      alert("Academic settings updated successfully!");
+    } catch (err) {
+      console.error("Update failed:", err);
+      alert("Failed to update settings.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return null;
+
+  return (
+    <Card className="border-primary/20 bg-primary/5">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Settings className="h-5 w-5 text-primary" />
+          Academic Session Manager
+        </CardTitle>
+        <CardDescription>
+          Set the global active session and semester for all portal activities.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleUpdate} className="grid md:grid-cols-3 gap-6 items-end">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Active Academic Session</label>
+            <input 
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              value={settings.current_academic_session || ""}
+              onChange={e => setSettings({...settings, current_academic_session: e.target.value})}
+              placeholder="e.g. 2025/2026"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Active Semester</label>
+            <select 
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              value={settings.current_semester || "First Semester"}
+              onChange={e => setSettings({...settings, current_semester: e.target.value})}
+            >
+              <option value="First Semester">First Semester</option>
+              <option value="Second Semester">Second Semester</option>
+            </select>
+          </div>
+          <Button type="submit" disabled={saving} className="w-full md:w-auto">
+            {saving ? "Updating..." : "Activate Now"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

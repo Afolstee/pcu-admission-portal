@@ -1,7 +1,6 @@
 -- Database Schema Refactoring for faculties, departments, and programs
 -- WARNING: This script drops and recreates tables. 
 
--- Drop tables in reverse dependency order
 DROP TABLE IF EXISTS registered_courses CASCADE;
 DROP TABLE IF EXISTS program_courses CASCADE;
 DROP TABLE IF EXISTS course_registrations CASCADE;

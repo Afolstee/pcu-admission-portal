@@ -206,6 +206,10 @@ def send_admission_letter(payload):
         tuition_fee_str = f"₦{tuition_fee:,.2f}"
         other_fees_str = f"₦{other_fees:,.2f}"
     
+    # Get dynamic session
+    session_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
+    default_session = session_res[0]['value'] if session_res else '2025/2026'
+
     # Generate PDF using the selected template
     pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
         candidateName=applicant_data['name'],
@@ -214,7 +218,7 @@ def send_admission_letter(payload):
         level=applicant_data.get('level') or '100 Level',
         department=applicant_data.get('department') or '',
         faculty=applicant_data.get('faculty') or '',
-        session=applicant_data.get('session') or '2025/2026',
+        session=applicant_data.get('session') or default_session,
         mode=applicant_data.get('mode') or 'Full-Time',
         date=admission_date_display,
         acceptanceFee=acceptance_fee_str,
@@ -747,6 +751,10 @@ def send_department_letters(payload):
                     tuition_fee_str = f"₦{tuition_fee:,.2f}"
                     other_fees_str = f"₦{other_fees:,.2f}"
                 
+                # Get dynamic session
+                session_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
+                default_session = session_res[0]['value'] if session_res else '2025/2026'
+
                 # Generate PDF
                 pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
                     candidateName=applicant_data['name'],
@@ -755,7 +763,7 @@ def send_department_letters(payload):
                     level=applicant_data.get('level') or '100 Level',
                     department=applicant_data.get('department') or '',
                     faculty=applicant_data.get('faculty') or '',
-                    session=applicant_data.get('session') or '2025/2026',
+                    session=applicant_data.get('session') or default_session,
                     mode=applicant_data.get('mode') or 'Full-Time',
                     date=admission_date_display,
                     acceptanceFee=acceptance_fee_str,
@@ -1301,8 +1309,12 @@ def get_students(payload):
 @AuthHandler.admissions_officer_required
 def get_student_registration(payload, student_id):
     """View a student's course registration details"""
+    # Get dynamic session
+    session_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
+    default_session = session_res[0]['value'] if session_res else '2025/2026'
+
     semester = request.args.get('semester', 'First')
-    session = request.args.get('session', '2025/2026')
+    session = request.args.get('session', default_session)
     
     registration = Database.execute_query(
         'SELECT * FROM course_registrations WHERE student_id = %s AND semester = %s AND session = %s',
@@ -1344,7 +1356,7 @@ def get_courses_list(payload):
 
 @admin_bp.route('/settings', methods=['GET'])
 @AuthHandler.token_required
-@AuthHandler.roles_required('admin')
+@AuthHandler.admin_required
 def get_global_settings(payload):
     """Get global settings (e.g. locks for portals)"""
     settings = Database.execute_query('SELECT key, value, description FROM system_settings')
@@ -1352,7 +1364,7 @@ def get_global_settings(payload):
 
 @admin_bp.route('/settings', methods=['POST'])
 @AuthHandler.token_required
-@AuthHandler.roles_required('admin')
+@AuthHandler.admin_required
 def bulk_update_settings(payload):
     """Update global settings via dictionary payload"""
     data = request.get_json()

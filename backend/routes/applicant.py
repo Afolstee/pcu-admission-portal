@@ -478,12 +478,12 @@ def get_admission_letter(payload):
         (applicant_data['program_id'],)
     )
 
-    faculty = 'N/A'
-    department = 'N/A'
-    level = '100 Level'
-    mode = 'Full-Time'
-    session = '2025/2026'
-    resumption_date = ''
+    # Get global settings
+    settings = Database.execute_query("SELECT key, value FROM system_settings WHERE key IN ('current_academic_session', 'current_semester')")
+    settings_dict = {s['key']: s['value'] for s in (settings or [])}
+    
+    session = settings_dict.get('current_academic_session', '2025/2026')
+    active_semester = settings_dict.get('current_semester', 'First Semester')
 
     if program_details:
         pd = program_details[0]
@@ -491,7 +491,7 @@ def get_admission_letter(payload):
         department = pd['department'] or 'N/A'
         level = pd['level'] or '100 Level'
         mode = pd['mode'] or 'Full-Time'
-        session = pd['session'] or '2025/2026'
+        session = pd['session'] or session
         resumption_date = pd['resumption_date'] or ''
 
     # Generate reference number
@@ -561,12 +561,11 @@ def print_admission_letter(payload):
         (applicant_data['program_id'],)
     )
 
-    faculty = 'N/A'
-    department = 'N/A'
-    level = '100 Level'
-    mode = 'Full-Time'
-    session = '2025/2026'
-    resumption_date = ''
+    # Get global settings
+    settings = Database.execute_query("SELECT key, value FROM system_settings WHERE key IN ('current_academic_session', 'current_semester')")
+    settings_dict = {s['key']: s['value'] for s in (settings or [])}
+    
+    session = settings_dict.get('current_academic_session', '2025/2026')
 
     if program_details:
         pd = program_details[0]
@@ -574,7 +573,7 @@ def print_admission_letter(payload):
         department = pd['department'] or 'N/A'
         level = pd['level'] or '100 Level'
         mode = pd['mode'] or 'Full-Time'
-        session = pd['session'] or '2025/2026'
+        session = pd['session'] or session
         resumption_date = pd['resumption_date'] or ''
 
     # Generate reference number
@@ -718,11 +717,15 @@ def process_payment(payload):
                         (username, password_hash, 'student', app_user_id)
                     )
                     
+                    # Get current session for student record
+                    session_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
+                    active_session = session_res[0]['value'] if session_res else '2025/2026'
+
                     success_student = Database.execute_update(
                         '''INSERT INTO students (user_id, matric_number, program_id, current_level, session, is_first_login)
                            VALUES (%s, %s, %s, %s, %s, TRUE) 
                            ON CONFLICT (user_id) DO UPDATE SET matric_number = EXCLUDED.matric_number''',
-                        (app_user_id, matric_number, app_program_id, '100 Level', '2025/2026')
+                        (app_user_id, matric_number, app_program_id, '100 Level', active_session)
                     )
                     if success_user and success_student:
                         upgraded = True

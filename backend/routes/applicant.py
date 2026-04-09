@@ -417,7 +417,7 @@ def get_applicant_status(payload):
     
     applicant = Database.execute_query(
         '''SELECT a.id, a.program_id, a.application_status, a.admission_status, 
-                  a.has_paid_acceptance_fee, a.has_paid_tuition, a.submitted_at,
+                  a.has_paid_application_fee, a.has_paid_acceptance_fee, a.has_paid_tuition, a.submitted_at,
                   p.name as program_name
            FROM applicants a
            LEFT JOIN programs p ON a.program_id = p.id
@@ -622,8 +622,8 @@ def process_payment(payload):
     reference_id = data.get('reference_id', '')
     
     # Validate payment type
-    if payment_type not in ['acceptance_fee', 'tuition']:
-        return jsonify({'message': 'Invalid payment_type. Must be acceptance_fee or tuition'}), 400
+    if payment_type not in ['application_fee', 'acceptance_fee', 'tuition']:
+        return jsonify({'message': 'Invalid payment_type. Must be application_fee, acceptance_fee or tuition'}), 400
     
     if amount <= 0:
         return jsonify({'message': 'Amount must be greater than 0'}), 400
@@ -641,7 +641,7 @@ def process_payment(payload):
     
     # Verify amount matches program fee
     program_id = applicant[0]['program_id']
-    if not program_id:
+    if not program_id and payment_type != 'application_fee':
         return jsonify({'message': 'Program not selected'}), 400
     
     fees = Database.execute_query(
@@ -674,7 +674,12 @@ def process_payment(payload):
             return jsonify({'message': 'Failed to save payment transaction'}), 500
         
         # Update applicant payment status flags
-        if payment_type == 'acceptance_fee':
+        if payment_type == 'application_fee':
+            Database.execute_update(
+                'UPDATE applicants SET has_paid_application_fee = TRUE WHERE id = %s',
+                (applicant_id,)
+            )
+        elif payment_type == 'acceptance_fee':
             Database.execute_update(
                 'UPDATE applicants SET has_paid_acceptance_fee = TRUE WHERE id = %s',
                 (applicant_id,)

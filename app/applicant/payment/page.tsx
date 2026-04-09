@@ -222,22 +222,6 @@ function PaymentContent() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {/* Header */}
-      <nav className="border-b border-border bg-background/95 backdrop-blur sticky top-0 z-50">
-        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
-          <Link href="/applicant/dashboard" className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
-            <ArrowLeft className="h-4 w-4" />
-            <span className="text-sm font-medium">Back to Dashboard</span>
-          </Link>
-          <div className="flex items-center gap-2">
-            <div className="relative w-8 h-8">
-              <Image src="/images/logo new.png" alt="Logo" fill className="object-contain" />
-            </div>
-            <span className="font-bold">PCU Payment Gateway</span>
-          </div>
-        </div>
-      </nav>
-
       <main className="max-w-5xl mx-auto px-4 py-12">
         <div className="grid md:grid-cols-5 gap-8">
           {/* Left Side: Detail & Selection */}

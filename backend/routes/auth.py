@@ -207,6 +207,41 @@ def verify_token(payload):
         **extra_data
     }), 200
 
+@auth_bp.route('/change-password', methods=['POST'])
+@AuthHandler.token_required
+def change_password(payload):
+    """Update user password"""
+    user_id = payload['user_id']
+    data = request.get_json()
+    
+    if not data or not data.get('new_password'):
+        return jsonify({'message': 'Missing new password'}), 400
+        
+    if len(data['new_password']) < 6:
+        return jsonify({'message': 'New password must be at least 6 characters'}), 400
+        
+    # Optional: Verify current password if provided
+    current_password = data.get('current_password')
+    if current_password:
+        user = Database.execute_query(
+            'SELECT password_hash FROM users WHERE id = %s',
+            (user_id,)
+        )
+        if user and not AuthHandler.verify_password(current_password, user[0]['password_hash']):
+            return jsonify({'message': 'Current password is incorrect'}), 401
+        
+    # Hash and update
+    new_hash = AuthHandler.hash_password(data['new_password'])
+    success = Database.execute_update(
+        'UPDATE users SET password_hash = %s WHERE id = %s',
+        (new_hash, user_id)
+    )
+    
+    if not success:
+        return jsonify({'message': 'Failed to update password'}), 500
+        
+    return jsonify({'message': 'Password changed successfully'}), 200
+
 @auth_bp.route('/logout', methods=['POST'])
 def logout():
     """Logout endpoint (token is invalidated on client side)"""

@@ -15,8 +15,8 @@ export function useProgramGuard() {
     // Ignore guard for students and admins
     if (user.role !== 'applicant') return;
  
-    if (!applicant?.program_id) {
-      router.replace('/applicant/select-program');
+    if (!applicant?.program_id && window.location.pathname !== '/applicant/dashboard') {
+      router.replace('/applicant/dashboard');
     }
   }, [isAuthenticated, user, applicant, router]);
 }

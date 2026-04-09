@@ -37,7 +37,7 @@ export default function ApplicationPage() {
     const loadFormTemplate = async () => {
       try {
         if (!applicant?.program_id) {
-          router.replace("/applicant/select-program");
+          router.replace("/applicant/dashboard");
           return;
         }
         const response = await ApiClient.getFormTemplate(applicant.program_id);
@@ -71,37 +71,6 @@ export default function ApplicationPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">
-      {/* Navigation */}
-      <nav className="bg-background border-b border-border sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Image
-              src="/images/logo new.png"
-              alt="PCU Logo"
-              width={28}
-              height={28}
-              className="object-contain"
-            />
-            <span className="font-bold text-lg">Admission Portal</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-sm">
-              <p className="text-muted-foreground">Welcome back</p>
-              <p className="font-medium text-foreground">{user?.name}</p>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleLogout}
-              className="gap-2"
-            >
-              <LogOut className="h-4 w-4" />
-              Log Out
-            </Button>
-          </div>
-        </div>
-      </nav>
-
       {/* Main Content */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}

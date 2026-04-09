@@ -84,7 +84,7 @@ export default function LoginPage() {
 
     // Applicant: must select a program before accessing dashboard/application
     if (!applicant?.program_id) {
-      router.replace("/applicant/select-program");
+      router.replace("/applicant/dashboard");
     } else {
       router.replace("/applicant/dashboard");
     }
@@ -305,16 +305,6 @@ export default function LoginPage() {
                 className="text-primary font-medium hover:underline"
               >
                 Create one
-              </Link>
-            </div>
-            
-            <div className="pt-4 border-t border-slate-100">
-              <Link
-                href="/student/login"
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#3d2b3d]/5 text-[#3d2b3d] font-bold hover:bg-[#3d2b3d]/10 transition-colors"
-              >
-                <span>Student Portal Login</span>
-                <span className="text-lg">→</span>
               </Link>
             </div>
           </div>

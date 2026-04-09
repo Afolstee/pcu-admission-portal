@@ -94,57 +94,6 @@ export default function UniversityLandingPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 font-sans">
-      {/* Navbar (Newly Designed) */}
-      <header className="fixed w-full flex items-center justify-between px-6 py-4 bg-white/90 backdrop-blur-md shadow-sm z-50">
-        <div className="filter drop-shadow-[0_8px_12px_rgba(0,0,0,0.5)]">
-          <div className="flex items-center rounded-xl overflow-hidden">
-            <Image
-              src="/images/logo new.png"
-              alt="PCU Logo"
-              width={65}
-              height={65}
-              className="object-contain"
-            />
-          </div>
-        </div>
-        
-        <nav className="hidden lg:flex gap-7 font-semibold text-[13px] uppercase tracking-wider text-gray-700 items-center">
-          {/* E-portal Dropdown */}
-          <div className="relative group cursor-pointer py-2">
-            <div className="flex items-center gap-1 hover:text-[#d9251b] transition-colors">
-              E-portal <ChevronDown className="h-4 w-4" />
-            </div>
-            <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-gray-100 shadow-xl rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 overflow-hidden">
-              <Link href="#" className="block px-5 py-3 text-gray-700 hover:bg-gray-50 hover:text-[#d9251b] transition-colors lowercase first-letter:uppercase">Library Portal</Link>
-              <Link href="/staff/login" className="block px-5 py-3 text-gray-700 hover:bg-gray-50 hover:text-[#d9251b] transition-colors lowercase first-letter:uppercase">Staff Portal</Link>
-              <Link href="/auth/signup" className="block px-5 py-3 text-gray-700 hover:bg-gray-50 hover:text-[#d9251b] transition-colors lowercase first-letter:uppercase">Admissions</Link>
-            </div>
-          </div>
-
-          <Link href="/postgraduate" className="hover:text-[#d9251b] transition-colors">Postgraduate</Link>
-          <Link href="/student/login" className="hover:text-[#d9251b] transition-colors">Undergraduate</Link>
-          <Link href="/part-time" className="hover:text-[#d9251b] transition-colors whitespace-nowrap">Part Time</Link>
-
-          {/* News & Event Dropdown */}
-          <div className="relative group cursor-pointer py-2">
-            <div className="flex items-center gap-1 hover:text-[#d9251b] transition-colors">
-              News & Event <ChevronDown className="h-4 w-4" />
-            </div>
-            <div className="absolute top-full left-0 mt-1 w-52 bg-white border border-gray-100 shadow-xl rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 overflow-hidden">
-              <Link href="/news" className="block px-5 py-3 text-gray-700 hover:bg-gray-50 hover:text-[#d9251b] transition-colors">University News</Link>
-              <Link href="/events" className="block px-5 py-3 text-gray-700 hover:bg-gray-50 hover:text-[#d9251b] transition-colors">Upcoming Events</Link>
-              <Link href="/calendar" className="block px-5 py-3 text-gray-700 hover:bg-gray-50 hover:text-[#d9251b] transition-colors">Academic Calendar</Link>
-            </div>
-          </div>
-        </nav>
-        
-        <div className="flex gap-2 sm:gap-4">
-          <Link href="/auth/signup">
-            <Button className="bg-[#d9251b] hover:bg-red-800 text-white rounded-full px-4 sm:px-6">Apply</Button>
-          </Link>
-        </div>
-      </header>
-
       {/* Hero Section (from Admissions page) */}
       <section className="relative h-[85vh] w-full overflow-hidden">
         {/* Background Video/Image */}

@@ -54,26 +54,42 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  // Initialize from localStorage for instant UI responsiveness
+  const getStoredUser = () => {
+    if (typeof window === 'undefined') return null;
+    const stored = localStorage.getItem('auth_user');
+    try { return stored ? JSON.parse(stored) : null; } catch { return null; }
+  };
+
+  const [user, setUser] = useState<User | null>(getStoredUser());
   const [applicant, setApplicant] = useState<ApplicantData | null>(null);
   const [student, setStudent] = useState<StudentData | null>(null);
+  
+  // If we have a stored user, we're not globally loading (we can show UI), 
+  // but we still verify in the background
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // New Portal Status state
   const [portalStatus, setPortalStatus] = useState<PortalStatus | null>(null);
   const [isPortalLoading, setIsPortalLoading] = useState(true);
 
-  // Check if user is already logged in and fetch portal status on mount
+  const saveUserAndRole = (u: User | null) => {
+    setUser(u);
+    if (u) {
+      localStorage.setItem('auth_user', JSON.stringify(u));
+    } else {
+      localStorage.removeItem('auth_user');
+    }
+  };
+
   useEffect(() => {
     const token = ApiClient.getToken();
     if (token) {
       verifyToken();
     } else {
       setIsLoading(false);
+      localStorage.removeItem('auth_user');
     }
-    
-    // Fetch portal status globally
     fetchPortalStatus();
   }, []);
 
@@ -96,13 +112,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const verifyToken = useCallback(async () => {
     try {
       const response = await ApiClient.verifyToken() as { user: User; student?: StudentData; applicant?: ApplicantData };
-      setUser(response.user);
+      saveUserAndRole(response.user);
       
-      if (response.user.role === 'applicant') {
-        const status = await ApiClient.getApplicantStatus();
-        setApplicant(status.applicant);
+      if (response.applicant) {
+        setApplicant(response.applicant);
         setStudent(null);
-      } else if (response.user.role === 'student' && response.student) {
+      } else if (response.student) {
         setStudent(response.student);
         setApplicant(null);
       } else {
@@ -111,7 +126,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (err) {
       ApiClient.setToken(null);
-      setUser(null);
+      saveUserAndRole(null);
       setApplicant(null);
       setStudent(null);
     } finally {
@@ -126,7 +141,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const response = await ApiClient.signup(first_name, last_name, email, password, phone_number) as ApiResponse;
         ApiClient.setToken(response.token);
-        setUser(response.user);
+        saveUserAndRole(response.user);
         if (response.applicant) {
           setApplicant(response.applicant);
         }
@@ -147,7 +162,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const response = await ApiClient.login(email, password) as ApiResponse;
       ApiClient.setToken(response.token);
-      setUser(response.user);
+      saveUserAndRole(response.user);
       if (response.applicant) {
         setApplicant(response.applicant);
       }
@@ -171,7 +186,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Logout error:', err);
     } finally {
       ApiClient.setToken(null);
-      setUser(null);
+      saveUserAndRole(null);
       setApplicant(null);
       setStudent(null);
       setError(null);

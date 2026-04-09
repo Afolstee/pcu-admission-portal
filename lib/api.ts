@@ -14,6 +14,7 @@ export interface ApplicantStatus {
   program_name: string;
   application_status: string;
   admission_status: string;
+  has_paid_application_fee: boolean;
   has_paid_acceptance_fee: boolean;
   has_paid_tuition: boolean;
   submitted_at: string | null;
@@ -295,6 +296,14 @@ export class ApiClient {
     return data;
   }
 
+  static async changePassword(current_password: string, new_password: string) {
+    const { data } = await this.fetch("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password, new_password }),
+    });
+    return data;
+  }
+
   static async verifyToken() {
     const { data } = await this.fetch("/auth/verify-token", {
       method: "GET",
@@ -320,6 +329,11 @@ export class ApiClient {
   // Applicant endpoints
   static async getApplicantPrograms() {
     const { data } = await this.fetch("/applicant/programs");
+    // If no program selected, redirect to dashboard selection
+    if (!data.applicant.program_id) {
+      window.location.href = '/applicant/dashboard';
+      return data;
+    }
     return data;
   }
 
@@ -476,7 +490,7 @@ export class ApiClient {
 
   // Payment endpoints
   static async processPayment(
-    payment_type: "acceptance_fee" | "tuition",
+    payment_type: "application_fee" | "acceptance_fee" | "tuition",
     amount: number,
     payment_method: string = "online",
     reference_id: string = "",

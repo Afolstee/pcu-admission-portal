@@ -1,15 +1,14 @@
 import React from "react";
 import type { Metadata } from "next";
-
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import { BackgroundLayout } from "@/components/BackgroundLayout";
-import { NavBar } from "@/components/NavBar";
+import { GlobalNav } from "@/components/GlobalNav";
 import { Footer } from "@/components/Footer";
 import { KeepAlive } from "@/components/KeepAlive";
 import { ThemeProvider } from "@/components/theme-provider";
-
+import { SidebarProvider } from "@/context/SidebarContext";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -28,16 +27,20 @@ export default function RootLayout({
       <body className={inter.className}>
         <KeepAlive />
         <AuthProvider>
-          <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-            <BackgroundLayout>
-              <NavBar />
-              {/* main content pushed down to avoid fixed header */}
-              <main className="pt-14">{children}</main>
-              <Footer />
-            </BackgroundLayout>
-          </ThemeProvider>
+          <SidebarProvider>
+            <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+              <BackgroundLayout>
+                <GlobalNav />
+                <main className="transition-all duration-300 ease-in-out pl-[var(--sidebar-width)] pt-16 min-h-screen flex flex-col">
+                  <div className="flex-grow">
+                    {children}
+                  </div>
+                  <Footer />
+                </main>
+              </BackgroundLayout>
+            </ThemeProvider>
+          </SidebarProvider>
         </AuthProvider>
-
       </body>
     </html>
   );

@@ -147,7 +147,7 @@ export default function SignupPage() {
         formData.password,
         formData.phone_number,
       );
-      router.replace("/applicant/select-program");
+      router.replace("/applicant/dashboard");
     } catch (err) {
       // Error is already set in the auth context
     }

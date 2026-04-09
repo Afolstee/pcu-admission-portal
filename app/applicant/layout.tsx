@@ -17,11 +17,9 @@ export default function ApplicantLayout({ children }: { children: React.ReactNod
     }
 
     const currentPath = window.location.pathname;
-    const isSelectingProgram = currentPath === '/applicant/select-program';
+    const isDashboard = currentPath === '/applicant/dashboard';
 
-    if (!applicant?.program_id && !isSelectingProgram) {
-      router.replace('/applicant/select-program');
-    } else if (applicant?.program_id && isSelectingProgram) {
+    if (!applicant?.program_id && !isDashboard) {
       router.replace('/applicant/dashboard');
     }
   }, [isAuthenticated, isLoading, user, applicant, router]);

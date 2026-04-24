@@ -30,7 +30,10 @@ import {
   CreditCard,
   ChevronRight,
   ShieldCheck,
-  Lock
+  Lock,
+  X,
+  Smartphone,
+  Wallet
 } from "lucide-react";
 import FsmsAdmissionLetter from "@/components/FsmsAdmissionLetter";
 import RecommendationCard from "@/components/RecommendationCard";
@@ -52,11 +55,11 @@ const admissionStatusColors: Record<string, string> = {
 };
 
 const APPLICATION_FORMS = [
-  { id: 11, name: 'JUPEB', fee: 10000, color: 'from-blue-500/10 to-blue-600/5', border: 'border-blue-200', icon: '📝', tag: 'Foundation' },
-  { id: 2, name: 'UTME', fee: 10000, color: 'from-green-500/10 to-green-600/5', border: 'border-green-200', icon: '🎓', tag: 'Standard' },
-  { id: 1, name: 'Direct Entry', fee: 10000, color: 'from-purple-500/10 to-purple-600/5', border: 'border-purple-200', icon: '🚀', tag: 'Advanced' },
-  { id: 12, name: 'HND Conversion', fee: 10000, color: 'from-orange-500/10 to-orange-600/5', border: 'border-orange-200', icon: '🖥️', tag: 'Fast-Track' },
-  { id: 13, name: 'Postgraduate', fee: 20000, color: 'from-red-500/10 to-red-600/5', border: 'border-red-200', icon: '📖', tag: 'Graduate' },
+  { id: 11, name: 'JUPEB', fee: 10000, color: 'from-blue-500/10 to-blue-600/5', border: 'border-blue-200'},
+  { id: 2, name: 'UTME', fee: 10000, color: 'from-green-500/10 to-green-600/5', border: 'border-green-200'},
+  { id: 1, name: 'Direct Entry', fee: 10000, color: 'from-purple-500/10 to-purple-600/5', border: 'border-purple-200'},
+  { id: 12, name: 'HND Conversion', fee: 10000, color: 'from-orange-500/10 to-orange-600/5', border: 'border-orange-200'},
+  { id: 13, name: 'Postgraduate', fee: 20000, color: 'from-red-500/10 to-red-600/5', border: 'border-red-200'},
 ];
 
 export default function ApplicantDashboard() {
@@ -70,12 +73,34 @@ export default function ApplicantDashboard() {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
-  const [paymentHistory, setPaymentHistory] = useState<PaymentTransaction[]>([]);
+
   const [downloading, setDownloading] = useState<string | null>(null);
   
   // Payment states
   const [selectedForm, setSelectedForm] = useState<typeof APPLICATION_FORMS[0] | null>(null);
-  const [paymentStep, setPaymentStep] = useState<'selection' | 'gateway' | 'processing' | 'success'>('selection');
+  const [paymentStep, setPaymentStep] = useState<'selection' | 'confirmation' | 'gateway' | 'processing' | 'success' | 'cancelled'>('selection');
+  const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
+  const [referenceId, setReferenceId] = useState<string>('');
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const TRANSACTION_FEE = 300;
+
+  const PAYMENT_METHODS = [
+    { id: 'transfer', title: 'Pay with Transfer', desc: 'Make a transfer directly from your bank account to complete a transaction', icon: 'transfer' },
+    { id: 'opay', title: 'Pay With OPay', desc: 'Complete trasaction with OPay', icon: 'opay' },
+    { id: 'quickteller', title: 'Pay with Quickteller', desc: 'Login to your quickteller wallet to get access to your saved cards.', icon: 'quickteller' },
+    { id: 'ussd', title: 'Pay with USSD', desc: 'Dial a USSD string from any of 17+ banks to complete a transaction', icon: Smartphone },
+    { id: 'wallet', title: 'Pay with Wallet', desc: 'Make secure payments using third-party payment solutions.', icon: Wallet },
+    { id: 'googlepay', title: 'Google Pay', desc: 'Make secure payments using your instruments saved with Google.', icon: 'googlepay' },
+  ];
+
+  const generateReferenceId = () => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let result = 'ADM';
+    for (let i = 0; i < 16; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+  };
 
   const loadStatus = async () => {
     try {
@@ -97,21 +122,12 @@ export default function ApplicantDashboard() {
     }
   };
 
+
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    const loadPaymentHistory = async () => {
-      try {
-        const response = await ApiClient.getPaymentHistory();
-        setPaymentHistory(response.payment_history);
-      } catch (err) {
-        console.error("Error loading payment history:", err);
-      }
-    };
-
     loadStatus();
     loadRecommendations();
-    loadPaymentHistory();
   }, [isAuthenticated]);
 
   const loadRecommendations = async () => {
@@ -135,13 +151,13 @@ export default function ApplicantDashboard() {
       setPaymentStep('processing');
       
       // 1. Select the program
-      await ApiClient.selectProgram(selectedForm.id);
+      await ApiClient.selectProgram(selectedForm.id, selectedForm.name);
       
       // 2. Simulate Payment (Delay for effect)
       await new Promise(resolve => setTimeout(resolve, 2500));
       
       // 3. Process payment on backend
-      await ApiClient.processPayment('application_fee', selectedForm.fee, 'online', `APP-${Date.now()}`);
+      await ApiClient.processPayment('application_fee', selectedForm.fee, 'online', referenceId, 'completed', selectedForm.name);
       
       setPaymentStep('success');
       
@@ -157,6 +173,30 @@ export default function ApplicantDashboard() {
       console.error("Error starting application:", err);
       alert("Payment failed. Please try again.");
       setPaymentStep('gateway');
+    }
+  };
+
+  const handleCancelPayment = async () => {
+    try {
+      setPaymentStep('cancelled');
+      setShowCancelModal(false);
+      
+      if (selectedForm && referenceId) {
+        // Record cancellation in background
+        ApiClient.processPayment('application_fee', selectedForm.fee, 'online', referenceId, 'cancelled', selectedForm.name)
+          .catch(e => console.error("Error recording cancellation:", e));
+      }
+      
+      setTimeout(() => {
+        setPaymentStep('selection');
+        setSelectedForm(null);
+        setReferenceId('');
+        setPaymentMethod(null);
+      }, 4000);
+    } catch (err) {
+      console.error("Error in cancellation flow:", err);
+      setShowCancelModal(false);
+      setPaymentStep('selection');
     }
   };
 
@@ -199,21 +239,11 @@ export default function ApplicantDashboard() {
                   >
                     <div className={`absolute top-0 right-0 w-40 h-40 -mr-12 -mt-12 bg-gradient-to-br ${form.color} rounded-full blur-3xl group-hover:scale-150 transition-transform duration-700`}></div>
                     
-                    <CardHeader className="relative z-10 space-y-1">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="p-3 bg-white rounded-2xl shadow-sm border border-slate-100 group-hover:scale-110 transition-transform">
-                          <span className="text-4xl">{form.icon}</span>
-                        </div>
-                        <Badge variant="outline" className="font-bold border-slate-200 bg-slate-50/50 text-slate-500">{form.tag}</Badge>
-                      </div>
+                    <CardHeader className="relative z-10 space-y-1 pt-8">
                       <CardTitle className="text-3xl font-black text-slate-800">{form.name}</CardTitle>
-                      <CardDescription className="text-slate-400 font-bold tracking-tight uppercase text-xs">Path Selection Required</CardDescription>
                     </CardHeader>
                     
                     <CardContent className="relative z-10 pt-4 pb-8">
-                      <p className="text-slate-500 font-medium leading-relaxed mb-6">
-                        Unlock your application forms, status indicators, and recommendation portal for the {form.name} session.
-                      </p>
                       
                       <div className="flex items-end gap-2 mb-8">
                         <span className="text-4xl font-black text-slate-900 leading-none">₦{form.fee.toLocaleString()}</span>
@@ -222,8 +252,10 @@ export default function ApplicantDashboard() {
                       
                       <Button 
                         onClick={() => {
+                          const ref = generateReferenceId();
+                          setReferenceId(ref);
                           setSelectedForm(form);
-                          setPaymentStep('gateway');
+                          setPaymentStep('confirmation');
                         }}
                         className="w-full h-14 text-lg font-black uppercase tracking-wider shadow-lg shadow-black/5 flex items-center justify-center gap-2 group/btn"
                       >
@@ -237,97 +269,204 @@ export default function ApplicantDashboard() {
             </>
           )}
 
-          {paymentStep === 'gateway' && selectedForm && (
-             <div className="max-w-4xl mx-auto animate-in fade-in zoom-in duration-300">
-                <div className="flex flex-col md:flex-row gap-8">
-                  {/* Left: Summary */}
-                  <div className="flex-1 space-y-6">
-                    <Button variant="ghost" onClick={() => setPaymentStep('selection')} className="gap-2 font-bold mb-4">
-                      &larr; Back to pathways
-                    </Button>
-                    <Card className="border-0 shadow-lg bg-slate-900 text-white overflow-hidden relative">
-                      <div className="absolute top-0 right-0 p-8 opacity-10">
-                        <CreditCard size={120} />
-                      </div>
-                      <CardHeader>
-                        <CardDescription className="text-slate-400 font-bold uppercase tracking-wider">Payment Summary</CardDescription>
-                        <CardTitle className="text-3xl font-black">{selectedForm.name} Admission</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <div className="flex justify-between py-2 border-b border-slate-700/50">
-                          <span className="text-slate-400 font-medium">Application Form Fee</span>
-                          <span className="font-bold">₦{selectedForm.fee.toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between py-2 border-b border-slate-700/50">
-                          <span className="text-slate-400 font-medium">Processing Fee</span>
-                          <span className="font-bold text-green-400">FREE</span>
-                        </div>
-                        <div className="flex justify-between pt-4 text-2xl font-black">
-                          <span>Total to Pay</span>
-                          <span className="text-primary">₦{selectedForm.fee.toLocaleString()}</span>
-                        </div>
-                      </CardContent>
-                      <CardFooter className="bg-slate-800/50 py-4 flex items-center gap-3">
-                        <ShieldCheck className="text-green-400 h-5 w-5" />
-                        <span className="text-[10px] uppercase font-black tracking-widest text-slate-400">Secured by PCU Payment Gateway</span>
-                      </CardFooter>
-                    </Card>
-
-                    <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl flex gap-3">
-                       <AlertCircle className="text-blue-600 h-5 w-5 shrink-0" />
-                       <p className="text-xs text-blue-700 font-medium leading-relaxed">
-                         Note: This is a simulated payment gateway. Clicking "Pay Securely" will authorize your application without charging a real card.
-                       </p>
-                    </div>
+          {paymentStep === 'confirmation' && selectedForm && (
+            <div className="max-w-md mx-auto animate-in fade-in zoom-in duration-300">
+              <Card className="border-0 shadow-2xl overflow-hidden bg-white">
+                <CardHeader className="text-center space-y-2 pb-0">
+                  <div className="space-y-1">
+                    <p className="text-slate-500 font-bold text-sm">Reference ID:</p>
+                    <p className="text-xl font-black text-slate-800 break-all px-4">{referenceId}</p>
+                  </div>
+                  <div className="pt-4 px-4">
+                    <p className="text-slate-500 font-bold text-xs uppercase tracking-wider">Programme:</p>
+                    <p className="text-xl font-black text-[#433878] uppercase leading-tight">
+                      {selectedForm.name} DIRECT ENTRY CONVERSION
+                    </p>
+                  </div>
+                </CardHeader>
+                
+                <CardContent className="text-center pt-8 space-y-6">
+                  <div className="space-y-1">
+                    <p className="text-slate-400 font-black text-[10px] uppercase tracking-[0.2em]">Application Form</p>
+                    <p className="text-4xl font-light text-slate-600 tracking-tight">
+                      ₦{selectedForm.fee.toLocaleString()}.00
+                    </p>
                   </div>
 
-                  {/* Right: Card Inputs */}
-                  <Card className="flex-1 shadow-2xl border-0">
-                    <CardHeader>
-                       <CardTitle className="flex items-center gap-2">
+                  <div className="space-y-1">
+                    <p className="text-2xl font-light text-slate-600 tracking-tight">
+                      Transaction Fee: ₦{TRANSACTION_FEE.toLocaleString()}.00
+                    </p>
+                  </div>
+
+                  <hr className="border-slate-100" />
+
+                  <div className="flex flex-col items-center gap-1">
+                    <p className="text-4xl font-light text-slate-600 tracking-tight">
+                      Total: ₦{(selectedForm.fee + TRANSACTION_FEE).toLocaleString()}.00
+                    </p>
+                  </div>
+                </CardContent>
+
+                <CardFooter className="pt-4 pb-8 px-6">
+                  <Button 
+                    onClick={async () => {
+                      setPaymentStep('gateway');
+                      
+                      try {
+                        if (selectedForm && referenceId) {
+                          await ApiClient.selectProgram(selectedForm.id, selectedForm.name);
+                          await ApiClient.processPayment('application_fee', selectedForm.fee, 'online', referenceId, 'pending', selectedForm.name);
+                        }
+                      } catch (err) {
+                        console.error("Error initializing transaction:", err);
+                        alert("Transaction could not be initialized. Please refresh and try again.");
+                      }
+                    }}
+                    className="w-full h-16 bg-[#6B2E70] hover:bg-[#5a275e] text-white font-black uppercase tracking-[0.15em] text-sm shadow-xl shadow-[#6B2E70]/20 rounded-md"
+                  >
+                    Pay Now
+                  </Button>
+                </CardFooter>
+              </Card>
+              
+              <div className="text-center mt-6">
+                <Button variant="ghost" onClick={() => setShowCancelModal(true)} className="text-slate-400 font-bold hover:text-slate-600">
+                  Cancel Transaction
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {paymentStep === 'gateway' && selectedForm && (
+            <div className="max-w-xl mx-auto shadow-sm border border-slate-100 bg-white min-h-[600px] flex flex-col animate-in fade-in zoom-in duration-300">
+              {/* Header */}
+              <div className="p-4 border-b border-slate-100 flex items-center gap-4 text-slate-600 bg-slate-50/50">
+                <Button variant="ghost" size="sm" onClick={() => setShowCancelModal(true)} className="h-8 w-8 p-0">
+                  <X className="h-5 w-5" />
+                </Button>
+                <span className="text-sm font-medium">Cancel payment and return to Precious Cornerstone University</span>
+              </div>
+
+              {/* Subheader with Amount */}
+              <div className="p-6 border-b border-slate-100 flex items-center gap-4">
+                <div className="w-12 h-12 bg-slate-100 rounded-md flex items-center justify-center text-[10px] font-bold text-slate-400">logo</div>
+                <div>
+                  <p className="text-lg font-medium text-slate-800 tracking-tight">{user?.email}</p>
+                  <p className="text-2xl font-black text-slate-900 leading-tight">NGN {(selectedForm.fee + TRANSACTION_FEE).toLocaleString()}.00</p>
+                </div>
+              </div>
+
+              {/* Multi-step content */}
+              {!paymentMethod ? (
+                <div className="flex-1">
+                  {PAYMENT_METHODS.map((method) => (
+                    <button
+                      key={method.id}
+                      onClick={() => setPaymentMethod(method.id)}
+                      className="w-full p-6 flex items-center justify-between border-b border-slate-100 hover:bg-slate-50 transition-colors text-left"
+                    >
+                      <div className="flex items-center gap-6">
+                        <div className="w-12 h-12 bg-slate-50 rounded-lg flex items-center justify-center">
+                           {method.id === 'transfer' ? (
+                             <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center shadow-sm">
+                               <div className="w-4 h-4 border-t-2 border-r-2 border-white rotate-45 translate-x-[1px] translate-y-[-1px]"></div>
+                             </div>
+                           ) : method.id === 'opay' ? (
+                             <div className="w-7 h-7 rounded-full border-[3px] border-blue-500 border-t-transparent animate-spin-slow"></div>
+                           ) : method.id === 'quickteller' ? (
+                             <div className="w-8 h-8 flex items-center justify-center">
+                               <span className="text-blue-500 font-black italic text-xl">i</span>
+                             </div>
+                           ) : method.id === 'ussd' ? (
+                             <div className="w-9 h-9 bg-blue-500 rounded-md flex items-center justify-center text-white">
+                               <Smartphone className="h-6 w-6" />
+                             </div>
+                           ) : method.id === 'wallet' ? (
+                             <div className="w-9 h-9 bg-blue-400 rounded-md flex items-center justify-center text-white">
+                               <Wallet className="h-6 w-6" />
+                             </div>
+                           ) : method.id === 'googlepay' ? (
+                             <div className="px-2 py-1 border border-slate-200 rounded-md text-[10px] font-bold text-slate-600 flex items-center gap-1">
+                               <span className="text-blue-500">G</span> Pay
+                             </div>
+                           ) : (
+                             <CreditCard className="h-6 w-6 text-blue-500" />
+                           )}
+                        </div>
+                        <div className="space-y-1">
+                          <p className="font-bold text-slate-800 text-lg leading-tight">{method.title}</p>
+                          <p className="text-sm text-slate-400 leading-snug max-w-xs">{method.desc}</p>
+                        </div>
+                      </div>
+                      <ChevronRight className="h-5 w-5 text-slate-900 font-bold" />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex-1 p-6 space-y-6">
+                  <Button variant="ghost" onClick={() => setPaymentMethod(null)} className="h-8 p-0 text-slate-400 hover:text-slate-600 font-bold gap-2">
+                    &larr; Change Payment Method
+                  </Button>
+                  
+                  {paymentMethod === 'card' ? (
+                    <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
+                      <div className="flex items-center gap-2 mb-2">
                          <Lock className="h-4 w-4 text-slate-400" />
-                         Secure Card Payment
-                       </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="space-y-2">
-                        <Label className="font-bold text-xs uppercase text-slate-500">Card Number</Label>
-                        <div className="relative">
-                          <Input placeholder="4444 4444 4444 4444" className="h-12 font-mono text-lg" defaultValue="5399 2100 0000 1234" readOnly />
-                          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex gap-1">
-                            <div className="w-6 h-4 bg-orange-400 rounded-sm"></div>
-                            <div className="w-6 h-4 bg-red-500 rounded-sm"></div>
+                         <span className="text-sm font-bold text-slate-600">Secure Card Payment</span>
+                      </div>
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label className="font-bold text-xs uppercase text-slate-500">Card Number</Label>
+                          <div className="relative">
+                            <Input placeholder="4444 4444 4444 4444" className="h-12 font-mono text-lg" defaultValue="5399 2100 0000 1234" readOnly />
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex gap-1">
+                              <div className="w-6 h-4 bg-orange-400 rounded-sm"></div>
+                              <div className="w-6 h-4 bg-red-500 rounded-sm"></div>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label className="font-bold text-xs uppercase text-slate-500">Expiry Date</Label>
-                          <Input placeholder="MM/YY" className="h-12" defaultValue="12/28" readOnly />
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label className="font-bold text-xs uppercase text-slate-500">Expiry Date</Label>
+                            <Input placeholder="MM/YY" className="h-12" defaultValue="12/28" readOnly />
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="font-bold text-xs uppercase text-slate-500">CVV</Label>
+                            <Input placeholder="123" className="h-12" defaultValue="***" readOnly type="password" />
+                          </div>
                         </div>
-                        <div className="space-y-2">
-                          <Label className="font-bold text-xs uppercase text-slate-500">CVV</Label>
-                          <Input placeholder="123" className="h-12" defaultValue="***" readOnly type="password" />
+                        <div className="space-y-2 pt-2">
+                          <Label className="font-bold text-xs uppercase text-slate-500">Cardholder Name</Label>
+                          <Input placeholder="NAME ON CARD" className="h-12 uppercase font-bold" defaultValue={user?.name} readOnly />
                         </div>
+                        <Button onClick={handleFinalizePayment} className="w-full h-14 bg-[#6B2E70] hover:bg-[#5a275e] text-white font-black uppercase tracking-widest mt-4">
+                          Pay NGN {(selectedForm.fee + TRANSACTION_FEE).toLocaleString()}.00
+                        </Button>
                       </div>
-                      <div className="space-y-2 pt-2">
-                        <Label className="font-bold text-xs uppercase text-slate-500">Cardholder Name</Label>
-                        <Input placeholder="NAME ON CARD" className="h-12 uppercase font-bold" defaultValue={user?.name} readOnly />
-                      </div>
-                    </CardContent>
-                    <CardFooter className="flex flex-col gap-4">
-                       <Button onClick={handleFinalizePayment} className="w-full h-14 text-lg font-black uppercase tracking-widest bg-emerald-600 hover:bg-emerald-700 shadow-xl shadow-emerald-500/20">
-                         Pay Securely ₦{selectedForm.fee.toLocaleString()}
-                       </Button>
-                       <div className="flex items-center justify-center gap-6 opacity-40 grayscale group-hover:grayscale-0 transition-all">
-                          <div className="font-black italic text-xl">VISA</div>
-                          <div className="font-black italic text-xl">mastercard</div>
-                          <div className="font-black italic text-xl">Verve</div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
+                       <div className="p-4 bg-slate-50 rounded-full">
+                          <AlertCircle className="h-12 w-12 text-slate-300" />
                        </div>
-                    </CardFooter>
-                  </Card>
+                       <div className="space-y-1">
+                          <p className="font-bold text-slate-800">Coming Soon</p>
+                          <p className="text-sm text-slate-500 max-w-xs">{paymentMethod.toUpperCase()} integration is finalizing. Please use Card Payment for now.</p>
+                       </div>
+                    </div>
+                  )}
                 </div>
-             </div>
+              )}
+
+              {/* Footer */}
+              <div className="p-6 border-t border-slate-50 flex flex-col items-center">
+                <div className="flex items-center gap-1.5 opacity-40">
+                  <ShieldCheck className="h-4 w-4 text-slate-400" />
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Secured by SSL Encryption</span>
+                </div>
+              </div>
+            </div>
           )}
 
           {(paymentStep === 'processing' || paymentStep === 'success') && (
@@ -370,12 +509,64 @@ export default function ApplicantDashboard() {
             </Card>
           )}
 
-          {paymentStep === 'selection' && (
-            <div className="mt-20 text-center border-t border-slate-200 pt-10">
-              <div className="inline-flex flex-col sm:flex-row items-center gap-6 text-slate-400">
-                <div className="flex items-center gap-2 font-bold uppercase text-[10px] tracking-widest"><ShieldCheck className="h-4 w-4" /> SSL Encrypted</div>
-                <div className="flex items-center gap-2 font-bold uppercase text-[10px] tracking-widest"><Lock className="h-4 w-4" /> Secure Auth</div>
-                <div className="flex items-center gap-2 font-bold uppercase text-[10px] tracking-widest"><DollarSign className="h-4 w-4" /> Instant Activation</div>
+          {paymentStep === 'cancelled' && (
+            <div className="max-w-xl mx-auto min-h-[600px] flex flex-col items-center justify-center text-center bg-white animate-in zoom-in-95 duration-500 relative">
+              <div className="flex-1 flex flex-col items-center justify-center p-8 space-y-8">
+                <div className="relative">
+                  {/* Diamond Icon */}
+                  <div className="w-16 h-16 bg-[#FFD700] rounded-xl rotate-45 flex items-center justify-center shadow-lg shadow-yellow-200">
+                    <span className="text-white text-4xl font-black -rotate-45 mb-1">!</span>
+                  </div>
+                </div>
+                
+                <div className="space-y-4">
+                  <h3 className="text-4xl font-black text-slate-900 tracking-tight">Payment Cancelled</h3>
+                  <p className="text-slate-600 font-medium text-xl max-w-sm mx-auto leading-normal px-4">
+                    The payment could not be completed. You will now be redirected to <span className="text-slate-800 font-bold">Precious Cornerstone University</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* Interswitch Footer */}
+              <div className="w-full p-8 flex flex-col items-center justify-end bg-slate-50/50">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-slate-500">powered by</span>
+                  <div className="flex items-center">
+                    <span className="text-xl font-black text-[#00425F] tracking-tight">Interswitch</span>
+                    <div className="relative w-6 h-6 ml-1">
+                      <div className="absolute inset-0 bg-[#E31E24] rounded-full"></div>
+                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full"></div>
+                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-1 bg-white rotate-45"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showCancelModal && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-300">
+              <div className="bg-white rounded-3xl p-8 max-w-sm w-full mx-4 shadow-2xl text-center space-y-8 animate-in zoom-in-95 duration-200">
+                <div className="space-y-3">
+                  <h3 className="text-3xl font-black text-slate-900 tracking-tight">Cancel Payment?</h3>
+                  <p className="text-slate-500 font-medium text-lg leading-tight px-4">Are you sure you want to cancel this payment?</p>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <div className="border-t border-slate-100 -mx-8"></div>
+                  <button 
+                    onClick={handleCancelPayment}
+                    className="w-full h-16 text-[#00AEEF] font-bold text-xl hover:bg-slate-50 rounded-2xl transition-colors"
+                  >
+                    Cancel Payment
+                  </button>
+                  <div className="border-t border-slate-100 -mx-8"></div>
+                  <button 
+                    onClick={() => setShowCancelModal(false)}
+                    className="w-full h-16 text-slate-900 font-bold text-xl hover:bg-slate-50 rounded-2xl transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
           )}

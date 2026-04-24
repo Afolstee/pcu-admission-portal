@@ -61,12 +61,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try { return stored ? JSON.parse(stored) : null; } catch { return null; }
   };
 
-  const [user, setUser] = useState<User | null>(getStoredUser());
+  const storedUser = getStoredUser();
+  const [user, setUser] = useState<User | null>(storedUser);
   const [applicant, setApplicant] = useState<ApplicantData | null>(null);
   const [student, setStudent] = useState<StudentData | null>(null);
   
-  // If we have a stored user, we're not globally loading (we can show UI), 
-  // but we still verify in the background
+  // Initialize as loading to ensure verifyToken completes before auto-redirects
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   

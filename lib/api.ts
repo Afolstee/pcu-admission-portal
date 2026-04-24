@@ -141,6 +141,9 @@ export interface PaymentTransaction {
   reference_id: string;
   created_at: string | null;
   completed_at: string | null;
+  session?: string;
+  program_name?: string;
+  app_type?: string;
 }
 
 export interface PaymentResponse {
@@ -225,6 +228,12 @@ export interface StudentProfile {
 
 export class ApiClient {
   private static token: string | null = null;
+  private static cache = new Map<string, { data: any; timestamp: number }>();
+  private static CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache default
+
+  static clearCache() {
+    this.cache.clear();
+  }
 
   static setToken(token: string | null) {
     this.token = token;
@@ -249,6 +258,18 @@ export class ApiClient {
     endpoint: string,
     options: RequestInit = {},
   ): Promise<{ data: T; status: number }> {
+    const isGet = !options.method || options.method === "GET";
+    const cacheKey = `${isGet ? "GET" : options.method}:${endpoint}`;
+
+    // Return cached data if available and not expired
+    if (isGet && this.cache.has(cacheKey)) {
+      const cached = this.cache.get(cacheKey)!;
+      if (Date.now() - cached.timestamp < this.CACHE_TTL) {
+        return { data: cached.data as T, status: 200 };
+      }
+      this.cache.delete(cacheKey); // Expired
+    }
+
     const token = this.getToken();
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -265,12 +286,23 @@ export class ApiClient {
     });
 
     const data = await response.json();
+    const status = response.status;
+
+    // Clear cache on mutations to ensure fresh data, even if the request failed
+    if (!isGet) {
+      this.clearCache();
+    }
 
     if (!response.ok) {
       throw new Error(data.message || "API request failed");
     }
 
-    return { data: data as T, status: response.status };
+    // Cache successful GET results
+    if (isGet) {
+      this.cache.set(cacheKey, { data, timestamp: Date.now() });
+    }
+
+    return { data: data as T, status };
   }
 
   // Auth endpoints
@@ -337,10 +369,10 @@ export class ApiClient {
     return data;
   }
 
-  static async selectProgram(program_id: number) {
+  static async selectProgram(program_id: number, app_type?: string) {
     const { data } = await this.fetch("/applicant/select-program", {
       method: "POST",
-      body: JSON.stringify({ program_id }),
+      body: JSON.stringify({ program_id, app_type }),
     });
     return data;
   }
@@ -494,6 +526,8 @@ export class ApiClient {
     amount: number,
     payment_method: string = "online",
     reference_id: string = "",
+    status: "pending" | "completed" | "cancelled" = "completed",
+    app_type?: string
   ): Promise<PaymentResponse> {
     const { data } = await this.fetch<PaymentResponse>(
       "/applicant/process-payment",
@@ -504,6 +538,8 @@ export class ApiClient {
           amount,
           payment_method,
           reference_id,
+          status,
+          app_type,
         }),
       },
     );

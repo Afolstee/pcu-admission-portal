@@ -92,22 +92,6 @@ function PaymentContent() {
         amount = 150000; // Default if not found
       }
       
-      // Attempt to get real fees from backend if we had an endpoint for it
-      // But processPayment verifies the amount on backend anyway
-      // So we might need to "probe" or just hardcode some values that match the seed
-      
-      // Let's try to get real fees if we can... or just use what the backend expects.
-      // Massimo (Part-time) is ID 1: 20000 acceptance, 177000 tuition
-      // Comp Sci (Full) is ID 2: 25000 acceptance, 250000 tuition
-      
-      // Actually, the process_payment backend route verifies the amount against the database.
-      // So we should ideally have a way to get the fees first.
-      // Let's assume we can use a small dummy value or just hardcode for now if we don't have a fee API.
-      // Wait, let's check if there's a getProgramFees API.
-      
-      // I'll check lib/api.ts for fee related methods later.
-      // For now, let's use the values from the database_schema.sql if possible.
-      
       const programFees: Record<number, {acceptance: number, tuition: number}> = {
         1: { acceptance: 20000, tuition: 177000 },
         2: { acceptance: 25000, tuition: 250000 },

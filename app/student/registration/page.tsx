@@ -240,27 +240,6 @@ export default function CourseRegistration() {
 
   return (
     <div className="min-h-screen bg-slate-50/50 pb-20">
-      {/* Header */}
-      <nav className="bg-background border-b sticky top-0 z-40 shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => router.back()}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-lg">Detailed Course Registration</span>
-              <Badge variant="outline" className="hidden sm:inline-flex">{student?.current_level}</Badge>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-             <div className="text-right hidden md:block">
-               <p className="text-sm font-bold">{user?.name}</p>
-               <p className="text-xs text-muted-foreground">{student?.matric_number}</p>
-             </div>
-             <Button variant="ghost" size="sm" onClick={() => logout()} className="text-destructive font-medium">Log Out</Button>
-          </div>
-        </div>
-      </nav>
 
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
         {/* Top Info Bar */}

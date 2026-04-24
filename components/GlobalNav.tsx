@@ -23,8 +23,15 @@ import {
   Briefcase,
   History,
   Lock,
-  CreditCard
+  CreditCard,
+  ChevronDown
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 const LANDING_NAV_ITEMS = [
@@ -42,6 +49,91 @@ const APPLICANT_NAV_ITEMS = [
   { label: 'Change Password', href: '/applicant/change-password', icon: Lock },
 ];
 
+const STUDENT_NAV_ITEMS = [
+  { label: 'Dashboard', href: '/student/dashboard', icon: LayoutDashboard },
+  { label: 'Course Registration', href: '/student/registration', icon: BookOpen },
+  { label: 'Change Password', href: '/student/change-password', icon: Lock },
+];
+
+const ADMIN_NAV_ITEMS = [
+  { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
+  { label: 'Applications', href: '/admin/applications', icon: FileText },
+  { label: 'Send Letters', href: '/admin/send-letters', icon: UserPlus },
+  { label: 'Change Password', href: '/applicant/change-password', icon: Lock },
+];
+
+const REGISTRAR_NAV_ITEMS = [
+  { label: 'Dashboard', href: '/registrar/dashboard', icon: LayoutDashboard },
+  { label: 'Change Password', href: '/applicant/change-password', icon: Lock },
+];
+
+const LECTURER_NAV_ITEMS = [
+  { label: 'Dashboard', href: '/lecturer/dashboard', icon: LayoutDashboard },
+  { label: 'Change Password', href: '/applicant/change-password', icon: Lock },
+];
+
+const ICT_NAV_ITEMS = [
+  { label: 'Dashboard', href: '/ict/dashboard', icon: LayoutDashboard },
+  { label: 'Students', href: '/ict/students', icon: GraduationCap },
+  { label: 'Staff', href: '/ict/staff', icon: Users },
+  { label: 'Settings', href: '/ict/settings', icon: ShieldCheck },
+  { label: 'Change Password', href: '/applicant/change-password', icon: Lock },
+];
+
+const MAIN_NAV_DROPDOWNS = [
+  { 
+    label: 'About us', 
+    items: [
+      { label: 'Overview', href: '/about' },
+      { label: 'Mission & Vision', href: '/about/mission' },
+      { label: 'Leadership', href: '/about/leadership' },
+      { label: 'History', href: '/about/history' }
+    ]
+  },
+  { 
+    label: 'Academics', 
+    items: [
+      { label: 'Undergraduate', href: '/academics/undergraduate' },
+      { label: 'Postgraduate', href: '/academics/postgraduate' },
+      { label: 'Research Programs', href: '/academics/research' },
+      { label: 'Faculties', href: '/academics/faculties' }
+    ]
+  },
+  { 
+    label: 'Admissions', 
+    items: [
+      { label: 'Apply Now', href: '/auth/signup' },
+      { label: 'Requirements', href: '/admissions/requirements' },
+      { label: 'Tuition & Fees', href: '/admissions/fees' },
+      { label: 'FAQ', href: '/admissions/faq' }
+    ]
+  },
+  { 
+    label: 'Research and Collections', 
+    items: [
+      { label: 'Research Hub', href: '/research' },
+      { label: 'Special Collections', href: '/research/collections' },
+      { label: 'Open Access', href: '/research/open-access' }
+    ]
+  },
+  { 
+    label: 'Library', 
+    items: [
+      { label: 'Digital Library', href: '/library/digital' },
+      { label: 'Physical Resources', href: '/library/physical' },
+      { label: 'Study Spaces', href: '/library/spaces' }
+    ]
+  },
+  { 
+    label: 'Contact', 
+    items: [
+      { label: 'Support Center', href: '/contact/support' },
+      { label: 'Department Directory', href: '/contact/directory' },
+      { label: 'Visit Us', href: '/contact/visit' }
+    ]
+  },
+];
+
 export function GlobalNav() {
   const router = useRouter();
   const pathname = usePathname();
@@ -54,41 +146,95 @@ export function GlobalNav() {
   };
 
   const isApplicantPortal = isAuthenticated && user?.role === 'applicant';
-  
-  // Perceived performance: if we have a user (even while loading), show their nav items immediately
-  const navItems = (isLoading && !user) ? [] : (isApplicantPortal ? APPLICANT_NAV_ITEMS : LANDING_NAV_ITEMS);
+  const isStudentPortal = isAuthenticated && user?.role === 'student';
+  const isAdminPortal = isAuthenticated && user?.role === 'admissions_officer';
+  const isRegistrarPortal = isAuthenticated && user?.role === 'registrar';
+  const isLecturerPortal = isAuthenticated && user?.role === 'lecturer';
+  const isIctPortal = isAuthenticated && user?.role === 'ict';
+  const isManagementPortal = isAuthenticated && ['hod', 'dean'].includes(user?.role || '');
+
+  // Determine nav items based on role
+  const getNavItems = () => {
+    if (isLoading && !user) return [];
+    if (!isAuthenticated) return LANDING_NAV_ITEMS;
+    
+    if (isApplicantPortal) return APPLICANT_NAV_ITEMS;
+    if (isStudentPortal) return STUDENT_NAV_ITEMS;
+    if (isAdminPortal) return ADMIN_NAV_ITEMS;
+    if (isRegistrarPortal) return REGISTRAR_NAV_ITEMS;
+    if (isLecturerPortal) return LECTURER_NAV_ITEMS;
+    if (isIctPortal) return ICT_NAV_ITEMS;
+    if (isManagementPortal) return [{ label: 'Dashboard', href: `/${user?.role}/dashboard`, icon: LayoutDashboard }];
+    
+    return LANDING_NAV_ITEMS;
+  };
+
+  const navItems = getNavItems();
 
   return (
     <>
       {/* Top Header - "Only the name of the authenticated user" */}
       <header 
-        className="fixed top-0 right-0 h-16 bg-slate-50/90 backdrop-blur-md border-b border-slate-200 z-[90] transition-all duration-300 ease-in-out flex items-center justify-end px-8"
+        className="fixed top-0 right-0 h-16 bg-slate-50/90 backdrop-blur-md border-b border-slate-200 z-[90] transition-all duration-300 ease-in-out flex items-center px-8"
         style={{ left: "var(--sidebar-width)" }}
       >
-        {isLoading ? null : (isAuthenticated ? (
-          <div className="flex items-center gap-4 animate-in fade-in slide-in-from-right-4 duration-500">
-             <div className="flex flex-col items-end">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-slate-700 capitalize">{user?.first_name} {user?.last_name}</span>
-                <div className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center border border-purple-100">
-                  <User size={14} className="text-[#6b21a8]" />
+        {/* Left Spacer - keeps balance */}
+        <div className="flex-1" />
+
+        {/* Center Navigation - New Items with Dropdowns */}
+        <div className={cn(
+          "hidden lg:flex items-center shrink-0 transition-all duration-300 ease-in-out",
+          isOpen ? "gap-4 xl:gap-6" : "gap-6 xl:gap-8"
+        )}>
+          {MAIN_NAV_DROPDOWNS.map((item) => (
+            <DropdownMenu key={item.label}>
+              <DropdownMenuTrigger className={cn(
+                "font-black uppercase transition-all duration-200 flex items-center gap-1.5 focus:outline-none group whitespace-nowrap",
+                "text-slate-500 hover:text-slate-900",
+                isOpen 
+                  ? "text-[9px] tracking-[0.1em]" 
+                  : "text-[10px] tracking-[0.2em]"
+              )}>
+                {item.label}
+                <ChevronDown size={isOpen ? 8 : 10} className="text-slate-400 group-hover:text-slate-600 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="center" className="min-w-[200px] p-2 bg-white/80 backdrop-blur-xl border-slate-200 rounded-2xl shadow-2xl shadow-slate-200/50">
+                {item.items.map((subItem) => (
+                  <DropdownMenuItem key={subItem.label} asChild>
+                    <Link 
+                      href={subItem.href}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-slate-600 hover:text-purple-600 hover:bg-purple-50/50 transition-colors cursor-pointer"
+                    >
+                      {subItem.label}
+                    </Link>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ))}
+        </div>
+
+        {/* Right Side - Apply Button or User Profile */}
+        <div className="flex-1 flex justify-end items-center gap-4 shrink-0">
+          {isLoading ? null : (isAuthenticated ? (
+            <div className="flex items-center gap-4 animate-in fade-in slide-in-from-right-4 duration-500">
+               <div className="flex flex-col items-end">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-slate-700 capitalize">{user?.first_name} {user?.last_name}</span>
+                  <div className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center border border-purple-100">
+                    <User size={14} className="text-[#6b21a8]" />
+                  </div>
                 </div>
               </div>
             </div>
-            {/* Sign Out removed from TopBar per user request for Admissions Portal */}
-          </div>
-        ) : (
-          <div className="flex items-center gap-4">
-             <Link href="/staff/login" className="text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-colors">
-              Add other links
-            </Link>
+          ) : (
             <Link href="/auth/signup">
               <Button className="bg-[#d9251b] hover:bg-red-800 text-white rounded-full px-6 h-9 font-black text-[11px] uppercase tracking-widest shadow-lg shadow-red-500/10">
                 Apply Now
               </Button>
             </Link>
-          </div>
-        ))}
+          ))}
+        </div>
       </header>
 
       {/* Sidebar */}

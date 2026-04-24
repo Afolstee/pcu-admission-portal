@@ -1,11 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
 import { ApiClient } from "@/lib/api";
 
 export default function DeanDashboard() {
   const router = useRouter();
-  const [user, setUser]   = useState<any>(null);
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [data, setData]   = useState<any>(null);
   const [results, setResults] = useState<any[]>([]);
   const [gpa, setGpa]     = useState<any[]>([]);
@@ -13,13 +14,13 @@ export default function DeanDashboard() {
   const [filter, setFilter] = useState({ session: "", semester: "", status: "approved" });
 
   useEffect(() => {
-    const u = localStorage.getItem("staff_user");
-    if (!u) { router.push("/staff/login"); return; }
-    const parsed = JSON.parse(u);
-    if (!["dean","admin"].includes(parsed.role)) { router.push("/staff/login"); return; }
-    setUser(parsed);
+    if (authLoading) return;
+    if (!isAuthenticated || !["dean", "admin"].includes(user?.role)) {
+      router.push("/staff/login");
+      return;
+    }
     loadDashboard();
-  }, []);
+  }, [isAuthenticated, user, authLoading, router]);
 
   async function loadDashboard() {
     try {
@@ -48,36 +49,26 @@ export default function DeanDashboard() {
 
   return (
     <div style={{ minHeight:"100vh",background:"#0f172a",fontFamily:"Inter, sans-serif" }}>
-      <nav style={{ background:"rgba(255,255,255,0.04)",borderBottom:"1px solid rgba(255,255,255,0.1)",padding:"1rem 2rem",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-        <div>
-          <div style={{ color:"#fff",fontWeight:700,fontSize:"1.1rem" }}>Dean's Dashboard</div>
-          <div style={{ color:"rgba(255,255,255,0.45)",fontSize:"0.75rem" }}>{user?.name} · {data?.faculty?.name}</div>
+
+      <div className="flex flex-col">
+        {/* Horizontal Tabs List */}
+        <div className="bg-slate-900/50 border-b border-white/5 sticky top-0 z-30 px-8 py-2 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-1 min-w-max">
+            {[
+              { id:"dashboard", label:"📊 Overview" },
+              { id:"results",   label:"📋 Results" },
+            ].map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)} className={cn(
+                "px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200",
+                tab === t.id
+                  ? "bg-blue-600/20 text-blue-400 border border-blue-500/30"
+                  : "text-slate-400 hover:text-slate-100 hover:bg-white/5 border border-transparent"
+              )}>{t.label}</button>
+            ))}
+          </div>
         </div>
-        <button onClick={() => { ApiClient.setToken(null); localStorage.removeItem("staff_user"); router.push("/staff/login"); }}
-          style={{ background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",color:"#fca5a5",borderRadius:"0.5rem",padding:"0.4rem 1rem",cursor:"pointer" }}>
-          Sign Out
-        </button>
-      </nav>
 
-      <div style={{ display:"flex",minHeight:"calc(100vh - 66px)" }}>
-        <aside style={{ width:200,background:"rgba(255,255,255,0.03)",borderRight:"1px solid rgba(255,255,255,0.08)",padding:"1.5rem 1rem" }}>
-          {[
-            { id:"dashboard", label:"📊 Overview" },
-            { id:"results",   label:"📋 Results" },
-            
-          ].map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{
-              display:"block",width:"100%",textAlign:"left",
-              background:tab===t.id?"rgba(59,130,246,0.2)":"transparent",
-              border:tab===t.id?"1px solid rgba(59,130,246,0.4)":"1px solid transparent",
-              borderRadius:"0.5rem",color:tab===t.id?"#93c5fd":"rgba(255,255,255,0.6)",
-              cursor:"pointer",fontSize:"0.88rem",fontWeight:tab===t.id?600:400,
-              padding:"0.6rem 0.75rem",marginBottom:"0.4rem"
-            }}>{t.label}</button>
-          ))}
-        </aside>
-
-        <main style={{ flex:1,padding:"2rem",overflowY:"auto" }}>
+        <main className="flex-1 p-8 overflow-y-auto">
           {tab === "dashboard" && (
             <div>
               <h2 style={{ color:"#fff",marginTop:0 }}>Faculty Overview — {data?.faculty?.name}</h2>

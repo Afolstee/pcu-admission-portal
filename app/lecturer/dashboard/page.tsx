@@ -1,7 +1,9 @@
 "use client";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
 import { ApiClient } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 
 type Course = {
@@ -18,7 +20,7 @@ type Student = {
 
 export default function LecturerDashboard() {
   const router = useRouter();
-  const [user, setUser]           = useState<any>(null);
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [courses, setCourses]     = useState<Course[]>([]);
   const [selected, setSelected]   = useState<Course | null>(null);
   const [students, setStudents]   = useState<Student[]>([]);
@@ -32,18 +34,16 @@ export default function LecturerDashboard() {
   const [sysSettings, setSysSettings] = useState<any>(null);
 
   useEffect(() => {
-    const u = localStorage.getItem("staff_user");
-    if (!u) { router.push("/staff/login"); return; }
-    const parsed = JSON.parse(u);
-    if (!["lecturer","deo","hod","admin"].includes(parsed.role)) {
-      router.push("/staff/login"); return;
+    if (authLoading) return;
+    if (!isAuthenticated || !["lecturer","deo","hod","admin"].includes(user?.role)) {
+      router.push("/staff/login");
+      return;
     }
-    setUser(parsed);
     loadCourses();
-    loadHistory(parsed.id);
+    if (user?.id) loadHistory(user.id);
     checkPortalLock();
     loadSysSettings();
-  }, []);
+  }, [isAuthenticated, user, authLoading, router]);
 
   async function loadSysSettings() {
     try {
@@ -310,67 +310,42 @@ export default function LecturerDashboard() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#0f172a", fontFamily: "Inter, sans-serif" }}>
-      {/* Navbar */}
-      <nav style={{
-        background: "rgba(255,255,255,0.04)", borderBottom: "1px solid rgba(255,255,255,0.1)",
-        padding: "1rem 2rem", display: "flex", alignItems: "center", justifyContent: "space-between"
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-          <div style={{
-            width: 40, height: 40, borderRadius: "50%",
-            background: "linear-gradient(135deg,#3b82f6,#8b5cf6)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            color: "#fff", fontWeight: 800, fontSize: "1rem"
-          }}>L</div>
-          <div>
-            <div style={{ color: "#fff", fontWeight: 700 }}>Lecturer Portal</div>
-            <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem" }}>{user?.name}</div>
+
+      <div className="flex flex-col">
+        {/* Horizontal Tabs List */}
+        <div className="bg-slate-900/50 border-b border-white/5 sticky top-0 z-30 px-8 py-2 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-1 min-w-max">
+            {[
+              { id: "courses", label: "📚 My Courses" },
+              { id: "upload", label: "📤 Upload Results", locked: isLocked },
+              { id: "submissions", label: "📜 Upload History" },
+            ].map((item) => {
+              const isActive = tab === item.id || (item.id === "courses" && tab === "details");
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    if (item.locked) return;
+                    setTab(item.id as any);
+                  }}
+                  disabled={item.locked}
+                  className={cn(
+                    "px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 flex items-center gap-2",
+                    isActive 
+                      ? "bg-blue-600/20 text-blue-400 border border-blue-500/30" 
+                      : "text-slate-400 hover:text-slate-100 hover:bg-white/5 border border-transparent",
+                    item.locked && "opacity-50 cursor-not-allowed grayscale"
+                  )}
+                >
+                  {item.label}
+                  {item.locked && <span className="text-[10px]">🔒</span>}
+                </button>
+              );
+            })}
           </div>
         </div>
-        <button onClick={logout} style={{
-          background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)",
-          color: "#fca5a5", borderRadius: "0.5rem", padding: "0.4rem 1rem", cursor: "pointer"
-        }}>Sign Out</button>
-      </nav>
 
-      <div style={{ display: "flex", minHeight: "calc(100vh - 66px)" }}>
-        {/* Sidebar */}
-        <aside style={{
-          width: 220, background: "rgba(255,255,255,0.03)",
-          borderRight: "1px solid rgba(255,255,255,0.08)", padding: "1.5rem 1rem"
-        }}>
-          { [
-            { id: "courses",     label: "📚 My Courses" },
-            { id: "upload",      label: "📤 Upload Results", locked: isLocked },
-            { id: "submissions", label: "📜 Upload History" },
-          ].map(item => (
-            <button 
-              key={item.id} 
-              onClick={() => {
-                if (item.locked) return;
-                setTab(item.id as any);
-              }} 
-              disabled={item.locked}
-              style={{
-                display: "block", width: "100%", textAlign: "left",
-                background: (tab === item.id || (item.id === "courses" && tab === "details")) ? "rgba(59,130,246,0.2)" : "transparent",
-                border: (tab === item.id || (item.id === "courses" && tab === "details")) ? "1px solid rgba(59,130,246,0.4)" : "1px solid transparent",
-                borderRadius: "0.5rem", color: (tab === item.id || (item.id === "courses" && tab === "details")) ? "#93c5fd" : (item.locked ? "rgba(255,100,100,0.3)" : "rgba(255,255,255,0.6)"),
-                cursor: item.locked ? "not-allowed" : "pointer", fontSize: "0.88rem", fontWeight: (tab === item.id || (item.id === "courses" && tab === "details")) ? 600 : 400,
-                padding: "0.6rem 0.75rem", marginBottom: "0.4rem",
-                opacity: item.locked ? 0.5 : 1
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{item.label}</span>
-                {item.locked && <span style={{ fontSize: "0.7rem", color: "#fca5a5" }}>🔒</span>}
-              </div>
-            </button>
-          )) }
-        </aside>
-
-        {/* Main */}
-        <main style={{ flex: 1, padding: "2rem", overflowY: "auto" }}>
+        <main className="flex-1 p-8 overflow-y-auto">
           {tab === "courses" && (
             <div>
               <h2 style={{ color: "#fff", marginTop: 0 }}>Assigned Courses</h2>

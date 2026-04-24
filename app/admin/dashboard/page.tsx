@@ -69,37 +69,6 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">
-      {/* Navigation */}
-      <nav className="bg-background border-b border-border sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="filter drop-shadow-[0_8px_12px_rgba(0,0,0,0.5)]">
-            <div className="flex items-center rounded-xl overflow-hidden">
-              <Image
-                src="/images/logo new.png"
-                alt="PCU Logo"
-                width={50}
-                height={50}
-                className="object-contain"
-              />
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-sm">
-              <p className="text-muted-foreground">Logged in as</p>
-              <p className="font-medium text-foreground">{user?.name}</p>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleLogout}
-              className="gap-2"
-            >
-              <LogOut className="h-4 w-4" />
-              Log Out
-            </Button>
-          </div>
-        </div>
-      </nav>
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

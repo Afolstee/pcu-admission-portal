@@ -12,7 +12,8 @@ import {
   ChevronRight,
   TrendingUp,
   ShieldCheck,
-  Receipt
+  Receipt,
+  X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -23,20 +24,29 @@ import { format } from "date-fns";
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<PaymentTransaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [downloading, setDownloading] = useState<number | null>(null);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  const fetchHistory = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await ApiClient.getPaymentHistory();
+      setTransactions(data.payment_history || []);
+    } catch (err: any) {
+      console.error("Failed to fetch payment history", err);
+      setError(err.message || "Unable to load transaction history");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchHistory = async () => {
-      try {
-        const data = await ApiClient.getPaymentHistory();
-        setTransactions(data.payment_history);
-      } catch (err) {
-        console.error("Failed to fetch payment history", err);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchHistory();
   }, []);
 
@@ -59,106 +69,224 @@ export default function TransactionsPage() {
   };
 
   const filteredTransactions = transactions.filter(tx => 
-    tx.payment_type.toLowerCase().includes(search.toLowerCase()) ||
-    tx.reference_id?.toLowerCase().includes(search.toLowerCase())
+    (tx.payment_type?.toLowerCase() || "").includes(search.toLowerCase()) ||
+    (tx.reference_id?.toLowerCase() || "").includes(search.toLowerCase()) ||
+    (tx.app_type?.toLowerCase() || "").includes(search.toLowerCase())
   );
 
-  const totalAmount = transactions.reduce((sum, tx) => sum + tx.amount, 0);
+  // Pagination logic
+  const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage);
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentItems = filteredTransactions.slice(indexOfFirstItem, indexOfLastItem);
+
+  const paginate = (pageNumber: number) => setCurrentPage(pageNumber);
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 p-10 flex items-center justify-center">
+      <div className="min-h-screen bg-white p-10 flex items-center justify-center">
         <div className="text-center space-y-4">
-          <div className="w-12 h-12 border-4 border-purple-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="text-slate-500 font-bold animate-pulse">Retrieving your financial records...</p>
+          <div className="w-8 h-8 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin mx-auto"></div>
+          <p className="text-slate-500 text-sm">Loading transactions...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] pb-20">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <div className="min-h-screen bg-white pb-20">
+      <div className="max-w-[95%] mx-auto px-4 py-8">
+        <div className="mb-6">
+            <h1 className="text-2xl font-semibold text-slate-900">Transaction History</h1>
+            <p className="text-slate-500 text-sm">View and manage your portal payments</p>
+        </div>
+
         {/* Content Section */}
-        <div className="space-y-6">
+        <div className="space-y-4">
           {/* Controls */}
-          <div className="flex flex-col sm:flex-row gap-4 items-center">
-            <div className="relative flex-grow w-full">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <div className="flex flex-col sm:flex-row gap-4 items-center mb-4">
+            <div className="relative flex-grow w-full max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
               <Input 
-                placeholder="Search by payment type or reference ID..." 
-                className="pl-12 h-14 bg-white border-slate-100 rounded-2xl shadow-sm focus:ring-purple-500"
+                placeholder="Search..." 
+                className="pl-10 h-10 bg-white border-slate-200 rounded-md focus:ring-0 focus:border-slate-400"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                    setSearch(e.target.value);
+                    setCurrentPage(1);
+                }}
               />
             </div>
           </div>
 
-          {/* Transactions List */}
-          <div className="grid gap-4">
-            {filteredTransactions.length > 0 ? (
-              filteredTransactions.map((tx) => (
-                <Card 
-                  key={tx.id} 
-                  className="bg-white border-slate-100 hover:border-purple-200 transition-all duration-300 p-5 group shadow-sm hover:shadow-xl hover:shadow-purple-500/5 rounded-2xl"
-                >
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110 duration-300 ${
-                        tx.status === 'completed' ? 'bg-purple-50 text-purple-600' : 'bg-amber-50 text-amber-600'
-                      }`}>
-                        <CreditCard size={24} />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <h3 className="font-black text-slate-800 uppercase text-sm tracking-wide">{tx.payment_type.replace('_', ' ')}</h3>
+          {/* Transactions Table */}
+          <div className="border border-slate-200 rounded-lg overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase w-10 text-center">#</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Reference</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase text-center">
+                        Amount (₦)
+                    </th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Payment Ref</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Status</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Purpose</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">App. Type</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Session</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase">Date</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-600 uppercase text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {error ? (
+                    <tr>
+                      <td colSpan={10} className="text-center py-12">
+                        <div className="space-y-3">
+                          <p className="text-red-500 text-sm">{error}</p>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={fetchHistory}
+                            className="text-xs h-8"
+                          >
+                            Retry
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : currentItems.length > 0 ? (
+                    currentItems.map((tx, index) => (
+                      <tr key={tx.transaction_id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-4 py-4 text-sm text-slate-500 text-center">
+                          {indexOfFirstItem + index + 1}
+                        </td>
+                        <td className="px-4 py-4">
+                          <span className="text-sm text-slate-700">
+                            {tx.reference_id || '---'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 text-center">
+                          <span className="text-sm text-slate-700">
+                            {tx.amount.toLocaleString()}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4">
+                          <span className="text-xs text-slate-500">
+                            TXN-{tx.transaction_id}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4">
                           {tx.status === 'completed' ? (
-                            <span className="flex items-center gap-1 text-[10px] bg-green-50 text-green-600 px-2.5 py-1 rounded-full font-black uppercase tracking-widest border border-green-100">
-                              <CheckCircle2 size={10} /> Paid
+                            <span className="text-xs text-slate-600">
+                              Success
+                            </span>
+                          ) : tx.status === 'cancelled' ? (
+                            <span className="text-xs text-slate-600">
+                              Cancelled
                             </span>
                           ) : (
-                            <span className="flex items-center gap-1 text-[10px] bg-amber-50 text-amber-600 px-2.5 py-1 rounded-full font-black uppercase tracking-widest border border-amber-100">
-                              <Clock size={10} /> Pending
+                            <span className="text-xs text-slate-600">
+                              Pending
                             </span>
                           )}
-                        </div>
-                        <p className="text-xs text-slate-400 font-bold tracking-tight">Ref: {tx.reference_id || 'PCU-T-XXXXXX'}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between md:justify-end gap-10">
-                      <div className="text-right">
-                        <p className="text-lg font-black text-slate-900 leading-tight">₦{tx.amount.toLocaleString()}</p>
-                        <p className="text-xs text-slate-400 font-medium">
-                          {tx.completed_at ? format(new Date(tx.completed_at), "MMM d, yyyy · HH:mm") : 'Processing...'}
+                        </td>
+                        <td className="px-4 py-4">
+                          <span className="text-sm text-slate-600 capitalize">
+                            {tx.payment_type === 'application_fee' ? 'Application Form' : tx.payment_type.replace(/_/g, ' ')}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4">
+                           <span className="text-sm text-slate-600">
+                            {tx.app_type !== 'N/A' ? tx.app_type : 'N/A'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4">
+                           <span className="text-sm text-slate-600">
+                            {tx.session || 'N/A'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="text-sm text-slate-700">
+                            {tx.completed_at ? format(new Date(tx.completed_at), "dd/MM/yyyy, h:mm a") : 
+                             tx.created_at ? format(new Date(tx.created_at), "dd/MM/yyyy, h:mm a") : '---'}
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 text-right">
+                          {tx.status === 'completed' && (
+                            <Button 
+                              onClick={() => handleDownload(tx.transaction_id)}
+                              disabled={downloading === tx.transaction_id}
+                              variant="outline"
+                              className="h-8 px-3 text-xs border-slate-200 hover:bg-slate-50 rounded"
+                            >
+                               {downloading === tx.transaction_id ? (
+                                 <div className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin"></div>
+                               ) : (
+                                 "Print"
+                               )}
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={10} className="text-center py-12">
+                        <p className="text-slate-500 text-sm">
+                          {search ? "No matches found for your search" : "No transactions found"}
                         </p>
-                      </div>
-                      
-                      <Button 
-                        onClick={() => handleDownload(tx.id)}
-                        disabled={downloading === tx.id || tx.status !== 'completed'}
-                        variant="outline"
-                        className="rounded-xl border-slate-200 hover:bg-purple-50 hover:text-purple-600 transition-colors h-11 px-6 font-bold"
-                      >
-                         {downloading === tx.id ? (
-                           <div className="w-4 h-4 border-2 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
-                         ) : (
-                           <Download size={18} className="mr-2" />
-                         )}
-                         Receipt
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
-              ))
-            ) : (
-              <div className="text-center py-20 bg-white border-2 border-dashed border-slate-100 rounded-3xl">
-                <CreditCard className="mx-auto h-12 w-12 text-slate-200 mb-4" />
-                <h3 className="text-lg font-bold text-slate-900">No transactions found</h3>
-                <p className="text-slate-500 max-w-xs mx-auto">Your payment history will appear here once you make your first payment.</p>
-              </div>
-            )}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-4">
+              <div className="text-xs text-slate-500">
+                  Page {currentPage} of {totalPages}
+              </div>
+              <div className="flex items-center gap-1">
+                <Button
+                  onClick={() => paginate(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  variant="outline"
+                  className="h-8 px-3 text-xs rounded border-slate-200"
+                >
+                  Previous
+                </Button>
+                
+                <div className="flex items-center gap-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((number) => (
+                    <Button
+                        key={number}
+                        onClick={() => paginate(number)}
+                        variant={currentPage === number ? "secondary" : "outline"}
+                        className={`h-8 w-8 text-xs p-0 rounded border-slate-200 ${
+                        currentPage === number ? "bg-slate-100" : ""
+                        }`}
+                    >
+                        {number}
+                    </Button>
+                    ))}
+                </div>
+
+                <Button
+                  onClick={() => paginate(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  variant="outline"
+                  className="h-8 px-3 text-xs rounded border-slate-200"
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -72,6 +72,7 @@ def select_program(payload):
         return jsonify({'message': 'program_id is required'}), 400
     
     program_id = data['program_id']
+    app_type = data.get('app_type')
     
     # Verify program exists
     programs = Database.execute_query(
@@ -90,8 +91,8 @@ def select_program(payload):
     if not applicants:
         # Create applicant record tied to this user with the selected program
         applicant_id = Database.execute_update(
-            'INSERT INTO applicants (user_id, program_id) VALUES (%s, %s) RETURNING id',
-            (user_id, program_id),
+            'INSERT INTO applicants (user_id, program_id, app_type) VALUES (%s, %s, %s) RETURNING id',
+            (user_id, program_id, app_type),
             return_id=True
         )
         if not applicant_id:
@@ -100,8 +101,8 @@ def select_program(payload):
         applicant_id = applicants[0]['id']
         # Update program on existing applicant record
         success = Database.execute_update(
-            'UPDATE applicants SET program_id = %s WHERE id = %s',
-            (program_id, applicant_id)
+            'UPDATE applicants SET program_id = %s, app_type = %s WHERE id = %s',
+            (program_id, app_type, applicant_id)
         )
         if not success:
             return jsonify({'message': 'Failed to select program'}), 500
@@ -109,7 +110,8 @@ def select_program(payload):
     return jsonify({
         'message': 'Program selected successfully',
         'applicant_id': applicant_id,
-        'program_id': program_id
+        'program_id': program_id,
+        'app_type': app_type
     }), 200
 
 @applicant_bp.route('/form/<int:program_id>', methods=['GET'])
@@ -616,10 +618,12 @@ def process_payment(payload):
     if not all(field in data for field in required_fields):
         return jsonify({'message': 'Missing required fields: payment_type, amount'}), 400
     
-    payment_type = data.get('payment_type')  # acceptance_fee or tuition
+    payment_type = data.get('payment_type')
     amount = float(data.get('amount', 0))
     payment_method = data.get('payment_method', 'online')
     reference_id = data.get('reference_id', '')
+    status = data.get('status', 'completed')
+    app_type_req = data.get('app_type')
     
     # Validate payment type
     if payment_type not in ['application_fee', 'acceptance_fee', 'tuition']:
@@ -628,19 +632,27 @@ def process_payment(payload):
     if amount <= 0:
         return jsonify({'message': 'Amount must be greater than 0'}), 400
     
-    # Get applicant
-    applicant = Database.execute_query(
+    # Get applicant; create if not exists
+    applicants = Database.execute_query(
         'SELECT id, program_id FROM applicants WHERE user_id = %s',
         (user_id,)
     )
     
-    if not applicant:
-        return jsonify({'message': 'Applicant record not found'}), 404
-    
-    applicant_id = applicant[0]['id']
+    if not applicants:
+        # Create applicant record tied to this user
+        applicant_id = Database.execute_update(
+            'INSERT INTO applicants (user_id) VALUES (%s) RETURNING id',
+            (user_id,),
+            return_id=True
+        )
+        if not applicant_id:
+            return jsonify({'message': 'Failed to create applicant record'}), 500
+        program_id = None
+    else:
+        applicant_id = applicants[0]['id']
+        program_id = applicants[0]['program_id']
     
     # Verify amount matches program fee
-    program_id = applicant[0]['program_id']
     if not program_id and payment_type != 'application_fee':
         return jsonify({'message': 'Program not selected'}), 400
     
@@ -648,47 +660,90 @@ def process_payment(payload):
         'SELECT acceptance_fee, tuition_fee FROM program_fees WHERE program_id = %s',
         (program_id,)
     )
-
+ 
     if fees:
         fee_map = {
             'acceptance_fee': float(fees[0]['acceptance_fee'] or 0),
             'tuition': float(fees[0]['tuition_fee'] or 0)
         }
         expected_amount = fee_map.get(payment_type, 0)
-        # Log discrepancy but do NOT block — amount shown on frontend already came from DB
+        # Use the authoritative DB amount for the transaction record if it matches
         if expected_amount and round(amount, 2) != round(expected_amount, 2):
-            print(f"[WARN] Payment amount discrepancy: sent={amount}, expected={expected_amount} for {payment_type}")
-        # Use the authoritative DB amount for the transaction record
-        amount = expected_amount if expected_amount else amount
+             print(f"[WARN] Payment amount discrepancy: sent={amount}, expected={expected_amount} for {payment_type}")
+        
+    # Fetch program details and current session for recording
+    program_details = Database.execute_query(
+        '''SELECT p.name as program_name, pt.name as app_type, p.session 
+           FROM programs p 
+           LEFT JOIN program_types pt ON p.program_type_id = pt.id 
+           WHERE p.id = %s''',
+        (program_id,)
+    )
     
-    # Create payment transaction record
+    # Fetch current session from settings
+    settings_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
+    current_session = settings_res[0]['value'] if settings_res else '2025/2026'
+    
+    prog_name = 'N/A'
+    app_type = app_type_req or 'N/A'
+    session = current_session
+    
+    if program_details:
+        prog_name = program_details[0]['program_name'] or 'N/A'
+        if not app_type_req:
+            app_type = program_details[0]['app_type'] or 'N/A'
+        session = program_details[0]['session'] or current_session
+
+    # Create or Update payment transaction record
     try:
-        success = Database.execute_update(
-            '''INSERT INTO payment_transactions 
-               (applicant_id, payment_type, amount, status, payment_method, reference_id, completed_at)
-               VALUES (%s, %s, %s, %s, %s, %s, NOW())''',
-            (applicant_id, payment_type, amount, 'completed', payment_method, reference_id)
-        )
+        # Check if transaction with this reference exists
+        existing = None
+        if reference_id:
+            existing = Database.execute_query(
+                'SELECT id FROM payment_transactions WHERE reference_id = %s',
+                (reference_id,)
+            )
+        
+        if existing:
+            success = Database.execute_update(
+                '''UPDATE payment_transactions 
+                   SET status = %s, completed_at = %s, amount = %s, payment_method = %s,
+                       program_name = %s, app_type = %s, session = %s
+                   WHERE reference_id = %s''',
+                (status, datetime.now() if status == 'completed' else None, amount, payment_method, 
+                 prog_name, app_type, session, reference_id)
+            )
+        else:
+            success = Database.execute_update(
+                '''INSERT INTO payment_transactions 
+                   (applicant_id, payment_type, amount, status, payment_method, reference_id, 
+                    completed_at, program_name, app_type, session)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+                (applicant_id, payment_type, amount, status, payment_method, reference_id, 
+                 datetime.now() if status == 'completed' else None, prog_name, app_type, session)
+            )
         
         if not success:
             return jsonify({'message': 'Failed to save payment transaction'}), 500
         
-        # Update applicant payment status flags
-        if payment_type == 'application_fee':
-            Database.execute_update(
-                'UPDATE applicants SET has_paid_application_fee = TRUE WHERE id = %s',
-                (applicant_id,)
-            )
-        elif payment_type == 'acceptance_fee':
-            Database.execute_update(
-                'UPDATE applicants SET has_paid_acceptance_fee = TRUE WHERE id = %s',
-                (applicant_id,)
-            )
-        elif payment_type == 'tuition':
-            Database.execute_update(
-                'UPDATE applicants SET has_paid_tuition = TRUE WHERE id = %s',
-                (applicant_id,)
-            )
+        # Only update applicant flags and student upgrade if status is 'completed'
+        if status == 'completed':
+            # Update applicant payment status flags
+            if payment_type == 'application_fee':
+                Database.execute_update(
+                    'UPDATE applicants SET has_paid_application_fee = TRUE WHERE id = %s',
+                    (applicant_id,)
+                )
+            elif payment_type == 'acceptance_fee':
+                Database.execute_update(
+                    'UPDATE applicants SET has_paid_acceptance_fee = TRUE WHERE id = %s',
+                    (applicant_id,)
+                )
+            elif payment_type == 'tuition':
+                Database.execute_update(
+                    'UPDATE applicants SET has_paid_tuition = TRUE WHERE id = %s',
+                    (applicant_id,)
+                )
             
         # Check if both are paid, if so upgrade to student
         applicant_status = Database.execute_query(
@@ -914,14 +969,27 @@ def get_payment_history(payload):
     
     applicant_id = applicant[0]['id']
     
-    # Get payment history
+    # Get current session from settings for fallback
+    settings_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'current_academic_session'")
+    current_session = settings_res[0]['value'] if settings_res else '2025/2026'
+
+    # Get payment history (using recorded metadata if available, otherwise dynamic join)
     transactions = Database.execute_query(
-        '''SELECT id, payment_type, amount, status, payment_method, reference_id, 
-                  created_at, completed_at
-           FROM payment_transactions
-           WHERE applicant_id = %s
-           ORDER BY created_at DESC''',
-        (applicant_id,)
+        '''SELECT pt.id, pt.payment_type, pt.amount, pt.status, pt.payment_method, pt.reference_id, 
+                  pt.created_at, pt.completed_at, 
+                  COALESCE(pt.session, p.session, %s) as session, 
+                  COALESCE(pt.program_name, p.name, af_p.name, 'N/A') as program_name, 
+                  COALESCE(pt.app_type, a.app_type, pt_type.name, af_pt.name, 'N/A') as app_type
+           FROM payment_transactions pt
+           JOIN applicants a ON pt.applicant_id = a.id
+           LEFT JOIN programs p ON a.program_id = p.id
+           LEFT JOIN program_types pt_type ON p.program_type_id = pt_type.id
+           LEFT JOIN application_forms af ON a.id = af.applicant_id
+           LEFT JOIN programs af_p ON af.program_id = af_p.id
+           LEFT JOIN program_types af_pt ON af_p.program_type_id = af_pt.id
+           WHERE pt.applicant_id = %s
+           ORDER BY pt.created_at DESC''',
+        (current_session, applicant_id)
     )
     
     # Format transactions
@@ -935,7 +1003,10 @@ def get_payment_history(payload):
             'payment_method': trans['payment_method'],
             'reference_id': trans['reference_id'],
             'created_at': trans['created_at'].isoformat() if trans['created_at'] else None,
-            'completed_at': trans['completed_at'].isoformat() if trans['completed_at'] else None
+            'completed_at': trans['completed_at'].isoformat() if trans['completed_at'] else None,
+            'session': trans['session'] or 'N/A',
+            'program_name': trans['program_name'] or 'N/A',
+            'app_type': trans['app_type'] or 'N/A'
         })
     
     return jsonify({

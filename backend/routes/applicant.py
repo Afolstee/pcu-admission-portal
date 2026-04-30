@@ -316,12 +316,21 @@ def submit_form(payload):
         application_id = app_res[0]['id']
         program_type_id = app_res[0]['prog_type']
     else:
+        # Check if it's a valid application ID
         app_res = Database.execute_query(
             'SELECT id, prog_type FROM applications WHERE id = %s AND user_id = %s',
             (application_id, user_id)
         )
         if not app_res:
-            return jsonify({'message': 'Application record not found or access denied'}), 404
+            # Fallback: maybe it's an applicant_id? Find their latest application.
+            app_res = Database.execute_query(
+                'SELECT id, prog_type FROM applications WHERE user_id = %s ORDER BY created_at DESC',
+                (user_id,)
+            )
+            if not app_res:
+                return jsonify({'message': 'Application record not found or access denied'}), 404
+        
+        application_id = app_res[0]['id']
         program_type_id = app_res[0]['prog_type']
     
     # We still need the base applicant_id for legacy application_forms table
@@ -367,31 +376,38 @@ def submit_form(payload):
         'additional_info': json.dumps(data)
     }
 
+    # Helper to clean data: convert empty strings to None
+    def clean_val(key):
+        val = data.get(key)
+        if val == "" or val == "null" or val == "undefined":
+            return None
+        return val
+
     # --- NEW SCHEMA: Save to app_personal_info ---
     personal_info_fields = {
         'application_id': application_id,
-        'surname': data.get('last_name'),
-        'first_name': data.get('first_name'),
-        'middle_name': data.get('middle_name'),
-        'date_of_birth': data.get('date_of_birth'),
-        'place_of_birth': data.get('place_of_birth'),
-        'gender': data.get('gender'),
-        'marital_status': data.get('marital_status'),
-        'religion': data.get('religion'),
-        'blood_group': data.get('blood_group'),
-        'genotype': data.get('genotype'),
-        'nationality': data.get('nationality'),
-        'state': data.get('state'),
-        'lga': data.get('lga'),
-        'address': data.get('address'),
-        'phone_number': data.get('phone_number'),
-        'secondary_phone_number': data.get('secondary_phone_number'),
-        'email': data.get('email'),
-        'photo_url': data.get('photo_url'),
-        'qualification_type': data.get('qualification_type'),
-        'qualification_institution': data.get('qualification_institution'),
-        'qualification_year': data.get('qualification_year') if data.get('qualification_year') else None,
-        'additional_info': data.get('additional_info')
+        'surname': clean_val('last_name'),
+        'first_name': clean_val('first_name'),
+        'middle_name': clean_val('middle_name'),
+        'date_of_birth': clean_val('date_of_birth'),
+        'place_of_birth': clean_val('place_of_birth'),
+        'gender': clean_val('gender'),
+        'marital_status': clean_val('marital_status'),
+        'religion': clean_val('religion'),
+        'blood_group': clean_val('blood_group'),
+        'genotype': clean_val('genotype'),
+        'nationality': clean_val('nationality'),
+        'state': clean_val('state'),
+        'lga': clean_val('lga'),
+        'address': clean_val('address'),
+        'phone_number': clean_val('phone_number'),
+        'secondary_phone_number': clean_val('secondary_phone_number'),
+        'email': clean_val('email'),
+        'photo_url': clean_val('photo_url'),
+        'qualification_type': clean_val('qualification_type'),
+        'qualification_institution': clean_val('qualification_institution'),
+        'qualification_year': clean_val('qualification_year'),
+        'additional_info': clean_val('additional_info')
     }
     
     # Filter out None values for columns
@@ -621,6 +637,14 @@ def upload_document(payload):
     
     display_name = request.form.get('display_name', document_type)
     
+    # Verify application belongs to user
+    app_check = Database.execute_query(
+        'SELECT id FROM applications WHERE id = %s AND user_id = %s',
+        (form_id_int, user_id)
+    )
+    if not app_check:
+        return jsonify({'message': 'Application not found or access denied'}), 404
+    
     # Store document metadata in database
     file_path = os.path.join(upload_folder, stored_filename)
     file_ext = stored_filename.split('.')[-1] if '.' in stored_filename else ''
@@ -773,6 +797,16 @@ def get_form(payload, applicant_id):
         if 'surname' in form_data:
             form_data['last_name'] = form_data['surname']
             
+        # Format date_of_birth for HTML date input (YYYY-MM-DD)
+        if form_data.get('date_of_birth'):
+            try:
+                from datetime import date, datetime
+                dob = form_data['date_of_birth']
+                if isinstance(dob, (date, datetime)):
+                    form_data['date_of_birth'] = dob.strftime('%Y-%m-%d')
+            except:
+                pass
+
         # Construct full_name
         names = [form_data.get('first_name'), form_data.get('middle_name'), form_data.get('surname')]
         form_data['full_name'] = ' '.join(filter(None, names))
@@ -857,6 +891,10 @@ def get_form(payload, applicant_id):
 
     
     if form_data:
+        # Final override: ensure 'id' is the application_id for frontend consistency
+        if application_id:
+            form_data['id'] = application_id
+            
         import json
         # Parse additional_info if exists
         if form_data.get('additional_info'):
@@ -917,14 +955,14 @@ def submit_application(payload):
     if not applicant_id:
         return jsonify({'message': 'applicant_id is required'}), 400
     
-    # Verify ownership
-    applicants = Database.execute_query(
-        'SELECT id FROM applicants WHERE id = %s AND user_id = %s',
+    # Verify ownership and existence
+    app_check = Database.execute_query(
+        'SELECT id FROM applications WHERE id = %s AND user_id = %s',
         (applicant_id, user_id)
     )
     
-    if not applicants:
-        return jsonify({'message': 'Applicant not found'}), 404
+    if not app_check:
+        return jsonify({'message': 'Application not found or access denied'}), 404
     
     # Update application stage to 'submitted'
     success = Database.execute_update(

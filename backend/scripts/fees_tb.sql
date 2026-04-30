@@ -454,7 +454,7 @@ CREATE TABLE app_personal_info (
     photo_url                VARCHAR(255),
 
     -- Qualification
-    qualification_type       VARCHAR(20)     CHECK (qualification_type IN ('WAEC', 'NECO', 'GCE', 'Other')),
+    qualification_type       VARCHAR(20)     CHECK (qualification_type IN ('WAEC', 'NECO', 'GCE', 'NABTEB', 'BSc', 'BA', 'BEng', 'HND', 'OND', 'Other')),
     qualification_institution VARCHAR(200),
     qualification_year       SMALLINT,
 

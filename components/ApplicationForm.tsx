@@ -352,9 +352,7 @@ export default function ApplicationForm({
 
       const response = await ApiClient.submitForm(payload);
       const actualFormId = response.form_id;
-      if (!formId) {
-        setFormId(actualFormId);
-      }
+      setFormId(actualFormId);
 
       // Upload any new documents if we are on documents step
       if (step.type === 'documents') {

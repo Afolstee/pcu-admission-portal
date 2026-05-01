@@ -75,6 +75,7 @@ export default function ApplicantDashboard() {
   const [viewingFormId, setViewingFormId] = useState<number | null>(null);
   const [submittedFormData, setSubmittedFormData] = useState<any>(null);
   const [submittedDocuments, setSubmittedDocuments] = useState<any[]>([]);
+  const [profileLoading, setProfileLoading] = useState(false);
 
   // Payment states
   const [selectedForm, setSelectedForm] = useState<DynamicProgramForm | null>(null);
@@ -220,6 +221,17 @@ export default function ApplicantDashboard() {
     );
   }
 
+  if (profileLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
+          <p className="text-muted-foreground font-medium">Loading profile...</p>
+        </div>
+      </div>
+    );
+  }
+
   // Table for paid applications
   const ApplicationsTable = ({ apps }: { apps: ApplicantStatus[] }) => {
     
@@ -263,6 +275,7 @@ export default function ApplicantDashboard() {
                       size="sm" 
                       className="bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold h-8 px-6"
                       onClick={async () => {
+                         setProfileLoading(true);
                          setViewingFormId(app.id);
                          try {
                             const template = await ApiClient.getFormTemplate(app.program_type_id);
@@ -275,6 +288,8 @@ export default function ApplicantDashboard() {
                             }
                          } catch (e) {
                             console.error("Failed to load data", e);
+                         } finally {
+                            setProfileLoading(false);
                          }
                       }}
                     >

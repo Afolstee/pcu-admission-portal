@@ -96,8 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchPortalStatus = async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"}/applicant/programs`);
-      const data = await res.json();
+      const { data } = await ApiClient.fetch<any>("/applicant/programs");
       const programsLocked = data.programs?.filter((p: any) => p.is_locked)?.length || 0;
       setPortalStatus({
         locked: data.global_admission_locked,

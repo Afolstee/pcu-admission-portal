@@ -3,6 +3,11 @@ from flask_cors import CORS
 from config import config
 import os
 
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",                      
+    "https://pcu-admission-portal.vercel.app",
+]
+
 def create_app(config_name='development'):
 
     app = Flask(__name__)
@@ -11,24 +16,11 @@ def create_app(config_name='development'):
     CORS(
         app,
         supports_credentials=True,
-        origins=[
-            "http://localhost:3000",
-            "https://pcu-admission-portal.vercel.app",
-            "null"
-        ]
+        origins=ALLOWED_ORIGINS
     )
 
     @app.after_request
     def after_request(response):
-        origin = request.headers.get("Origin")
-        allowed_origins = [
-            "http://localhost:3000",
-            "https://pcu-admission-portal.vercel.app",
-            "null"
-        ]
-        if origin in allowed_origins:
-            response.headers["Access-Control-Allow-Origin"] = origin
-
         response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
         response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
         response.headers["Access-Control-Allow-Credentials"] = "true"
@@ -53,18 +45,18 @@ def create_app(config_name='development'):
     from routes.registrar import registrar_bp
     from routes.settings import settings_bp
 
-    app.register_blueprint(auth_bp, url_prefix='/api/auth')
-    app.register_blueprint(applicant_bp, url_prefix='/api/applicant')
-    app.register_blueprint(admin_bp, url_prefix='/api/admin')
-    app.register_blueprint(student_bp, url_prefix='/api/student')
-    app.register_blueprint(scores_bp, url_prefix='/api/scores')
-    app.register_blueprint(staff_bp, url_prefix='/api/staff')
-    app.register_blueprint(hod_bp, url_prefix='/api/hod')
-    app.register_blueprint(dean_bp, url_prefix='/api/dean')
-    app.register_blueprint(registrar_bp, url_prefix='/api/registrar')
-    app.register_blueprint(settings_bp, url_prefix='/api/settings')
+    app.register_blueprint(auth_bp, url_prefix='/e-portal/api/auth')
+    app.register_blueprint(applicant_bp, url_prefix='/e-portal/api/applicant')
+    app.register_blueprint(admin_bp, url_prefix='/e-portal/api/admin')
+    app.register_blueprint(student_bp, url_prefix='/e-portal/api/student')
+    app.register_blueprint(scores_bp, url_prefix='/e-portal/api/scores')
+    app.register_blueprint(staff_bp, url_prefix='/e-portal/api/staff')
+    app.register_blueprint(hod_bp, url_prefix='/e-portal/api/hod')
+    app.register_blueprint(dean_bp, url_prefix='/e-portal/api/dean')
+    app.register_blueprint(registrar_bp, url_prefix='/e-portal/api/registrar')
+    app.register_blueprint(settings_bp, url_prefix='/e-portal/api/settings')
 
-    @app.route('/api/health', methods=['GET'])
+    @app.route('/e-portal/api/health', methods=['GET'])
     def health():
         return {'status': 'ok'}, 200
 

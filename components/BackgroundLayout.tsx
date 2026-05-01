@@ -13,7 +13,7 @@ export function BackgroundLayout({ children }: BackgroundLayoutProps) {
       {/* Fixed background logo */}
       <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-0">
         <Image
-          src="/images/logo new.png"
+          src="/e-portal/images/logo new.png"
           alt="Background Logo"
           width={400}
           height={400}

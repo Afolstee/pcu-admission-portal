@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { ApiClient } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,6 +15,161 @@ import {
 } from '@/components/ui/select';
 import { Upload, Save, Send, AlertCircle, CheckCircle2, Plus, X } from 'lucide-react';
 
+
+// --- Memoized year options (static, never changes) ---
+const YEAR_OPTIONS = Array.from({ length: 30 }, (_, i) => 2026 - i);
+const yearItems = YEAR_OPTIONS.map(y => (
+  <SelectItem key={y} value={y.toString()}>{y}</SelectItem>
+));
+
+// --- Memoized exam block: each sitting is isolated, only re-renders on its own data change ---
+interface ExamBlockProps {
+  exam: any;
+  examIdx: number;
+  subjectItems: React.ReactNode[];
+  gradeItems: React.ReactNode[];
+  setOlevelExams: React.Dispatch<React.SetStateAction<any[]>>;
+  setIsDirty: (v: boolean) => void;
+}
+
+const OlevelExamBlock = memo(function OlevelExamBlock({
+  exam, examIdx, subjectItems, gradeItems, setOlevelExams, setIsDirty
+}: ExamBlockProps) {
+  const sittingLabel = examIdx === 0 ? 'First Sitting' : examIdx === 1 ? 'Second Sitting' : 'Third Sitting';
+
+  const handleFieldChange = useCallback((field: string, val: string) => {
+    setOlevelExams(prev => {
+      const next = [...prev];
+      next[examIdx] = { ...next[examIdx], [field]: val };
+      return next;
+    });
+    setIsDirty(true);
+  }, [examIdx, setOlevelExams, setIsDirty]);
+
+  const handleRemove = useCallback(() => {
+    setOlevelExams(prev => prev.filter((_, i) => i !== examIdx));
+    setIsDirty(true);
+  }, [examIdx, setOlevelExams, setIsDirty]);
+
+  const onSubjectChange = useCallback((idx: number, val: string) => {
+    setOlevelExams(prev => {
+      const next = [...prev];
+      const subjects = [...next[examIdx].subjects];
+      subjects[idx] = { ...subjects[idx], subject_id: val };
+      next[examIdx] = { ...next[examIdx], subjects };
+      return next;
+    });
+    setIsDirty(true);
+  }, [examIdx, setOlevelExams, setIsDirty]);
+
+  const onGradeChange = useCallback((idx: number, val: string) => {
+    setOlevelExams(prev => {
+      const next = [...prev];
+      const subjects = [...next[examIdx].subjects];
+      subjects[idx] = { ...subjects[idx], grade_id: val };
+      next[examIdx] = { ...next[examIdx], subjects };
+      return next;
+    });
+    setIsDirty(true);
+  }, [examIdx, setOlevelExams, setIsDirty]);
+
+  return (
+    <div className="bg-slate-50/50 rounded-xl p-6 border border-slate-100 space-y-6 relative">
+      {examIdx > 0 && (
+        <button onClick={handleRemove} className="absolute top-4 right-4 p-1 text-slate-400 hover:text-red-500 transition-colors">
+          <X className="w-5 h-5" />
+        </button>
+      )}
+      <h3 className="font-medium text-slate-800 flex items-center gap-2">
+        <CheckCircle2 className="w-4 h-4 text-blue-500" />
+        {sittingLabel}
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="space-y-2">
+          <Label>Name of Exam*</Label>
+          <Select value={exam.name} onValueChange={(val) => handleFieldChange('name', val)}>
+            <SelectTrigger><SelectValue placeholder="--select--" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="WAEC">WAEC</SelectItem>
+              <SelectItem value="NECO">NECO</SelectItem>
+              <SelectItem value="NABTEB">NABTEB</SelectItem>
+              <SelectItem value="GCE">GCE</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Exam Number*</Label>
+          <Input value={exam.number} onChange={(e) => handleFieldChange('number', e.target.value)} />
+        </div>
+        <div className="space-y-2">
+          <Label>Exam Period (MAY/JUNE)*</Label>
+          <Input value={exam.period} onChange={(e) => handleFieldChange('period', e.target.value)} />
+        </div>
+        <div className="space-y-2">
+          <Label>Exam Year*</Label>
+          <Select value={exam.year?.toString()} onValueChange={(val) => handleFieldChange('year', val)}>
+            <SelectTrigger><SelectValue placeholder="--select--" /></SelectTrigger>
+            <SelectContent>{yearItems}</SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+        {Array.from({ length: 10 }).map((_, i) => (
+          <OlevelSubjectRow
+            key={i}
+            index={i}
+            subject_id={exam.subjects[i]?.subject_id?.toString() || ''}
+            grade_id={exam.subjects[i]?.grade_id?.toString() || ''}
+            subjectItems={subjectItems}
+            gradeItems={gradeItems}
+            onSubjectChange={onSubjectChange}
+            onGradeChange={onGradeChange}
+          />
+        ))}
+      </div>
+    </div>
+  );
+});
+
+// --- Memoized subject row: only re-renders if its own values change ---
+interface SubjectRowProps {
+  index: number;
+  subject_id: string;
+  grade_id: string;
+  subjectItems: React.ReactNode[];
+  gradeItems: React.ReactNode[];
+  onSubjectChange: (index: number, val: string) => void;
+  onGradeChange: (index: number, val: string) => void;
+}
+
+const OlevelSubjectRow = memo(function OlevelSubjectRow({
+  index, subject_id, grade_id, subjectItems, gradeItems, onSubjectChange, onGradeChange
+}: SubjectRowProps) {
+  return (
+    <div className="flex gap-4">
+      <div className="flex-1 space-y-2">
+        <Label>Subject {index + 1}</Label>
+        <Select
+          value={subject_id}
+          onValueChange={(val) => onSubjectChange(index, val)}
+        >
+          <SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger>
+          <SelectContent>{subjectItems}</SelectContent>
+        </Select>
+      </div>
+      <div className="w-32 space-y-2">
+        <Label>Grade</Label>
+        <Select
+          value={grade_id}
+          onValueChange={(val) => onGradeChange(index, val)}
+        >
+          <SelectTrigger><SelectValue placeholder="--" /></SelectTrigger>
+          <SelectContent>{gradeItems}</SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+});
 
 // O'Level data will be fetched from API
 
@@ -72,6 +227,17 @@ export default function ApplicationForm({
   const [availablePrograms, setAvailablePrograms] = useState<any[]>([]);
   const [olevelSubjects, setOlevelSubjects] = useState<any[]>([]);
   const [olevelGrades, setOlevelGrades] = useState<any[]>([]);
+
+  // Memoize dropdown options — only re-created when source data changes
+  const subjectItems = useMemo(() =>
+    olevelSubjects.map(s => (
+      <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>
+    )), [olevelSubjects]);
+
+  const gradeItems = useMemo(() =>
+    olevelGrades.map(g => (
+      <SelectItem key={g.id} value={g.id.toString()}>{g.grade}</SelectItem>
+    )), [olevelGrades]);
 
   
   const [saving, setSaving] = useState(false);
@@ -553,155 +719,15 @@ export default function ApplicationForm({
 
                 <div className="space-y-8">
                     {olevelExams.map((exam, examIdx) => (
-                        <div key={examIdx} className="bg-slate-50/50 rounded-xl p-6 border border-slate-100 space-y-6 relative">
-                            {examIdx > 0 && (
-                                <button 
-                                    onClick={() => {
-                                        const newExams = olevelExams.filter((_, i) => i !== examIdx);
-                                        setOlevelExams(newExams);
-                                        setIsDirty(true);
-                                    }}
-                                    className="absolute top-4 right-4 p-1 text-slate-400 hover:text-red-500 transition-colors"
-                                >
-                                    <X className="w-5 h-5" />
-                                </button>
-                            )}
-                            <h3 className="font-medium text-slate-800 flex items-center gap-2">
-                                <CheckCircle2 className="w-4 h-4 text-blue-500" />
-                                {examIdx === 0 ? "First Sitting" : examIdx === 1 ? "Second Sitting" : "Third Sitting"}
-                            </h3>
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                                <div className="space-y-2">
-                                    <Label>Name of Exam*</Label>
-                                    <Select 
-                                        value={exam.name}
-                                        onValueChange={(val) => {
-                                            setOlevelExams(prev => {
-                                                const next = [...prev];
-                                                next[examIdx] = { ...next[examIdx], name: val };
-                                                return next;
-                                            });
-                                            setIsDirty(true);
-                                        }}
-                                    >
-                                        <SelectTrigger><SelectValue placeholder="--select--" /></SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="WAEC">WAEC</SelectItem>
-                                            <SelectItem value="NECO">NECO</SelectItem>
-                                            <SelectItem value="NABTEB">NABTEB</SelectItem>
-                                            <SelectItem value="GCE">GCE</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label>Exam Number*</Label>
-                                    <Input 
-                                        value={exam.number}
-                                        onChange={(e) => {
-                                            setOlevelExams(prev => {
-                                                const next = [...prev];
-                                                next[examIdx] = { ...next[examIdx], number: e.target.value };
-                                                return next;
-                                            });
-                                            setIsDirty(true);
-                                        }}
-
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label>Exam Period (MAY/JUNE)*</Label>
-                                    <Input 
-                                        value={exam.period}
-                                        onChange={(e) => {
-                                            setOlevelExams(prev => {
-                                                const next = [...prev];
-                                                next[examIdx] = { ...next[examIdx], period: e.target.value };
-                                                return next;
-                                             });
-                                             setIsDirty(true);
-                                         }}
-
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label>Exam Year*</Label>
-                                    <Select 
-                                        value={exam.year?.toString()}
-                                        onValueChange={(val) => {
-                                            setOlevelExams(prev => {
-                                                const next = [...prev];
-                                                next[examIdx] = { ...next[examIdx], year: val };
-                                                return next;
-                                            });
-                                            setIsDirty(true);
-                                        }}
-
-                                    >
-                                      <SelectTrigger><SelectValue placeholder="--select--" /></SelectTrigger>
-                                      <SelectContent>
-                                        {Array.from({length: 30}, (_, i) => 2024 - i).map(y => (
-                                          <SelectItem key={y} value={y.toString()}>{y}</SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                </div>
-                            </div>
-                            
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
-                                {Array.from({ length: 10 }).map((_, i) => (
-                                    <div key={i} className="flex gap-4">
-                                        <div className="flex-1 space-y-2">
-                                            <Label>Subject {i + 1}</Label>
-                                            <Select
-                                                value={exam.subjects[i]?.subject_id?.toString() || ''}
-                                                onValueChange={(val) => {
-                                                    setOlevelExams(prev => {
-                                                        const next = [...prev];
-                                                        const subjects = [...next[examIdx].subjects];
-                                                        subjects[i] = { ...subjects[i], subject_id: val };
-                                                        next[examIdx] = { ...next[examIdx], subjects };
-                                                        return next;
-                                                    });
-                                                    setIsDirty(true);
-                                                }}
-                                            >
-
-                                                <SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger>
-                                                <SelectContent>
-                                                    {olevelSubjects.map(s => (
-                                                        <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div className="w-32 space-y-2">
-                                            <Label>Grade</Label>
-                                            <Select
-                                                value={exam.subjects[i]?.grade_id?.toString() || ''}
-                                                onValueChange={(val) => {
-                                                    setOlevelExams(prev => {
-                                                        const next = [...prev];
-                                                        const subjects = [...next[examIdx].subjects];
-                                                        subjects[i] = { ...subjects[i], grade_id: val };
-                                                        next[examIdx] = { ...next[examIdx], subjects };
-                                                        return next;
-                                                    });
-                                                    setIsDirty(true);
-                                                }}
-                                            >
-
-                                                <SelectTrigger><SelectValue placeholder="--" /></SelectTrigger>
-                                                <SelectContent>
-                                                    {olevelGrades.map(g => (
-                                                        <SelectItem key={g.id} value={g.id.toString()}>{g.grade}</SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                        <OlevelExamBlock
+                            key={examIdx}
+                            exam={exam}
+                            examIdx={examIdx}
+                            subjectItems={subjectItems}
+                            gradeItems={gradeItems}
+                            setOlevelExams={setOlevelExams}
+                            setIsDirty={setIsDirty}
+                        />
                     ))}
                     <div className="flex justify-end">
                         <Button 

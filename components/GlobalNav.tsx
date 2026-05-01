@@ -249,7 +249,7 @@ export function GlobalNav() {
           <div className="flex items-center h-16 px-4 border-b border-slate-200/50 relative bg-slate-100/50">
             <Link href="/" className="flex items-center gap-3 shrink-0">
               <Image
-                src="/images/logo new.png"
+                src="/e-portal/images/logo new.png"
                 alt="PCU Logo"
                 width={35}
                 height={35}

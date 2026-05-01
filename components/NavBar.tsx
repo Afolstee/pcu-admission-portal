@@ -25,7 +25,7 @@ export function NavBar() {
           <div className="flex items-center gap-2 text-sm text-white/85 hover:text-white transition-colors duration-200 group">
             <span className="flex items-center justify-center w-7 h-7 rounded-full bg-white/10 group-hover:bg-[#f5a623]/30 transition-colors duration-200">
               <img
-                src="/images/phone-call (2).png"
+                src="/e-portal/images/phone-call (2).png"
                 alt="phone"
                 className="w-3.5 h-3.5"
               />
@@ -41,7 +41,7 @@ export function NavBar() {
           <div className="flex items-center gap-2 text-sm text-white/85 hover:text-white transition-colors duration-200 group">
             <span className="flex items-center justify-center w-7 h-7 rounded-full bg-white/10 group-hover:bg-[#f5a623]/30 transition-colors duration-200">
               <img
-                src="/images/email (1).png"
+                src="/e-portal/images/email (1).png"
                 alt="email"
                 className="w-3.5 h-3.5"
               />
@@ -56,17 +56,17 @@ export function NavBar() {
         <div className="flex items-center gap-2">
           {[
             {
-              src: "/images/facebook (2).png",
+              src: "/e-portal/images/facebook (2).png",
               alt: "Facebook",
               label: "Facebook",
             },
             {
-              src: "/images/instagram (4).png",
+              src: "/e-portal/images/instagram (4).png",
               alt: "Instagram",
               label: "Instagram",
             },
             {
-              src: "/images/linkedin.png",
+              src: "/e-portal/images/linkedin.png",
               alt: "LinkedIn",
               label: "LinkedIn",
             },
@@ -122,7 +122,7 @@ export function NavBar() {
         >
           <span className="hidden sm:inline">Main PCU Website</span>
           <img
-            src="/images/right-arrow (6).png"
+            src="/e-portal/images/right-arrow (6).png"
             alt="arrow"
             className="w-3.5 h-3.5"
           />

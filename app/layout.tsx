@@ -13,8 +13,11 @@ import { SidebarProvider } from "@/context/SidebarContext";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "PCU Admission Portal",
+  title: "PRECIOUS CORNERSTONE UNIVERSITY",
   description: "Submit your application and track your admission status",
+  icons: {
+    icon: "/e-portal/images/logo new.png",
+  },
 };
 
 export default function RootLayout({

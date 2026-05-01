@@ -51,8 +51,8 @@ export default function HODDashboard() {
 
   async function loadHistory(staffId: number) {
     try {
-      const res = await fetch(`/api/results/pending?staffId=${staffId}`);
-      if (res.ok) setHistory(await res.json());
+      const { data } = await ApiClient.fetch(`/results/pending?staffId=${staffId}`);
+      setHistory(data);
     } catch {}
   }
 
@@ -188,9 +188,8 @@ export default function HODDashboard() {
         courses: s.courses
       }));
 
-      const res = await fetch("/api/results/pending", {
+      const { data } = await ApiClient.fetch("/results/pending", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           staffId: user.id,
           fileName: preview.fileName,
@@ -200,8 +199,6 @@ export default function HODDashboard() {
           fileContent: preview.fileContent
         })
       });
-
-      if (!res.ok) throw new Error("Server error saving pending results");
       
       setMsg("✅ Successfully submitted to ICT for processing.");
       setPreview(null);

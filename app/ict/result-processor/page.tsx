@@ -43,6 +43,7 @@ import { ResultDisplay } from "@/components/result-display";
 import { SavedResultsView } from "@/components/saved-results-view";
 import { generatePDF } from "@/lib/pdf-generator";
 import { ModeToggle } from "@/components/mode-toggle";
+import { ApiClient } from "@/lib/api";
 
 // --- Types & Interfaces ---
 interface Course {
@@ -180,15 +181,12 @@ async function enrichCoursesBatch(courseCodes: string[], department: string): Pr
   await Promise.all(
     uniqueCodes.map(async (code) => {
       try {
-        const r = await fetch(`/api/courses?code=${encodeURIComponent(code)}&department=${encodeURIComponent(department)}`);
-        if (r.ok) {
-          const row = await r.json();
-          result.set(code, {
-            title: row.course_title,
-            units: row.units,
-            remark: row.remark ?? "",
-          });
-        }
+        const { data } = await ApiClient.fetch(`/courses?code=${encodeURIComponent(code)}&department=${encodeURIComponent(department)}`);
+        result.set(code, {
+          title: data.course_title,
+          units: data.units,
+          remark: data.remark ?? "",
+        });
       } catch {}
     })
   );
@@ -348,12 +346,12 @@ export default function ModernResultSystem() {
   const fetchPendingSubmissions = async () => {
     setLoadingPending(true);
     try {
-      const [pendRes, procRes] = await Promise.all([
-        fetch("/api/results/pending?status=pending"),
-        fetch("/api/results/pending?status=processed")
+      const [{ data: pending }, { data: processed }] = await Promise.all([
+        ApiClient.fetch("/results/pending?status=pending"),
+        ApiClient.fetch("/results/pending?status=processed")
       ]);
-      if (pendRes.ok) setPendingSubmissions(await pendRes.json());
-      if (procRes.ok) setProcessedSubmissions(await procRes.json());
+      setPendingSubmissions(pending);
+      setProcessedSubmissions(processed);
     } catch (err) {
       toast.error("Failed to load submissions");
     } finally {
@@ -446,11 +444,9 @@ export default function ModernResultSystem() {
   const deletePending = async (id: number) => {
     if (!confirm("Are you sure?")) return;
     try {
-      const res = await fetch(`/api/results/pending?id=${id}`, { method: "DELETE" });
-      if (res.ok) {
-        toast.success("Deleted submission");
-        fetchPendingSubmissions();
-      }
+      await ApiClient.fetch(`/results/pending?id=${id}`, { method: "DELETE" });
+      toast.success("Deleted submission");
+      fetchPendingSubmissions();
     } catch (err) {
       toast.error("Failed to delete");
     }
@@ -840,9 +836,8 @@ export default function ModernResultSystem() {
 
   const saveDeptToDB = async (deptName: string, results: CalculatedResult[]) => {
     if (results.length === 0) return;
-    const savePromise = fetch("/api/results", {
+    const savePromise = ApiClient.fetch("/results", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         pendingId: currentPendingId,
         results: results.map((r) => ({
@@ -859,13 +854,12 @@ export default function ModernResultSystem() {
 
     toast.promise(savePromise, {
       loading: `Saving ${deptName} results to database...`,
-      success: (res) => {
-        if (!res.ok) throw new Error("Failed to save");
+      success: () => {
         setCurrentPendingId(null);
         fetchPendingSubmissions(); // Refresh lists
         return `Successfully saved ${results.length} results for ${deptName}`;
       },
-      error: "Error committing to database",
+      error: (err) => err.message || "Error committing to database",
     });
   };
 

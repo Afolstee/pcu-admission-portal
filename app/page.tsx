@@ -98,7 +98,7 @@ export default function UniversityLandingPage() {
       <section className="relative h-[85vh] w-full overflow-hidden">
         {/* Background Video/Image */}
         <img
-          src="/images/school1.png"
+          src="/e-portal/images/school1.png"
           alt="Hero Background"
           className="absolute top-0 left-0 w-full h-full object-cover"
         />

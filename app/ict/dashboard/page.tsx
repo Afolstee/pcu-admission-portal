@@ -39,11 +39,8 @@ export default function ICTDashboard() {
 
   const loadPendingCount = async () => {
     try {
-      const res = await fetch("/api/results/pending?status=pending");
-      if (res.ok) {
-        const data = await res.json();
-        setPendingCount(data.length);
-      }
+      const { data } = await ApiClient.fetch<any[]>("/results/pending?status=pending");
+      setPendingCount(data.length);
     } catch {}
   };
 

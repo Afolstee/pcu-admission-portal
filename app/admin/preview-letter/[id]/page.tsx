@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { ApiClient } from "@/lib/api";
 
 export default function PreviewAdmissionLetterPage() {
   const router = useRouter();
@@ -21,38 +22,14 @@ export default function PreviewAdmissionLetterPage() {
     const fetchAndPreviewLetter = async () => {
       try {
         setLoading(true);
-        const token = localStorage.getItem("token");
         const admissionDate =
           searchParams.get("admission_date") ||
           new Date().toISOString().split("T")[0];
 
-        const response = await fetch(`/api/admin/preview-admission-letter`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            applicant_id: parseInt(params.id),
-            admission_date: admissionDate,
-          }),
-        });
-
-        if (!response.ok) {
-          const contentType = response.headers.get("content-type");
-          let errorMessage = "Failed to generate preview";
-
-          if (contentType?.includes("application/json")) {
-            const errorData = await response.json();
-            errorMessage = errorData.message || errorMessage;
-          } else {
-            errorMessage = `Server error: ${response.status} ${response.statusText}`;
-          }
-          throw new Error(errorMessage);
-        }
-
-        // Get the PDF blob and create a preview URL
-        const pdfBlob = await response.blob();
+        const pdfBlob = await ApiClient.previewAdmissionLetter(
+          parseInt(params.id),
+          admissionDate
+        );
         const url = URL.createObjectURL(pdfBlob);
         setPdfUrl(url);
       } catch (err) {

@@ -465,6 +465,13 @@ export class ApiClient {
     return data;
   }
 
+  static async getAcceptanceFee(): Promise<{ acceptance_fee: number; fee_name: string; found: boolean }> {
+    const { data } = await this.fetch<{ acceptance_fee: number; fee_name: string; found: boolean }>(
+      '/applicant/acceptance-fee'
+    );
+    return data;
+  }
+
   static async submitApplication(applicant_id: number) {
     const { data } = await this.fetch("/applicant/submit-application", {
       method: "POST",
@@ -479,7 +486,7 @@ export class ApiClient {
     templateId?: string,
   ) {
     const token = this.getToken();
-    const res = await fetch(`${API_BASE_URL}/admin/preview-admission-letter`, {
+    const res = await fetch(`${API_BASE_URL}/admission_officer/preview-admission-letter`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -651,12 +658,12 @@ export class ApiClient {
     return await response.blob();
   }
 
-  // Admin endpoints
+  // Admission Officer endpoints
   static async getApplications(
     status?: string,
     program_id?: number,
   ): Promise<{ applications: Application[] }> {
-    let endpoint = "/admin/applications";
+    let endpoint = "/admission_officer/applications";
     const params = new URLSearchParams();
     if (status) params.append("status", status);
     if (program_id) params.append("program_id", program_id.toString());
@@ -669,21 +676,21 @@ export class ApiClient {
   }
 
   static async getApplicationDetails(applicant_id: number) {
-    const { data } = await this.fetch(`/admin/application/${applicant_id}`);
+    const { data } = await this.fetch(`/admission_officer/application/${applicant_id}`);
     return data;
   }
 
   static async reviewApplication(
     applicant_id: number,
-    recommendation: "accept" | "reject" | "recommend_other_program",
+    decision: "accept" | "reject" | "recommend",
     review_notes?: string,
     recommended_program_id?: number,
   ) {
-    const { data } = await this.fetch("/admin/review-application", {
+    const { data } = await this.fetch("/admission_officer/review-application", {
       method: "POST",
       body: JSON.stringify({
         applicant_id,
-        recommendation,
+        decision,
         review_notes,
         recommended_program_id,
       }),
@@ -696,7 +703,7 @@ export class ApiClient {
     admission_date?: string,
     template_id?: string,
   ) {
-    const { data } = await this.fetch("/admin/send-admission-letter", {
+    const { data } = await this.fetch("/admission_officer/send-admission-letter", {
       method: "POST",
       body: JSON.stringify({ applicant_id, admission_date, template_id }),
     });
@@ -708,7 +715,7 @@ export class ApiClient {
     admission_date?: string,
     template_id?: string,
   ): Promise<SendResult> {
-    const { data } = await this.fetch<SendResult>("/admin/send-batch-letters", {
+    const { data } = await this.fetch<SendResult>("/admission_officer/send-batch-letters", {
       method: "POST",
       body: JSON.stringify({ applicant_ids, admission_date, template_id }),
     });
@@ -716,7 +723,7 @@ export class ApiClient {
   }
 
   static async revokeAdmission(applicant_id: number) {
-    const { data } = await this.fetch("/admin/revoke-admission", {
+    const { data } = await this.fetch("/admission_officer/revoke-admission", {
       method: "POST",
       body: JSON.stringify({ applicant_id }),
     });
@@ -724,26 +731,33 @@ export class ApiClient {
   }
 
   static async getStatistics() {
-    const { data } = await this.fetch("/admin/statistics");
+    const { data } = await this.fetch("/admission_officer/statistics");
+    return data;
+  }
+
+  static async getRecentActivity(limit = 15): Promise<{ activities: Array<{ type: string; label: string; event_time: string | null }> }> {
+    const { data } = await this.fetch<{ activities: Array<{ type: string; label: string; event_time: string | null }> }>(
+      `/admission_officer/recent-activity?limit=${limit}`
+    );
     return data;
   }
 
   static async getLetterTemplates(): Promise<{ templates: LetterTemplate[] }> {
     const { data } = await this.fetch<{ templates: LetterTemplate[] }>(
-      "/admin/letter-templates",
+      "/admission_officer/letter-templates",
     );
     return data;
   }
 
   static async getLetterTemplate(template_id: number) {
-    const { data } = await this.fetch(`/admin/letter-template/${template_id}`);
+    const { data } = await this.fetch(`/admission_officer/letter-template/${template_id}`);
     return data;
   }
 
   // New letter management endpoints
   static async getFacultyDepartments(): Promise<FacultyDepartmentsResponse> {
   const { data } = await this.fetch<FacultyDepartmentsResponse>(
-    "/admin/faculty-departments"
+    "/admission_officer/faculty-departments"
   );
   return data;
 }
@@ -752,7 +766,7 @@ export class ApiClient {
   departmentName: string
 ): Promise<DepartmentApplicantsResponse> {
   const { data } = await this.fetch<DepartmentApplicantsResponse>(
-    `/admin/department-applicants/${encodeURIComponent(departmentName)}`
+    `/admission_officer/department-applicants/${encodeURIComponent(departmentName)}`
   );
   return data;
 }
@@ -763,7 +777,7 @@ export class ApiClient {
   admissionDate?: string
 ): Promise<SendDepartmentLettersResponse> {
   const { data } = await this.fetch<SendDepartmentLettersResponse>(
-    "/admin/send-department-letters",
+    "/admission_officer/send-department-letters",
     {
       method: "POST",
       body: JSON.stringify({
@@ -778,7 +792,7 @@ export class ApiClient {
 
   static async getLetterStatusSummary(): Promise<LetterStatusSummaryResponse> {
   const { data } = await this.fetch<LetterStatusSummaryResponse>(
-    "/admin/letter-status-summary"
+    "/admission_officer/letter-status-summary"
   );
   return data;
 }
@@ -788,7 +802,7 @@ export class ApiClient {
   admissionDate?: string
 ): Promise<{ message: string }> {
   const { data } = await this.fetch<{ message: string }>(
-    `/admin/resend-letter/${applicantId}`,
+    `/admission_officer/resend-letter/${applicantId}`,
     {
       method: "POST",
       body: JSON.stringify({ admission_date: admissionDate }),
@@ -843,14 +857,14 @@ export class ApiClient {
     return data;
   }
 
-  // ===== Admin Management (Stage 2) =====
+  // ===== Admission Officer Management (Stage 2) =====
   static async getAdminPrograms(): Promise<{ programs: any[] }> {
-    const { data } = await this.fetch<{ programs: any[] }>("/admin/programs");
+    const { data } = await this.fetch<{ programs: any[] }>("/admission_officer/programs");
     return data;
   }
 
   static async updateProgram(programId: number, data: any): Promise<{ message: string }> {
-    const { data: responseData } = await this.fetch<{ message: string }>(`/admin/program/${programId}`, {
+    const { data: responseData } = await this.fetch<{ message: string }>(`/admission_officer/program/${programId}`, {
       method: "PUT",
       body: JSON.stringify(data),
     });
@@ -858,7 +872,7 @@ export class ApiClient {
   }
 
   static async getStudents(filters?: { program_id?: number; level?: string }): Promise<{ students: any[] }> {
-    let url = "/admin/students";
+    let url = "/admission_officer/students";
     const params = new URLSearchParams();
     if (filters?.program_id) params.append("program_id", filters.program_id.toString());
     if (filters?.level) params.append("level", filters.level);
@@ -868,21 +882,21 @@ export class ApiClient {
   }
 
   static async getStudentRegistration(studentId: number, semester: string = "First"): Promise<{ registration: any; courses: any[] }> {
-    const { data } = await this.fetch<{ registration: any; courses: any[] }>(`/admin/student/${studentId}/registration?semester=${semester}`);
+    const { data } = await this.fetch<{ registration: any; courses: any[] }>(`/admission_officer/student/${studentId}/registration?semester=${semester}`);
     return data;
   }
 
   // ===== New Schema Endpoints =====
 
   static async getFaculties(): Promise<{ faculties: Faculty[] }> {
-    const { data } = await this.fetch<{ faculties: Faculty[] }>("/admin/faculties");
+    const { data } = await this.fetch<{ faculties: Faculty[] }>("/admission_officer/faculties");
     return data;
   }
 
   static async getDepartments(facultyId?: number): Promise<{ departments: Department[] }> {
     const url = facultyId
-      ? `/admin/departments?faculty_id=${facultyId}`
-      : "/admin/departments";
+      ? `/admission_officer/departments?faculty_id=${facultyId}`
+      : "/admission_officer/departments";
     const { data } = await this.fetch<{ departments: Department[] }>(url);
     return data;
   }
@@ -1036,12 +1050,12 @@ export class ApiClient {
   }
 
   static async getGlobalSettings(): Promise<any> {
-    const { data } = await this.fetch<any>("/admin/settings");
+    const { data } = await this.fetch<any>("/admission_officer/settings");
     return data;
   }
 
   static async updateGlobalSettings(settings: Record<string, string>): Promise<{ message: string }> {
-    const { data } = await this.fetch<{ message: string }>("/admin/settings", {
+    const { data } = await this.fetch<{ message: string }>("/admission_officer/settings", {
       method: "POST",
       body: JSON.stringify(settings),
     });
@@ -1049,7 +1063,7 @@ export class ApiClient {
   }
 
   static async createLecturer(lecturerData: any): Promise<{ message: string; user_id: number }> {
-    const { data } = await this.fetch<{ message: string; user_id: number }>("/admin/staff/lecturer", {
+    const { data } = await this.fetch<{ message: string; user_id: number }>("/admission_officer/staff/lecturer", {
       method: "POST",
       body: JSON.stringify(lecturerData),
     });

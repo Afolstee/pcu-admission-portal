@@ -55,7 +55,7 @@ export default function StudentLoginPage() {
     if (user.role === "student") {
       router.replace("/student/dashboard");
     } else if (user.role === "admin") {
-      router.replace("/admin/dashboard");
+      router.replace("/ict/dashboard");
     } else if (user.role === "applicant") {
       router.replace("/applicant/dashboard");
     }

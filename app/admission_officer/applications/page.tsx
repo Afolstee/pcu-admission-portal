@@ -35,15 +35,17 @@ interface Application {
   application_status: string;
   admission_status: string;
   submitted_at: string;
+  form_no?: string;
+  session?: string;
 }
 
 const statusColors: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800",
   submitted: "bg-blue-100 text-blue-800",
-  under_review: "bg-purple-100 text-purple-800",
-  accepted: "bg-green-100 text-green-800",
+  screening: "bg-purple-100 text-purple-800",
+  admitted: "bg-green-100 text-green-800",
+  accepted: "bg-emerald-100 text-emerald-800",
   rejected: "bg-red-100 text-red-800",
-  recommended: "bg-orange-100 text-orange-800",
 };
 
 export default function ApplicationsPage() {
@@ -88,7 +90,7 @@ export default function ApplicationsPage() {
         <div className="mb-8 flex items-center justify-between">
           <div>
             <Link
-              href="/admin/dashboard"
+              href="/admission_officer/dashboard"
               className="text-primary hover:underline text-sm mb-2 block"
             >
               ← Back to Dashboard
@@ -106,10 +108,9 @@ export default function ApplicationsPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="submitted">Submitted</SelectItem>
-              <SelectItem value="under_review">Under Review</SelectItem>
-              <SelectItem value="accepted">Accepted</SelectItem>
+              <SelectItem value="screening">Under Review</SelectItem>
+              <SelectItem value="admitted">Admitted</SelectItem>
               <SelectItem value="rejected">Rejected</SelectItem>
-              <SelectItem value="recommended">Recommended</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -131,7 +132,7 @@ export default function ApplicationsPage() {
         ) : (
           <div className="space-y-4">
             {applications.map((app) => (
-              <Link key={app.id} href={`/admin/application/${app.id}`}>
+              <Link key={app.id} href={`/admission_officer/application/${app.id}`}>
                 <Card className="hover:shadow-md transition-shadow cursor-pointer">
                   <CardContent className="p-6">
                     <div className="flex items-center justify-between">
@@ -139,31 +140,41 @@ export default function ApplicationsPage() {
                         <div className="flex items-center gap-3 mb-2">
                           <h3 className="font-semibold text-lg">{app.name}</h3>
                           <Badge
-                            className={statusColors[app.application_status]}
+                            className={statusColors[app.application_status] || 'bg-slate-100 text-slate-700'}
                           >
-                            {app.application_status.replace("_", " ")}
+                            {app.application_status === 'accepted' ? 'Admitted' : app.application_status.replace('_', ' ')}
                           </Badge>
+                          {/* Fee status pill — only shown on admitted tab */}
+                          {status === 'admitted' && (
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                              app.application_status === 'accepted'
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}>
+                              {app.application_status === 'accepted' ? '✓ Fee Paid' : '⏳ Awaiting Fee'}
+                            </span>
+                          )}
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-muted-foreground">
                           <div>
                             <p className="text-xs uppercase tracking-wide">
-                              Email
+                              Form No
                             </p>
                             <p className="font-medium text-foreground">
-                              {app.email}
+                              {app.form_no || "N/A"}
                             </p>
                           </div>
                           <div>
                             <p className="text-xs uppercase tracking-wide">
-                              Phone
+                              Applicant Name
                             </p>
                             <p className="font-medium text-foreground">
-                              {app.phone_number}
+                              {app.name}
                             </p>
                           </div>
                           <div>
                             <p className="text-xs uppercase tracking-wide">
-                              Program
+                              Program Type
                             </p>
                             <p className="font-medium text-foreground">
                               {app.program_name}
@@ -171,10 +182,10 @@ export default function ApplicationsPage() {
                           </div>
                           <div>
                             <p className="text-xs uppercase tracking-wide">
-                              Submitted
+                              Session
                             </p>
                             <p className="font-medium text-foreground">
-                              {new Date(app.submitted_at).toLocaleDateString()}
+                              {app.session || "N/A"}
                             </p>
                           </div>
                         </div>

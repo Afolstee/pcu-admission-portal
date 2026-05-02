@@ -1008,12 +1008,13 @@ def get_applicant_status(payload):
                 app.created_at,
                 app.form_no,
                 pt.name as program_name,
-                -- Legacy compatibility flags (will be refined as logic moves to applications table)
-                TRUE as has_paid_application_fee, 
-                (app.app_stage IN ('admitted', 'screening')) as has_paid_acceptance_fee, 
+                -- Application fee: always TRUE if record exists (paid at creation)
+                TRUE as has_paid_application_fee,
+                -- Acceptance fee: TRUE only if app_stage is 'accepted' (paid and confirmed)
+                (app.app_stage = 'accepted') as has_paid_acceptance_fee,
                 FALSE as has_paid_tuition,
                 CASE WHEN app.app_stage != 'started' THEN app.updated_at ELSE NULL END as submitted_at,
-                CASE WHEN app.app_stage = 'admitted' THEN 'admitted' ELSE 'pending' END as admission_status
+                CASE WHEN app.app_stage IN ('admitted', 'accepted') THEN 'admitted' ELSE 'pending' END as admission_status
            FROM applications app
            JOIN users u ON app.user_id = u.id
            LEFT JOIN program_types pt ON app.prog_type = pt.id
@@ -1041,20 +1042,24 @@ def get_admission_letter(payload):
     """Get admission letter data for the authenticated applicant"""
     user_id = payload['user_id']
 
-    # Get applicant details
+    # Get applicant details — only allow if acceptance fee has been paid (app_stage = 'accepted')
     applicant = Database.execute_query(
-        '''SELECT a.id, u.name, app.session, pt.name as program_name, pt.name as program_type_name
+        '''SELECT a.id, u.name, app.session, pt.name as program_name, pt.name as program_type_name,
+                  app.app_stage
            FROM applicants a
            JOIN users u ON a.user_id = u.id
            JOIN applications app ON a.user_id = app.user_id
            LEFT JOIN program_types pt ON app.prog_type = pt.id
-           WHERE a.user_id = %s AND app.app_stage = 'admitted'
+           WHERE a.user_id = %s AND app.app_stage IN ('admitted', 'accepted')
            LIMIT 1''',
         (user_id,)
     )
 
     if not applicant:
         return jsonify({'message': 'Admission letter not available'}), 404
+
+    if applicant[0]['app_stage'] != 'accepted':
+        return jsonify({'message': 'Admission letter is only available after paying the acceptance fee'}), 403
 
     applicant_data = applicant[0]
 
@@ -1211,6 +1216,59 @@ def print_admission_letter(payload):
         headers={'Content-Disposition': f'attachment;filename=admission_letter_{applicant_data["id"]}.pdf'}
     )
 
+@applicant_bp.route('/acceptance-fee', methods=['GET'])
+@AuthHandler.token_required
+def get_acceptance_fee(payload):
+    """Get acceptance fee amount for the admitted applicant's program type"""
+    user_id = payload['user_id']
+
+    # Get applicant's program type from their admitted application
+    app_res = Database.execute_query(
+        """SELECT prog_type FROM applications 
+           WHERE user_id = %s AND app_stage IN ('admitted', 'accepted') 
+           ORDER BY updated_at DESC LIMIT 1""",
+        (user_id,)
+    )
+
+    if not app_res:
+        return jsonify({'acceptance_fee': 0, 'found': False}), 200
+
+    prog_type = str(app_res[0]['prog_type'])
+
+    # Look up acceptance fee: fee_component_id=7 (Acceptance Fee) + program_type match
+    fee_res = Database.execute_query(
+        """SELECT pf.amount, fc.name as fee_name
+           FROM program_fees pf
+           JOIN fee_components fc ON fc.id = pf.fee_component_id
+           WHERE pf.fee_component_id = 7
+             AND pf.program_type = %s
+             AND pf.academic_session_id = (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)
+           LIMIT 1""",
+        (prog_type,)
+    )
+
+    # Fallback: any acceptance fee row if no program-type-specific match
+    if not fee_res:
+        fee_res = Database.execute_query(
+            """SELECT pf.amount, fc.name as fee_name
+               FROM program_fees pf
+               JOIN fee_components fc ON fc.id = pf.fee_component_id
+               WHERE pf.fee_component_id = 7
+                 AND pf.academic_session_id = (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)
+               LIMIT 1""",
+            ()
+        )
+
+    amount = float(fee_res[0]['amount']) if fee_res else 40000.0  # sensible default
+    fee_name = fee_res[0]['fee_name'] if fee_res else 'Acceptance Fee'
+
+    return jsonify({
+        'acceptance_fee': amount,
+        'fee_name': fee_name,
+        'program_type_id': prog_type,
+        'found': bool(fee_res)
+    }), 200
+
 @applicant_bp.route('/process-payment', methods=['POST'])
 @AuthHandler.token_required
 def process_payment(payload):
@@ -1311,6 +1369,15 @@ def process_payment(payload):
         
         if not success:
             return jsonify({'message': 'Failed to save payment transaction'}), 500
+            
+        # If acceptance fee paid, advance app_stage from 'admitted' → 'accepted'
+        if status == 'completed' and payment_type == 'acceptance_fee':
+            Database.execute_update(
+                """UPDATE applications
+                   SET app_stage = 'accepted', updated_at = NOW()
+                   WHERE user_id = %s AND app_stage = 'admitted'""",
+                (user_id,)
+            )
             
         # Prepare receipt data
         transaction_id = reference_id or f"PAY-{uuid.uuid4().hex[:12].upper()}"

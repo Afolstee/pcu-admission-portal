@@ -76,6 +76,7 @@ export default function ApplicantDashboard() {
   const [submittedFormData, setSubmittedFormData] = useState<any>(null);
   const [submittedDocuments, setSubmittedDocuments] = useState<any[]>([]);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [acceptanceFeeData, setAcceptanceFeeData] = useState<{ amount: number; feeName: string; paid: boolean } | null>(null);
 
   // Payment states
   const [selectedForm, setSelectedForm] = useState<DynamicProgramForm | null>(null);
@@ -281,10 +282,27 @@ export default function ApplicantDashboard() {
                             const template = await ApiClient.getFormTemplate(app.program_type_id);
                             setFormTemplate(template);
 
-                            if (app.application_status === 'submitted') {
+                            const isProfileStage = ['submitted', 'admitted', 'accepted'].includes(app.application_status);
+                            if (isProfileStage) {
                                const formData = await ApiClient.getForm(app.id);
                                setSubmittedFormData(formData.form);
                                setSubmittedDocuments(formData.documents || []);
+
+                               // Fetch acceptance fee for admitted applicants
+                               if (['admitted', 'accepted'].includes(app.application_status)) {
+                                 try {
+                                   const feeData = await ApiClient.getAcceptanceFee();
+                                   setAcceptanceFeeData({
+                                     amount: feeData.acceptance_fee,
+                                     feeName: feeData.fee_name,
+                                     paid: app.has_paid_acceptance_fee
+                                   });
+                                 } catch (e) {
+                                   console.error('Failed to load acceptance fee', e);
+                                 }
+                               } else {
+                                 setAcceptanceFeeData(null);
+                               }
                             }
                          } catch (e) {
                             console.error("Failed to load data", e);
@@ -293,7 +311,7 @@ export default function ApplicantDashboard() {
                          }
                       }}
                     >
-                      {app.application_status === 'submitted' ? 'Profile' : 'Apply'}
+                      {['submitted', 'admitted', 'accepted'].includes(app.application_status) ? 'Profile' : 'Apply'}
                     </Button>
                   </td>
                 </tr>
@@ -324,7 +342,7 @@ export default function ApplicantDashboard() {
               ← Back to Dashboard
             </Button>
             
-            {currentApp?.application_status === 'submitted' ? (
+            {currentApp && ['submitted', 'admitted', 'accepted'].includes(currentApp.application_status) ? (
                 <div className="space-y-10">
                    <div>
                       {currentApp.admission_status === 'admitted' && (
@@ -349,7 +367,8 @@ export default function ApplicantDashboard() {
                       <ApplicantProfile 
                         applicant={currentApp} 
                         form={submittedFormData} 
-                        documents={submittedDocuments} 
+                        documents={submittedDocuments}
+                        acceptanceFeeData={acceptanceFeeData}
                       />
                    )}
                 </div>

@@ -1,12 +1,11 @@
 "use client";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { ApiClient } from "@/lib/api";
 
 const ROLE_REDIRECTS: Record<string, string> = {
   admin:              "/ict/dashboard",
   ict_director:       "/ict/dashboard",
-  admissions_officer: "/admin/dashboard",
+  admissions_officer: "/admission_officer/dashboard",
   lecturer:           "/lecturer/dashboard",
   deo:                "/deo/dashboard",
   hod:                "/hod/dashboard",
@@ -15,7 +14,6 @@ const ROLE_REDIRECTS: Record<string, string> = {
 };
 
 export default function StaffLogin() {
-  const router = useRouter();
   const [form, setForm]   = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -41,8 +39,10 @@ export default function StaffLogin() {
       }
 
       ApiClient.setToken(data.token);
-      localStorage.setItem("staff_user", JSON.stringify(data.user));
-      window.location.href = ROLE_REDIRECTS[role]; // hard navigate to clear any cached state
+      localStorage.setItem("auth_user", JSON.stringify(data.user));
+      // Full page reload re-initializes AuthContext from localStorage.
+      // Prefix with basePath (/e-portal) since window.location.href bypasses Next.js routing.
+      window.location.href = `/e-portal${ROLE_REDIRECTS[role]}`;
     } catch (err: any) {
       setError(err.message || "Login failed. Please check your credentials.");
     } finally {

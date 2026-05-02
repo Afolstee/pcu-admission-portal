@@ -56,9 +56,9 @@ const STUDENT_NAV_ITEMS = [
 ];
 
 const ADMIN_NAV_ITEMS = [
-  { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
-  { label: 'Applications', href: '/admin/applications', icon: FileText },
-  { label: 'Send Letters', href: '/admin/send-letters', icon: UserPlus },
+  { label: 'Dashboard', href: '/admission_officer/dashboard', icon: LayoutDashboard },
+  { label: 'Applications', href: '/admission_officer/applications', icon: FileText },
+  { label: 'Send Letters', href: '/admission_officer/send-letters', icon: UserPlus },
   { label: 'Change Password', href: '/applicant/change-password', icon: Lock },
 ];
 

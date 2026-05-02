@@ -16,22 +16,32 @@ def get_applications(payload):
     status = request.args.get('status', 'submitted')
     program_id = request.args.get('program_id')
     
-    query = '''SELECT a.id, a.user_id, u.name, u.email, u.phone_number, 
-                      app.prog_type as program_id, pt.name as program_name, a.application_status,
-                      a.admission_status, a.submitted_at
-               FROM applicants a
-               JOIN users u ON a.user_id = u.id
-               LEFT JOIN applications app ON a.user_id = app.user_id
+    query = '''SELECT app.id, app.user_id, u.name, u.email, u.phone_number, 
+                      app.prog_type as program_id, pt.name as program_name, app.app_stage as application_status,
+                      app.updated_at as submitted_at, app.form_no, app.session
+               FROM applications app
+               JOIN users u ON app.user_id = u.id
                LEFT JOIN program_types pt ON app.prog_type = pt.id
-               WHERE a.application_status = %s'''
+               WHERE app.app_stage = %s'''
     
     params = [status]
+    
+    # 'admitted' tab should show both admitted (awaiting fee) and accepted (fee paid)
+    if status == 'admitted':
+        query = '''SELECT app.id, app.user_id, u.name, u.email, u.phone_number, 
+                          app.prog_type as program_id, pt.name as program_name, app.app_stage as application_status,
+                          app.updated_at as submitted_at, app.form_no, app.session
+                   FROM applications app
+                   JOIN users u ON app.user_id = u.id
+                   LEFT JOIN program_types pt ON app.prog_type = pt.id
+                   WHERE app.app_stage IN ('admitted', 'accepted')'''
+        params = []
     
     if program_id:
         query += ' AND app.prog_type = %s'
         params.append(program_id)
     
-    query += ' ORDER BY a.submitted_at DESC'
+    query += ' ORDER BY app.updated_at DESC'
     
     applications = Database.execute_query(query, tuple(params))
     
@@ -48,51 +58,124 @@ def get_application_details(payload, applicant_id):
     
     # Get applicant details
     applicant = Database.execute_query(
-        '''SELECT a.id, a.user_id, u.name, u.email, u.phone_number,
-                  app.prog_type as program_id, pt.name as program_name, a.application_status,
-                  a.admission_status, a.submitted_at
-           FROM applicants a
-           JOIN users u ON a.user_id = u.id
-           LEFT JOIN applications app ON a.user_id = app.user_id
+        '''SELECT app.id, app.user_id, u.name, u.email, u.phone_number,
+                  app.prog_type as program_id, pt.name as program_name, app.app_stage as application_status,
+                  app.updated_at as submitted_at, app.form_no, app.session,
+                  (app.app_stage = 'accepted') as has_paid_acceptance_fee
+           FROM applications app
+           JOIN users u ON app.user_id = u.id
            LEFT JOIN program_types pt ON app.prog_type = pt.id
-           WHERE a.id = %s''',
-        (applicant_id,)
+           WHERE app.id = %s''',
+        (applicant_id,) # this is now application_id from the frontend
     )
     
     if not applicant:
         return jsonify({'message': 'Applicant not found'}), 404
     
-    # Get application form
-    form = Database.execute_query(
-        'SELECT * FROM application_forms WHERE applicant_id = %s',
-        (applicant_id,)
+    # Get application form comprehensively
+    application_id = applicant_id
+    pi_res = Database.execute_query('SELECT * FROM app_personal_info WHERE application_id = %s', (application_id,))
+    nok_res = Database.execute_query('SELECT * FROM app_next_of_kin WHERE application_id = %s', (application_id,))
+    sponsor_res = Database.execute_query('SELECT * FROM app_sponsor WHERE application_id = %s', (application_id,))
+    
+    form_data = {}
+    if pi_res:
+        form_data = dict(pi_res[0])
+        if 'surname' in form_data:
+            form_data['last_name'] = form_data['surname']
+        if form_data.get('date_of_birth'):
+            try:
+                from datetime import date, datetime
+                dob = form_data['date_of_birth']
+                if isinstance(dob, (date, datetime)):
+                    form_data['date_of_birth'] = dob.strftime('%Y-%m-%d')
+            except:
+                pass
+        names = [form_data.get('first_name'), form_data.get('middle_name'), form_data.get('surname')]
+        form_data['full_name'] = ' '.join(filter(None, names))
+            
+    if nok_res:
+        nok_data = dict(nok_res[0])
+        form_data['next_of_kin_name'] = nok_data.get('full_name')
+        form_data['next_of_kin_phone_number'] = nok_data.get('phone_number')
+        form_data['next_of_kin_address'] = nok_data.get('address')
+        
+    if sponsor_res:
+        sponsor_data = dict(sponsor_res[0])
+        form_data['sponsor_name'] = sponsor_data.get('full_name')
+        form_data['sponsor_address'] = sponsor_data.get('address')
+        form_data['sponsor_phone_number'] = sponsor_data.get('phone_number')
+        form_data['sponsor_relationship'] = sponsor_data.get('relationship')
+        form_data['sponsor_email'] = sponsor_data.get('email')
+        
+    results_res = Database.execute_query('SELECT * FROM app_olevel_results WHERE application_id = %s ORDER BY sitting', (application_id,))
+    if results_res:
+        olevel_exams = []
+        for res in results_res:
+            subjects_res = Database.execute_query(
+                '''SELECT s.subject_id, s.grade_id, sub.name as subject_name, g.grade as grade_name
+                   FROM app_olevel_subjects s
+                   JOIN olevel_subjects sub ON s.subject_id = sub.id
+                   JOIN olevel_grades g ON s.grade_id = g.id
+                   WHERE s.result_id = %s''', (res['id'],)
+            )
+            olevel_exams.append({
+                'name': res['exam_type'], 'year': res['exam_year'], 'number': res['reg_no'], 'period': res.get('period'),
+                'subjects': [{'subject_id': s['subject_id'], 'grade_id': s['grade_id'], 'subject': s['subject_name'], 'grade': s['grade_name']} for s in (subjects_res or [])]
+            })
+        form_data['olevel_results'] = olevel_exams
+        
+    pc_res = Database.execute_query(
+        '''SELECT pc.*, d1.name as first_choice_name, d2.name as second_choice_name
+           FROM app_programme_choice pc
+           LEFT JOIN departments d1 ON pc.first_choice = d1.id
+           LEFT JOIN departments d2 ON pc.second_choice = d2.id
+           WHERE pc.application_id = %s''', (application_id,)
     )
+    if pc_res:
+        pc_data = dict(pc_res[0])
+        form_data['first_choice_program_id'] = pc_data.get('first_choice')
+        form_data['second_choice_program_id'] = pc_data.get('second_choice')
+        form_data['first_choice_program_name'] = pc_data.get('first_choice_name')
+        form_data['second_choice_program_name'] = pc_data.get('second_choice_name')
+
+    # Parse additional_info JSON — same as applicant get-form does.
+    # photo_url and other fields may be stored here on older submissions.
+    import json as _json
+    if form_data.get('additional_info'):
+        try:
+            ai = form_data['additional_info']
+            if isinstance(ai, str):
+                additional_info_data = _json.loads(ai)
+                # Explicit columns take priority; additional_info fills gaps
+                form_data = {**additional_info_data, **form_data}
+        except (_json.JSONDecodeError, TypeError):
+            pass
     
     # Get documents
     documents = Database.execute_query(
-        '''SELECT id, document_type, original_filename, file_size, compressed_size, is_compressed
-           FROM documents d
-           JOIN application_forms af ON d.application_form_id = af.id
-           WHERE af.applicant_id = %s''',
+        '''SELECT id, document_type, file_type, file_name as original_filename, file_size, 0 as compressed_size, false as is_compressed
+           FROM app_documents
+           WHERE application_id = %s''',
         (applicant_id,)
     )
     
     # Get review history
     reviews = Database.execute_query(
         '''SELECT ar.id, ar.reviewed_by, u.name as reviewed_by_name, ar.review_notes,
-                  ar.recommendation, ar.recommended_program_id, pt.name as recommended_program,
+                  ar.decision, ar.recommendation as recommended_program_id, p.name as recommended_program,
                   ar.reviewed_at
            FROM application_reviews ar
            LEFT JOIN users u ON ar.reviewed_by = u.id
-           LEFT JOIN program_types pt ON ar.recommended_program_id = pt.id
-           WHERE ar.applicant_id = %s
+           LEFT JOIN programs p ON ar.recommendation = p.id
+           WHERE ar.application_id = %s
            ORDER BY ar.reviewed_at DESC''',
         (applicant_id,)
     )
     
     return jsonify({
         'applicant': applicant[0],
-        'form': form[0] if form else None,
+        'form': form_data if form_data else None,
         'documents': documents or [],
         'reviews': reviews or []
     }), 200
@@ -105,40 +188,43 @@ def review_application(payload, admin_id=None):
     admin_id = payload['user_id']
     data = request.get_json()
     
-    if not data or 'applicant_id' not in data or 'recommendation' not in data:
-        return jsonify({'message': 'applicant_id and recommendation are required'}), 400
+    if not data or 'applicant_id' not in data or 'decision' not in data:
+        return jsonify({'message': 'applicant_id and decision are required'}), 400
     
     applicant_id = data['applicant_id']
-    recommendation = data['recommendation']  # 'accept', 'reject', 'recommend_other_program'
+    decision = data['decision']  # 'accept', 'reject', 'recommend'
     review_notes = data.get('review_notes', '')
-    recommended_program_id = data.get('recommended_program_id')
+    recommended_program_id = data.get('recommended_program_id')  # programs(id) FK, only required when decision='recommend'
     
-    # Validate recommendation
-    if recommendation not in ['accept', 'reject', 'recommend_other_program']:
-        return jsonify({'message': 'Invalid recommendation'}), 400
+    # Validate decision against the review_decision ENUM
+    if decision not in ['accept', 'reject', 'recommend']:
+        return jsonify({'message': 'Invalid decision. Must be accept, reject, or recommend'}), 400
     
-    # Create review record
+    if decision == 'recommend' and not recommended_program_id:
+        return jsonify({'message': 'recommended_program_id is required when decision is recommend'}), 400
+    
+    # Create review record using the new schema
     review_id = Database.execute_update(
         '''INSERT INTO application_reviews 
-           (applicant_id, reviewed_by, review_notes, recommendation, recommended_program_id)
+           (application_id, reviewed_by, decision, review_notes, recommendation)
            VALUES (%s, %s, %s, %s, %s) RETURNING id''',
-        (applicant_id, admin_id, review_notes, recommendation, recommended_program_id if recommendation == 'recommend_other_program' else None),
+        (applicant_id, admin_id, decision, review_notes, recommended_program_id if decision == 'recommend' else None),
         return_id=True
     )
     
     if not review_id:
         return jsonify({'message': 'Failed to save review'}), 500
     
-    # Update applicant status based on recommendation
-    if recommendation == 'accept':
-        new_status = 'accepted'
-    elif recommendation == 'reject':
+    # Map decision to app_stage
+    if decision == 'accept':
+        new_status = 'admitted'
+    elif decision == 'reject':
         new_status = 'rejected'
-    else:
-        new_status = 'recommended'
+    else:  # recommend
+        new_status = 'screening'
     
     Database.execute_update(
-        'UPDATE applicants SET application_status = %s WHERE id = %s',
+        'UPDATE applications SET app_stage = %s, updated_at = NOW() WHERE id = %s',
         (new_status, applicant_id)
     )
     
@@ -172,21 +258,24 @@ def send_admission_letter(payload):
     # Generate reference number
     ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id:04d}"
     
-    # Get applicant details with all program info
+    # Get applicant details — must be 'accepted' (acceptance fee paid) to receive letter
     applicant = Database.execute_query(
         '''SELECT u.id, u.name, u.email, app.prog_type as program_id, 
            pt.name as program_name, '100 Level' as level, 'N/A' as department, 'N/A' as faculty, 
-           pt.name as mode, app.session, 'TBD' as resumption_date
-           FROM applicants a
-           JOIN users u ON a.user_id = u.id
-           LEFT JOIN applications app ON a.user_id = app.user_id
+           pt.name as mode, app.session, 'TBD' as resumption_date, app.app_stage
+           FROM applications app
+           JOIN users u ON app.user_id = u.id
            LEFT JOIN program_types pt ON app.prog_type = pt.id
-           WHERE a.id = %s AND a.application_status = %s''',
-        (applicant_id, 'accepted')
+           WHERE app.id = %s AND app.app_stage IN ('admitted', 'accepted')''',
+        (applicant_id,)
     )
     
     if not applicant:
-        return jsonify({'message': 'Applicant not found or application not accepted'}), 404
+        return jsonify({'message': 'Applicant not found or application not admitted'}), 404
+    
+    # Block letter if acceptance fee not yet paid
+    if applicant[0]['app_stage'] != 'accepted':
+        return jsonify({'message': 'Cannot send admission letter — applicant has not paid the acceptance fee yet'}), 402
     
     applicant_data = applicant[0]
     
@@ -288,16 +377,15 @@ def preview_admission_letter(payload):
     applicant = Database.execute_query(
         '''SELECT u.id, u.name, u.email, app.prog_type as program_id, pt.name as program_name,
            '100 Level' as level, 'N/A' as department, 'N/A' as faculty, pt.name as mode, app.session, 'TBD' as resumption_date
-           FROM applicants a
-           JOIN users u ON a.user_id = u.id
-           LEFT JOIN applications app ON a.user_id = app.user_id
+           FROM applications app
+           JOIN users u ON app.user_id = u.id
            LEFT JOIN program_types pt ON app.prog_type = pt.id
-           WHERE a.id = %s AND a.application_status = %s''',
-        (applicant_id, 'accepted')
+           WHERE app.id = %s AND app.app_stage = %s''',
+        (applicant_id, 'admitted')
     )
 
     if not applicant:
-        return jsonify({'message': 'Applicant not found or application not accepted'}), 404
+        return jsonify({'message': 'Applicant not found or application not admitted'}), 404
 
     applicant_data = applicant[0]
 
@@ -568,6 +656,90 @@ def revoke_admission(payload):
         'message': 'Admission revoked successfully'
     }), 200
 
+@admin_bp.route('/recent-activity', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.admissions_officer_required
+def get_recent_activity(payload):
+    """Derive a unified recent activity feed from review and application events"""
+    limit = int(request.args.get('limit', 15))
+
+    # Admitted / rejected / recommended events from application_reviews
+    reviews = Database.execute_query(
+        """SELECT
+               ar.decision,
+               u.name          AS applicant_name,
+               app.form_no,
+               ar.reviewed_at  AS event_time
+           FROM application_reviews ar
+           JOIN applications app ON ar.application_id = app.id
+           JOIN users u          ON app.user_id = u.id
+           ORDER BY ar.reviewed_at DESC
+           LIMIT %s""",
+        (limit,)
+    )
+
+    # New application submissions
+    submissions = Database.execute_query(
+        """SELECT
+               u.name     AS applicant_name,
+               app.form_no,
+               app.updated_at AS event_time
+           FROM applications app
+           JOIN users u ON app.user_id = u.id
+           WHERE app.app_stage = 'submitted'
+           ORDER BY app.updated_at DESC
+           LIMIT %s""",
+        (limit,)
+    )
+
+    # Acceptance fee paid (stage transitioned to 'accepted')
+    fee_paid = Database.execute_query(
+        """SELECT
+               u.name     AS applicant_name,
+               app.form_no,
+               app.updated_at AS event_time
+           FROM applications app
+           JOIN users u ON app.user_id = u.id
+           WHERE app.app_stage = 'accepted'
+           ORDER BY app.updated_at DESC
+           LIMIT %s""",
+        (limit,)
+    )
+
+    events = []
+
+    for r in (reviews or []):
+        label = {
+            'accept':    f"{r['form_no']} accepted — {r['applicant_name']}",
+            'reject':    f"{r['form_no']} rejected — {r['applicant_name']}",
+            'recommend': f"{r['form_no']} recommended — {r['applicant_name']}",
+        }.get(r['decision'], f"{r['form_no']} reviewed — {r['applicant_name']}")
+        events.append({
+            'type':       r['decision'],
+            'label':      label,
+            'event_time': r['event_time'].isoformat() if r['event_time'] else None,
+        })
+
+    for s in (submissions or []):
+        events.append({
+            'type':       'submitted',
+            'label':      f"New application received — {s['applicant_name']}",
+            'event_time': s['event_time'].isoformat() if s['event_time'] else None,
+        })
+
+    for f in (fee_paid or []):
+        events.append({
+            'type':       'fee_paid',
+            'label':      f"Acceptance fee paid — {f['applicant_name']}",
+            'event_time': f['event_time'].isoformat() if f['event_time'] else None,
+        })
+
+    # Sort all events newest-first and cap
+    events.sort(key=lambda e: e['event_time'] or '', reverse=True)
+    events = events[:limit]
+
+    return jsonify({'activities': events}), 200
+
 @admin_bp.route('/statistics', methods=['GET'])
 @AuthHandler.token_required
 @AuthHandler.admissions_officer_required
@@ -577,32 +749,47 @@ def get_statistics(payload):
     stats = {}
     
     total = Database.execute_query(
-        "SELECT COUNT(*) as count FROM applicants WHERE application_status IN ('submitted', 'under_review', 'accepted', 'rejected')"
+        "SELECT COUNT(*) as count FROM applications"
     )
     stats['total_applications'] = total[0]['count'] if total else 0
     
 
     by_status = Database.execute_query(
-        '''SELECT application_status, COUNT(*) as count
-           FROM applicants
-           GROUP BY application_status'''
+        '''SELECT app_stage AS application_status, COUNT(*) AS count
+           FROM applications
+           GROUP BY app_stage
+           ORDER BY count DESC'''
     )
     stats['by_status'] = by_status or []
-    
 
     by_program = Database.execute_query(
-        '''SELECT pt.name, COUNT(*) as count
-           FROM applicants a
-           LEFT JOIN applications app ON a.user_id = app.user_id
+        '''SELECT pt.name, COUNT(*) AS count
+           FROM applications app
            LEFT JOIN program_types pt ON app.prog_type = pt.id
-           GROUP BY app.prog_type, pt.name'''
+           GROUP BY pt.name
+           ORDER BY count DESC'''
     )
     stats['by_program'] = by_program or []
     
     admitted = Database.execute_query(
-        "SELECT COUNT(*) as count FROM applicants WHERE admission_status = 'admitted'"
+        "SELECT COUNT(*) as count FROM applications WHERE app_stage IN ('admitted', 'accepted')"
     )
     stats['total_admitted'] = admitted[0]['count'] if admitted else 0
+
+    pending = Database.execute_query(
+        "SELECT COUNT(*) as count FROM applications WHERE app_stage = 'in_progress'"
+    )
+    stats['pending_submission'] = pending[0]['count'] if pending else 0
+    
+    review = Database.execute_query(
+        "SELECT COUNT(*) as count FROM applications WHERE app_stage = 'submitted'"
+    )
+    stats['review_applications'] = review[0]['count'] if review else 0
+    
+    screening = Database.execute_query(
+        "SELECT COUNT(*) as count FROM applications WHERE app_stage = 'screening'"
+    )
+    stats['under_review'] = screening[0]['count'] if screening else 0
     
     return jsonify(stats), 200
 
@@ -618,19 +805,20 @@ def get_letter_templates(payload):
 @AuthHandler.token_required
 @AuthHandler.admissions_officer_required
 def get_faculty_departments(payload):
-    """Get faculties and departments with pending applicants awaiting admission letters"""
-    query = '''SELECT 
-                'N/A' as faculty,
-                'N/A' as department,
-                COUNT(a.id) as pending_count
-            FROM applicants a
-            WHERE a.application_status = 'accepted'
-            GROUP BY faculty, department
-            ORDER BY faculty, department'''
-    
+    """Get applicants who have paid acceptance fee and are ready to receive letters"""
+    query = '''
+        SELECT 
+            pt.name as faculty,
+            pt.name as department,
+            COUNT(app.id) as pending_count
+        FROM applications app
+        JOIN program_types pt ON app.prog_type = pt.id
+        WHERE app.app_stage = 'accepted'
+        GROUP BY pt.name
+        ORDER BY pt.name
+    '''
     results = Database.execute_query(query)
     
-    # Organize by faculty
     faculties = {}
     if results:
         for row in results:
@@ -638,7 +826,7 @@ def get_faculty_departments(payload):
             if faculty not in faculties:
                 faculties[faculty] = []
             faculties[faculty].append({
-                'name': row['department'],
+                'name': row['department'] or 'General',
                 'pending_count': row['pending_count']
             })
     
@@ -648,15 +836,16 @@ def get_faculty_departments(payload):
 @AuthHandler.token_required
 @AuthHandler.admissions_officer_required
 def get_department_applicants(payload, department_name):
-    """Get pending applicants for a department awaiting admission letters"""
-    query = '''SELECT a.id, u.name, u.email, pt.name as program_name, 'N/A' as faculty, 'N/A' as department
-            FROM applicants a
-            JOIN users u ON a.user_id = u.id
-            LEFT JOIN applications app ON a.user_id = app.user_id
-            LEFT JOIN program_types pt ON app.prog_type = pt.id
-            WHERE a.application_status = 'accepted'
-            ORDER BY u.name ASC'''
-    
+    """Get applicants who have paid acceptance fee and are ready to receive letters"""
+    query = '''
+        SELECT app.id, u.name, u.email, pt.name as program_name
+        FROM applications app
+        JOIN users u ON app.user_id = u.id
+        JOIN program_types pt ON app.prog_type = pt.id
+        WHERE app.app_stage = 'accepted'
+          AND pt.name = %s
+        ORDER BY u.name ASC
+    '''
     applicants = Database.execute_query(query, (department_name,))
     
     return jsonify({
@@ -700,15 +889,14 @@ def send_department_letters(payload):
                 ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id:04d}"
                 
                 applicant = Database.execute_query(
-                    '''SELECT u.id, u.name, u.email, app.prog_type as program_id, 
+                    '''SELECT app.id, u.name, u.email, app.prog_type as program_id, 
                        pt.name as program_name, '100 Level' as level, 'N/A' as department, 'N/A' as faculty, 
                        pt.name as mode, app.session, 'TBD' as resumption_date
-                       FROM applicants a
-                       JOIN users u ON a.user_id = u.id
-                       LEFT JOIN applications app ON a.user_id = app.user_id
+                       FROM applications app
+                       JOIN users u ON app.user_id = u.id
                        LEFT JOIN program_types pt ON app.prog_type = pt.id
-                       WHERE a.id = %s AND a.application_status = %s''',
-                    (applicant_id, 'accepted')
+                       WHERE app.id = %s AND app.app_stage = 'accepted' ''',
+                    (applicant_id,)
                 )
                 
                 if not applicant:

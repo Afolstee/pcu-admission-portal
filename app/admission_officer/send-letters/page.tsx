@@ -200,7 +200,7 @@ export default function SendLettersPage() {
 
   const handlePreviewLetter = async (applicantId: number) => {
     try {
-      window.open(`/admin/preview-letter/${applicantId}`, "_blank");
+      window.open(`/admission_officer/preview-letter/${applicantId}`, "_blank");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to preview letter",
@@ -225,7 +225,7 @@ export default function SendLettersPage() {
         {/* Header */}
         <div className="mb-8">
           <Link
-            href="/admin/dashboard"
+            href="/admission_officer/dashboard"
             className="text-primary hover:underline text-sm mb-2 block"
           >
             ← Back to Dashboard

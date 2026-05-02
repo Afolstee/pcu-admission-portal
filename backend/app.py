@@ -47,7 +47,7 @@ def create_app(config_name='development'):
 
     app.register_blueprint(auth_bp, url_prefix='/e-portal/api/auth')
     app.register_blueprint(applicant_bp, url_prefix='/e-portal/api/applicant')
-    app.register_blueprint(admin_bp, url_prefix='/e-portal/api/admin')
+    app.register_blueprint(admin_bp, url_prefix='/e-portal/api/admission_officer')
     app.register_blueprint(student_bp, url_prefix='/e-portal/api/student')
     app.register_blueprint(scores_bp, url_prefix='/e-portal/api/scores')
     app.register_blueprint(staff_bp, url_prefix='/e-portal/api/staff')

@@ -609,3 +609,26 @@ UPDATE programs SET duration = 3 WHERE id = 19;
 UPDATE programs SET duration = 3 WHERE id = 20;
 UPDATE programs SET duration = 3 WHERE id = 21;
 UPDATE programs SET duration = 3 WHERE id = 22;
+
+CREATE TYPE review_decision AS ENUM ('accept', 'reject', 'recommend');
+
+CREATE TABLE application_reviews (
+    id                  SERIAL PRIMARY KEY,
+    application_id      INTEGER NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+    reviewed_by         INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    decision            review_decision NOT NULL,
+    review_notes        TEXT,
+    recommendation      INTEGER REFERENCES programs(id) ON DELETE SET NULL,
+    reviewed_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT chk_recommendation
+        CHECK (
+            (decision = 'recommend' AND recommendation IS NOT NULL)
+            OR
+            (decision <> 'recommend' AND recommendation IS NULL)
+        )
+);
+
+CREATE INDEX idx_app_reviews_application_id ON application_reviews(application_id);
+CREATE INDEX idx_app_reviews_reviewed_by    ON application_reviews(reviewed_by);
+CREATE INDEX idx_app_reviews_decision       ON application_reviews(decision);

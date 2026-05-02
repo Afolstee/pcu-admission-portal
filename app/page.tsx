@@ -79,11 +79,11 @@ export default function UniversityLandingPage() {
 
   useEffect(() => {
     if (isAuthenticated && user && !isLoading) {
-      if (user.role === "admin") {
-        router.replace("/admin/dashboard");
-      } else {
-        router.replace("/applicant/dashboard");
+      if (user.role !== "applicant") {
+        // Staff users are handled by the staff login page; don't redirect from the landing page
+        return;
       }
+      router.replace("/applicant/dashboard");
     }
   }, [isAuthenticated, user, isLoading, router]);
 

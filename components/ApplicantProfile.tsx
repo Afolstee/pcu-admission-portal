@@ -9,10 +9,13 @@ interface ApplicantProfileProps {
   applicant: any;
   form: any;
   documents: any[];
+  acceptanceFeeData?: { amount: number; feeName: string; paid: boolean } | null;
 }
 
-export default function ApplicantProfile({ applicant, form, documents }: ApplicantProfileProps) {
+export default function ApplicantProfile({ applicant, form, documents, acceptanceFeeData }: ApplicantProfileProps) {
   const [passportUrl, setPassportUrl] = React.useState<string | null>(null);
+  const [payingFee, setPayingFee] = React.useState(false);
+  const [feePaySuccess, setFeePaySuccess] = React.useState(false);
 
   // Find passport document
   const passportDoc = documents.find(d => 
@@ -300,6 +303,111 @@ export default function ApplicantProfile({ applicant, form, documents }: Applica
           </div>
         </div>
       </div>
+
+      {/* Acceptance Fee Payment Section */}
+      {acceptanceFeeData && (
+        <div className={`rounded-xl border-2 p-6 space-y-4 ${
+          acceptanceFeeData.paid
+            ? 'bg-emerald-50 border-emerald-200'
+            : 'bg-amber-50 border-amber-300'
+        }`}>
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${
+                acceptanceFeeData.paid ? 'bg-emerald-500 text-white' : 'bg-amber-400 text-white'
+              }`}>
+                {acceptanceFeeData.paid ? '✓' : '₦'}
+              </div>
+              <div>
+                <h3 className={`font-bold text-lg ${
+                  acceptanceFeeData.paid ? 'text-emerald-800' : 'text-amber-900'
+                }`}>
+                  {acceptanceFeeData.paid ? 'Acceptance Fee Paid' : 'Acceptance Fee Payment Required'}
+                </h3>
+                <p className={`text-sm ${
+                  acceptanceFeeData.paid ? 'text-emerald-700' : 'text-amber-700'
+                }`}>
+                  {acceptanceFeeData.paid
+                    ? 'Your acceptance fee has been confirmed. Your admission letter will be sent shortly.'
+                    : 'You must pay the acceptance fee to confirm your admission offer.'}
+                </p>
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <p className={`text-3xl font-black ${
+                acceptanceFeeData.paid ? 'text-emerald-700' : 'text-amber-800'
+              }`}>
+                ₦{acceptanceFeeData.amount.toLocaleString()}
+              </p>
+              <p className="text-xs text-slate-500">{acceptanceFeeData.feeName}</p>
+            </div>
+          </div>
+
+          {!acceptanceFeeData.paid && (
+            <>
+              <div className="bg-white/70 rounded-lg p-4 text-sm text-amber-900 space-y-1 border border-amber-200">
+                <p className="font-semibold">Payment Instructions:</p>
+                <ol className="list-decimal ml-4 space-y-1">
+                  <li>Log in to the University payment portal</li>
+                  <li>Select <strong>Acceptance Fee</strong> under Payment Types</li>
+                  <li>Complete payment of <strong>₦{acceptanceFeeData.amount.toLocaleString()}</strong></li>
+                  <li>Return here — your status will update automatically</li>
+                </ol>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Button
+                  className="bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold px-8"
+                  onClick={async () => {
+                    setPayingFee(true);
+                    try {
+                      const token = localStorage.getItem('auth_token');
+                      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/e-portal/api';
+                      const ref = 'AF' + Date.now();
+                      const res = await fetch(`${baseUrl}/applicant/process-payment`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({
+                          payment_type: 'acceptance_fee',
+                          amount: acceptanceFeeData.amount,
+                          payment_method: 'online',
+                          reference_id: ref,
+                          status: 'completed'
+                        })
+                      });
+                      if (res.ok) {
+                        setFeePaySuccess(true);
+                        // Reload page after short delay to reflect new stage
+                        setTimeout(() => window.location.reload(), 2000);
+                      } else {
+                        alert('Payment failed. Please try again.');
+                      }
+                    } catch (e) {
+                      console.error(e);
+                      alert('An error occurred. Please try again.');
+                    } finally {
+                      setPayingFee(false);
+                    }
+                  }}
+                  disabled={payingFee || feePaySuccess}
+                >
+                  {payingFee ? (
+                    <><span className="animate-spin mr-1">⟳</span> Processing...</>
+                  ) : feePaySuccess ? (
+                    <>✓ Payment Confirmed — Refreshing...</>
+                  ) : (
+                    <>Pay Acceptance Fee →</>
+                  )}
+                </Button>
+                {feePaySuccess && (
+                  <p className="text-emerald-700 font-semibold text-sm">Payment received! Your status is being updated...</p>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
     </div>
   );
 }

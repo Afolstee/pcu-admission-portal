@@ -58,9 +58,9 @@ export default function ICTStaffPage() {
   async function loadMeta() {
     try {
       const [dr, fr, cr] = await Promise.all([
-        ApiClient.fetch<any>("/admin/departments"),
-        ApiClient.fetch<any>("/admin/faculties"),
-        ApiClient.fetch<any>("/admin/courses-list"),
+        ApiClient.fetch<any>("/admission_officer/departments"),
+        ApiClient.fetch<any>("/admission_officer/faculties"),
+        ApiClient.fetch<any>("/admission_officer/courses-list"),
       ]);
       setDepts(dr.data?.departments ?? []);
       setFaculties(fr.data?.faculties ?? []);

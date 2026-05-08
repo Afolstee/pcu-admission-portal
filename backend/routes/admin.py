@@ -75,8 +75,8 @@ def get_application_details(payload, applicant_id):
     # Get application form comprehensively
     application_id = applicant_id
     pi_res = Database.execute_query('SELECT * FROM biodata WHERE application_id = %s', (application_id,))
-    nok_res = Database.execute_query('SELECT * FROM app_next_of_kin WHERE application_id = %s', (application_id,))
-    sponsor_res = Database.execute_query('SELECT * FROM app_sponsor WHERE application_id = %s', (application_id,))
+    nok_res = Database.execute_query('SELECT * FROM next_of_kin WHERE application_id = %s', (application_id,))
+    sponsor_res = Database.execute_query('SELECT * FROM sponsor WHERE application_id = %s', (application_id,))
     
     form_data = {}
     if pi_res:
@@ -108,26 +108,61 @@ def get_application_details(payload, applicant_id):
         form_data['sponsor_relationship'] = sponsor_data.get('relationship')
         form_data['sponsor_email'] = sponsor_data.get('email')
         
-    results_res = Database.execute_query('SELECT * FROM app_olevel_results WHERE application_id = %s ORDER BY sitting', (application_id,))
-    if results_res:
+    aq_res = Database.execute_query(
+        'SELECT aq.* FROM academic_qualification aq JOIN applications a ON aq.user_id = a.user_id WHERE a.id = %s',
+        (application_id,)
+    )
+
+    if aq_res:
+        aq = aq_res[0]
         olevel_exams = []
-        for res in results_res:
-            subjects_res = Database.execute_query(
-                '''SELECT s.subject_id, s.grade_id, sub.name as subject_name, g.grade as grade_name
-                   FROM app_olevel_subjects s
-                   JOIN olevel_subjects sub ON s.subject_id = sub.id
-                   JOIN olevel_grades g ON s.grade_id = g.id
-                   WHERE s.result_id = %s''', (res['id'],)
-            )
+
+        # First sitting
+        if aq.get('exam_type'):
+            subjects = []
+            for i in range(1, 6):
+                subj  = aq.get(f'subject{i}')
+                grade = aq.get(f'grade{i}')
+                if subj and grade:
+                    subjects.append({
+                        'subject_id': subj,
+                        'grade_id': grade,
+                        'subject': subj,
+                        'grade': grade
+                    })
+
             olevel_exams.append({
-                'name': res['exam_type'], 'year': res['exam_year'], 'number': res['reg_no'], 'period': res.get('period'),
-                'subjects': [{'subject_id': s['subject_id'], 'grade_id': s['grade_id'], 'subject': s['subject_name'], 'grade': s['grade_name']} for s in (subjects_res or [])]
+                'name':     aq.get('exam_type'),
+                'number':   aq.get('exam_no'),
+                'subjects': subjects
             })
-        form_data['olevel_results'] = olevel_exams
+
+        # Second sitting
+        if aq.get('exam_type1'):
+            subjects = []
+            for i in range(1, 6):
+                subj  = aq.get(f'second_subject{i}')
+                grade = aq.get(f'second_grade{i}')
+                if subj and grade:
+                    subjects.append({
+                        'subject_id': subj,
+                        'grade_id': grade,
+                        'subject': subj,
+                        'grade': grade
+                    })
+
+            olevel_exams.append({
+                'name':     aq.get('exam_type1'),
+                'number':   aq.get('exam_no1'),
+                'subjects': subjects
+            })
+
+        if olevel_exams:
+            form_data['olevel_results'] = olevel_exams
         
     pc_res = Database.execute_query(
         '''SELECT pc.*, d1.name as first_choice_name, d2.name as second_choice_name
-           FROM app_programme_choice pc
+           FROM program_choice pc
            LEFT JOIN departments d1 ON pc.first_choice = d1.id
            LEFT JOIN departments d2 ON pc.second_choice = d2.id
            WHERE pc.application_id = %s''', (application_id,)

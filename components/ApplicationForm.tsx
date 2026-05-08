@@ -231,12 +231,12 @@ export default function ApplicationForm({
   // Memoize dropdown options — only re-created when source data changes
   const subjectItems = useMemo(() =>
     olevelSubjects.map(s => (
-      <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>
+      <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>
     )), [olevelSubjects]);
 
   const gradeItems = useMemo(() =>
     olevelGrades.map(g => (
-      <SelectItem key={g.id} value={g.id.toString()}>{g.grade}</SelectItem>
+      <SelectItem key={g.id} value={g.grade}>{g.grade}</SelectItem>
     )), [olevelGrades]);
 
   

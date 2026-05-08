@@ -30,23 +30,27 @@ def get_olevel_data():
 
 @applicant_bp.route('/programs', methods=['GET'])
 def get_programs():
-    """Get list of available programs grouped by faculty and department"""
+    """Get list of available programs based on applicant's selected program type"""
+    program_type_id = request.args.get('program_type_id')
+
     programs = Database.execute_query(
         '''SELECT 
-            pt.id               AS program_type_id,
-            pt.name             AS program_type,
+            ps.id               AS program_id,
+            ps.name             AS program,
             d.id                AS department_id,
-            d.name              AS course,
+            d.name              AS department,
+            dg.id               AS degree_id,
             dg.name             AS degree,
+            dg.code             AS degree_code,
             dy.years            AS duration
-        FROM program_setup ps
-        JOIN degree_program dp      ON ps.degree_program_id = dp.id
-        JOIN program_types pt       ON dp.program_type_id   = pt.id
-        JOIN degrees dg             ON dp.degree_id         = dg.id
-        JOIN departments d          ON ps.department_id     = d.id
-        JOIN duration_years dy      ON dp.duration_id       = dy.id
-        WHERE ps.is_active = TRUE
-        ORDER BY pt.name, d.name;'''
+        FROM degree_program dp
+        JOIN degrees dg         ON dp.degree_id      = dg.id
+        JOIN program_setup ps   ON ps.degree_id      = dp.degree_id
+        JOIN departments d      ON ps.department_id  = d.id
+        JOIN duration_years dy  ON dp.duration_id    = dy.id
+        WHERE dp.program_type_id = %s
+        ORDER BY d.name, ps.name;''',
+        (program_type_id,)
     )
     
     global_lock = False
@@ -126,7 +130,7 @@ def get_form_template(payload, program_type_id):
     
     # Guard route so only 'applicant' can access
     role = payload.get('role', '')
-    if role != 'Applicant':
+    if role != 'applicant':
         return jsonify({'message': 'Access denied. Please complete payment first.'}), 403
     
     # Mock form template based on program
@@ -448,7 +452,7 @@ def submit_form(payload):
 
 
 
-    # --- NEW SCHEMA: Save to app_next_of_kin ---
+    # --- NEW SCHEMA: Save to next_of_kin ---
     nok_fields = {
         'application_id': application_id,
         'full_name': data.get('next_of_kin_name'),
@@ -469,7 +473,7 @@ def submit_form(payload):
         update_set = ", ".join([f"{col} = EXCLUDED.{col}" for col in nok_columns if col != 'application_id'])
         
         query = f'''
-            INSERT INTO app_next_of_kin ({cols_str})
+            INSERT INTO next_of_kin ({cols_str})
             VALUES ({placeholders})
             ON CONFLICT (application_id) 
             DO UPDATE SET {update_set}
@@ -477,7 +481,7 @@ def submit_form(payload):
         Database.execute_update(query, tuple(nok_values))
 
 
-    # --- NEW SCHEMA: Save to app_sponsor ---
+    # --- NEW SCHEMA: Save to sponsor ---
     sponsor_fields = {
         'application_id': application_id,
         'full_name': data.get('sponsor_name'),
@@ -500,7 +504,7 @@ def submit_form(payload):
         update_set = ", ".join([f"{col} = EXCLUDED.{col}" for col in sponsor_columns if col != 'application_id'])
         
         query = f'''
-            INSERT INTO app_sponsor ({cols_str})
+            INSERT INTO sponsor ({cols_str})
             VALUES ({placeholders})
             ON CONFLICT (application_id) 
             DO UPDATE SET {update_set}
@@ -508,7 +512,7 @@ def submit_form(payload):
         Database.execute_update(query, tuple(sponsor_values))
 
 
-    # --- NEW SCHEMA: Save to app_olevel_results & subjects ---
+    # --- NEW SCHEMA: Save to academic_qualification (O'Level results) ---
     olevel_results_raw = data.get('olevel_results')
     if olevel_results_raw:
         try:
@@ -518,73 +522,70 @@ def submit_form(payload):
                 olevel_exams = olevel_results_raw
                 
             if isinstance(olevel_exams, list):
-                # Delete existing O'Level data for this application to overwrite
-                # (Cascade delete handles subjects if defined in schema, but let's be safe)
-                Database.execute_update('DELETE FROM app_olevel_results WHERE application_id = %s', (application_id,))
-                
-                for idx, exam in enumerate(olevel_exams):
-                    sitting_label = str(idx + 1)
-                    
-                    res_id = Database.execute_update(
-                        '''INSERT INTO app_olevel_results (application_id, exam_type, exam_year, sitting, reg_no, period)
-                           VALUES (%s, %s, %s, %s, %s, %s) RETURNING id''',
-                        (application_id, exam.get('name') or exam.get('examType'), 
-                         exam.get('year') or exam.get('examYear'), 
-                         sitting_label, 
-                         exam.get('number') or exam.get('regNo'),
-                         exam.get('period')),
-                        return_id=True
-                    )
+                # Fetch maps to resolve IDs to names just in case frontend sends IDs
+                subject_rows = Database.execute_query('SELECT id, name FROM olevel_subjects')
+                grade_rows = Database.execute_query('SELECT id, grade FROM olevel_grades')
+                subj_map = {str(r['id']): r['name'] for r in (subject_rows or [])}
+                grade_map = {str(r['id']): r['grade'] for r in (grade_rows or [])}
 
-                    
+                aq_fields = {'user_id': user_id}
+
+                for idx, exam in enumerate(olevel_exams):
                     subjects = exam.get('subjects', [])
-                    if res_id and isinstance(subjects, list):
-                        for s in subjects:
-                            # Support both old 'subject'/'grade' strings (if they contain IDs) and new 'subject_id'/'grade_id'
-                            sid = s.get('subject_id') or s.get('subject')
-                            gid = s.get('grade_id') or s.get('grade')
+                    
+                    if idx == 0:
+                        # First sitting
+                        aq_fields['exam_type'] = exam.get('name') or exam.get('examType')
+                        aq_fields['exam_no']   = exam.get('number') or exam.get('regNo')
+                        for i, s in enumerate(subjects[:5], start=1):
+                            s_val = s.get('subject_id')
+                            if not s_val: s_val = s.get('subject')
+                            s_val = str(s_val).strip() if s_val else ''
                             
-                            if sid and gid:
-                                Database.execute_update(
-                                    '''INSERT INTO app_olevel_subjects (result_id, subject_id, grade_id)
-                                       VALUES (%s, %s, %s)''',
-                                    (res_id, sid, gid)
-                                )
+                            g_val = s.get('grade_id')
+                            if not g_val: g_val = s.get('grade')
+                            g_val = str(g_val).strip() if g_val else ''
+                            
+                            aq_fields[f'subject{i}'] = subj_map.get(s_val, s_val) if s_val else None
+                            aq_fields[f'grade{i}']   = grade_map.get(g_val, g_val) if g_val else None
+
+                    elif idx == 1:
+                        # Second sitting
+                        aq_fields['exam_type1'] = exam.get('name') or exam.get('examType')
+                        aq_fields['exam_no1']   = exam.get('number') or exam.get('regNo')
+                        for i, s in enumerate(subjects[:5], start=1):
+                            s_val = s.get('subject_id')
+                            if not s_val: s_val = s.get('subject')
+                            s_val = str(s_val).strip() if s_val else ''
+                            
+                            g_val = s.get('grade_id')
+                            if not g_val: g_val = s.get('grade')
+                            g_val = str(g_val).strip() if g_val else ''
+                            
+                            aq_fields[f'second_subject{i}'] = subj_map.get(s_val, s_val) if s_val else None
+                            aq_fields[f'second_grade{i}']   = grade_map.get(g_val, g_val) if g_val else None
+
+                # Filter out None values
+                aq_columns = [col for col, val in aq_fields.items() if val is not None]
+                aq_values  = [val for val in aq_fields.values() if val is not None]
+
+                if aq_columns:
+                    cols_str     = ", ".join(aq_columns)
+                    placeholders = ", ".join(["%s"] * len(aq_columns))
+                    update_set   = ", ".join(
+                        [f"{col} = EXCLUDED.{col}" for col in aq_columns if col != 'user_id']
+                    )
+                    
+                    query = f'''
+                        INSERT INTO academic_qualification ({cols_str})
+                        VALUES ({placeholders})
+                        ON CONFLICT (user_id)
+                        DO UPDATE SET {update_set}
+                    '''
+                    Database.execute_update(query, tuple(aq_values))
 
         except Exception as e:
             print(f"Error saving O'Level results: {e}")
-
-    # --- NEW SCHEMA: Save to app_programme_choice ---
-
-    prog_choice_fields = {
-        'application_id': application_id,
-        'first_choice': data.get('first_choice_program_id'),
-        'second_choice': data.get('second_choice_program_id')
-    }
-    
-    pc_columns = []
-    pc_values = []
-    for col, val in prog_choice_fields.items():
-        if val is not None:
-            pc_columns.append(col)
-            pc_values.append(val)
-            
-    if len(pc_columns) > 1:
-        cols_str = ", ".join(pc_columns)
-        placeholders = ", ".join(["%s"] * len(pc_columns))
-        update_set = ", ".join([f"{col} = EXCLUDED.{col}" for col in pc_columns if col != 'application_id'])
-        
-        query = f'''
-            INSERT INTO app_programme_choice ({cols_str})
-            VALUES ({placeholders})
-            ON CONFLICT (application_id) 
-            DO UPDATE SET {update_set}
-        '''
-        Database.execute_update(query, tuple(pc_values))
-
-
-
-
 
 
     # Update application stage to 'in_progress' if it's still 'started'
@@ -662,7 +663,7 @@ def upload_document(payload):
     file_ext = stored_filename.split('.')[-1] if '.' in stored_filename else ''
     
     doc_id = Database.execute_update(
-    '''INSERT INTO app_documents 
+    '''INSERT INTO documents 
        (application_id, document_type, file_name, file_url, file_size, file_type, status)
        VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
     (form_id_int, document_type, file.filename, file_path, original_size_int, file_ext, 'pending'),
@@ -693,7 +694,7 @@ def delete_document(payload, document_id):
     
     # Verify ownership
     doc = Database.execute_query(
-        '''SELECT d.id, d.file_url as file_path FROM app_documents d
+        '''SELECT d.id, d.file_url as file_path FROM documents d
            JOIN applications a ON d.application_id = a.id
            WHERE d.id = %s AND a.user_id = %s''',
         (document_id, user_id)
@@ -710,7 +711,7 @@ def delete_document(payload, document_id):
         os.remove(file_path)
     
     # Delete from database
-    Database.execute_update('DELETE FROM app_documents WHERE id = %s', (document_id,))
+    Database.execute_update('DELETE FROM documents WHERE id = %s', (document_id,))
 
     
     return jsonify({'message': 'Document deleted successfully'}), 200
@@ -726,7 +727,7 @@ def download_document(payload, document_id):
     
     # Verify ownership or admin access
     doc = Database.execute_query(
-        '''SELECT d.file_url as file_path, d.file_type as mime_type, d.file_name as original_filename FROM app_documents d
+        '''SELECT d.file_url as file_path, d.file_type as mime_type, d.file_name as original_filename FROM documents d
            JOIN applications a ON d.application_id = a.id
            WHERE d.id = %s AND (a.user_id = %s OR %s IN ('admin', 'ict_director', 'admissions_officer'))''',
         (document_id, user_id, role)
@@ -744,7 +745,7 @@ def download_document(payload, document_id):
     return send_file(file_path, mimetype=doc[0]['mime_type'])
 
 
-@applicant_bp.route('/get-form/<int:applicant_id>', methods=['GET'])
+@applicant_bp.route('/get-form/<applicant_id>', methods=['GET'])
 @AuthHandler.token_required
 def get_form(payload, applicant_id):
     """Get saved application form"""
@@ -776,11 +777,11 @@ def get_form(payload, applicant_id):
             (application_id,)
         )
         nok_res = Database.execute_query(
-            'SELECT * FROM app_next_of_kin WHERE application_id = %s',
+            'SELECT * FROM next_of_kin WHERE application_id = %s',
             (application_id,)
         )
         sponsor_res = Database.execute_query(
-            'SELECT * FROM app_sponsor WHERE application_id = %s',
+            'SELECT * FROM sponsor WHERE application_id = %s',
             (application_id,)
         )
     
@@ -823,39 +824,58 @@ def get_form(payload, applicant_id):
         form_data['sponsor_email'] = sponsor_data.get('email')
         
     if application_id:
-        # Reconstruct O'Level results
-        results_res = Database.execute_query(
-            'SELECT * FROM app_olevel_results WHERE application_id = %s ORDER BY sitting',
-            (application_id,)
+        # --- NEW SCHEMA: Fetch O'Level results from academic_qualification ---
+        aq_res = Database.execute_query(
+            'SELECT * FROM academic_qualification WHERE user_id = %s',
+            (user_id,)
         )
-        if results_res:
+
+        if aq_res:
+            aq = aq_res[0]
             olevel_exams = []
-            for res in results_res:
-                # Fetch subjects and join with lookup tables to get names
-                subjects_res = Database.execute_query(
-                    '''SELECT s.subject_id, s.grade_id, sub.name as subject_name, g.grade as grade_name
-                       FROM app_olevel_subjects s
-                       JOIN olevel_subjects sub ON s.subject_id = sub.id
-                       JOIN olevel_grades g ON s.grade_id = g.id
-                       WHERE s.result_id = %s''',
-                    (res['id'],)
-                )
+
+            # First sitting
+            if aq.get('exam_type'):
+                subjects = []
+                for i in range(1, 6):
+                    subj  = aq.get(f'subject{i}')
+                    grade = aq.get(f'grade{i}')
+                    if subj and grade:
+                        subjects.append({
+                            'subject_id': subj,
+                            'grade_id': grade,
+                            'subject': subj,
+                            'grade': grade
+                        })
+
                 olevel_exams.append({
-                    'name': res['exam_type'],
-                    'year': res['exam_year'],
-                    'number': res['reg_no'],
-                    'period': res.get('period'),
-                    'subjects': [
-                        {
-                            'subject_id': s['subject_id'], 
-                            'grade_id': s['grade_id'],
-                            'subject': s['subject_name'], # For backward compatibility in display
-                            'grade': s['grade_name']      # For backward compatibility in display
-                        } for s in (subjects_res or [])
-                    ]
+                    'name':     aq.get('exam_type'),
+                    'number':   aq.get('exam_no'),
+                    'subjects': subjects
                 })
 
-            form_data['olevel_results'] = olevel_exams
+            # Second sitting
+            if aq.get('exam_type1'):
+                subjects = []
+                for i in range(1, 6):
+                    subj  = aq.get(f'second_subject{i}')
+                    grade = aq.get(f'second_grade{i}')
+                    if subj and grade:
+                        subjects.append({
+                            'subject_id': subj,
+                            'grade_id': grade,
+                            'subject': subj,
+                            'grade': grade
+                        })
+
+                olevel_exams.append({
+                    'name':     aq.get('exam_type1'),
+                    'number':   aq.get('exam_no1'),
+                    'subjects': subjects
+                })
+
+            if olevel_exams:
+                form_data['olevel_results'] = olevel_exams
 
             
     if application_id:
@@ -863,7 +883,7 @@ def get_form(payload, applicant_id):
 
         pc_res = Database.execute_query(
             '''SELECT pc.*, d1.name as first_choice_name, d2.name as second_choice_name
-               FROM app_programme_choice pc
+               FROM program_choice pc
                LEFT JOIN departments d1 ON pc.first_choice = d1.id
                LEFT JOIN departments d2 ON pc.second_choice = d2.id
                WHERE pc.application_id = %s''',

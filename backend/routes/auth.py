@@ -242,6 +242,7 @@ def verify_token(payload):
             
     return jsonify({
         'message': 'Token is valid',
+        'token': AuthHandler.generate_token(user_data['id'], role),
         'user': {
             'id': user_data['id'],
             'name': full_name,

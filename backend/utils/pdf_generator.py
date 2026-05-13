@@ -3,396 +3,498 @@ import re
 import io
 import base64
 from datetime import datetime
-from html.parser import HTMLParser
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, PageBreak, Table, TableStyle
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.units import inch, cm
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT, TA_JUSTIFY
 from reportlab.lib import colors
 from bs4 import BeautifulSoup
 
-class HTMLToFlowablesParser:
-    """Parse HTML with BeautifulSoup and convert to ReportLab Flowables"""
-    
+
+# ---------------------------------------------------------------------------
+# Template rendering helpers
+# ---------------------------------------------------------------------------
+
+def _render_template(html: str, context: dict) -> str:
+    """
+    Resolve Jinja2-style {{ var }} placeholders and {% if var %} … {% endif %}
+    blocks.  Only the subset used in the admission letter template is supported.
+    """
+    # ---- 1. Handle {% if var %} … {% endif %} blocks ----------------------
+    # Pattern: {% if VAR %} content {% endif %}
+    # If context[VAR] is truthy keep content, otherwise remove the whole block.
+    def replace_if_block(m):
+        var_name = m.group(1).strip()
+        inner    = m.group(2)
+        return inner if context.get(var_name) else ""
+
+    html = re.sub(
+        r'\{%-?\s*if\s+(\w+)\s*-?%\}(.*?)\{%-?\s*endif\s*-?%\}',
+        replace_if_block,
+        html,
+        flags=re.DOTALL,
+    )
+
+    # ---- 2. Replace {{ var }} placeholders --------------------------------
+    def replace_var(m):
+        var_name = m.group(1).strip()
+        return str(context.get(var_name, ""))
+
+    html = re.sub(r'\{\{\s*(\w+)\s*\}\}', replace_var, html)
+
+    return html
+
+
+# ---------------------------------------------------------------------------
+# ReportLab flowable builder for the new template structure
+# ---------------------------------------------------------------------------
+
+class NewTemplateParser:
+    """
+    Convert the new JUPEB admission-letter HTML into ReportLab flowables.
+    The layout is driven by named sections recognised via class / structure,
+    not a generic recursive walk, so that table-based content renders correctly.
+    """
+
+    PAGE_WIDTH  = A4[0] - 2 * 1.5 * cm   # usable width (1.5 cm side margins)
+    LOGO_SIZE   = 2.0 * cm
+
     def __init__(self):
         self.flowables = []
-        self.styles = getSampleStyleSheet()
-        self._setup_custom_styles()
-        
-    def _setup_custom_styles(self):
-        """Create custom paragraph styles for different elements"""
-        # Header title
-        self.styles.add(ParagraphStyle(
-            name='HeaderTitle',
-            parent=self.styles['Normal'],
-            fontSize=18,
-            fontName='Times-Bold',
-            textColor=colors.black,
-            spaceAfter=0,
-            alignment=TA_CENTER
-        ))
-        
-        # Header address
-        self.styles.add(ParagraphStyle(
-            name='HeaderAddress',
-            parent=self.styles['Normal'],
-            fontSize=11,
-            fontName='Times-Roman',
-            textColor=colors.black,
-            spaceAfter=2,
+        self._styles   = getSampleStyleSheet()
+        self._add_styles()
+
+    # ------------------------------------------------------------------
+    # Style definitions
+    # ------------------------------------------------------------------
+    def _add_styles(self):
+        S = self._styles
+
+        def add(name, **kw):
+            parent = kw.pop("parent", S["Normal"])
+            S.add(ParagraphStyle(name=name, parent=parent, **kw))
+
+        add("UnivTitle",   fontSize=13, fontName="Helvetica-Bold",
+            alignment=TA_CENTER, spaceAfter=2)
+        add("UnivAddress", fontSize=8,  fontName="Helvetica",
+            alignment=TA_CENTER, leading=10, spaceAfter=0)
+        add("RegTitle",    fontSize=11, fontName="Helvetica-Bold",
+            alignment=TA_CENTER, spaceBefore=6, spaceAfter=6)
+        add("RegLeft",     fontSize=8,  fontName="Helvetica", leading=12)
+        add("RegRight",    fontSize=8,  fontName="Helvetica",
+            alignment=TA_RIGHT, leading=12)
+        add("Meta",        fontSize=9,  fontName="Helvetica")
+        add("MetaRight",   fontSize=9,  fontName="Helvetica", alignment=TA_RIGHT)
+        add("Salutation",  fontSize=10.5, fontName="Helvetica-Bold",
+            spaceBefore=8, spaceAfter=6)
+        add("Subject",     fontSize=11, fontName="Helvetica-Bold",
+            alignment=TA_CENTER, spaceAfter=10, leading=14)
+        add("Body",        fontSize=10.5, fontName="Helvetica",
+            alignment=TA_JUSTIFY, leading=15, spaceAfter=0)
+        add("BodyBold",    fontSize=10.5, fontName="Helvetica-Bold",
+            alignment=TA_JUSTIFY, leading=15, spaceAfter=0)
+        add("SubItem",     fontSize=10.5, fontName="Helvetica",
+            alignment=TA_JUSTIFY, leading=15, spaceAfter=0)
+        add("FeeItem",     fontSize=10.5, fontName="Helvetica-Bold",
+            leading=15, spaceAfter=0)
+        add("SigName",     fontSize=10.5, fontName="Helvetica-Bold", spaceAfter=0)
+        add("Footer",      fontSize=8,  fontName="Helvetica",
             alignment=TA_CENTER,
-            leading=12
-        ))
-        
-        # Tertiary message
-        self.styles.add(ParagraphStyle(
-            name='HeaderTertiary',
-            parent=self.styles['Normal'],
-            fontSize=10,
-            fontName='Times-Italic',
-            textColor=colors.black,
-            spaceAfter=10,
-            alignment=TA_CENTER
-        ))
-        
-        # Office info
-        self.styles.add(ParagraphStyle(
-            name='OfficeInfo',
-            parent=self.styles['Normal'],
-            fontSize=11,
-            fontName='Times-Bold',
-            textColor=colors.black,
-            spaceAfter=4,
-            alignment=TA_LEFT
-        ))
-        
-        # Office details
-        self.styles.add(ParagraphStyle(
-            name='OfficeDetails',
-            parent=self.styles['Normal'],
-            fontSize=10,
-            fontName='Times-Roman',
-            textColor=colors.black,
-            spaceAfter=2,
-            alignment=TA_LEFT,
-            leading=12
-        ))
-        
-        # Salutation
-        self.styles.add(ParagraphStyle(
-            name='Salutation',
-            parent=self.styles['Normal'],
-            fontSize=11,
-            fontName='Times-Roman',
-            textColor=colors.black,
-            spaceAfter=10,
-            alignment=TA_LEFT
-        ))
-        
-        # Subject
-        self.styles.add(ParagraphStyle(
-            name='Subject',
-            parent=self.styles['Normal'],
-            fontSize=11,
-            fontName='Times-Bold',
-            textColor=colors.black,
-            spaceAfter=12,
-            alignment=TA_CENTER,
-            leading=13
-        ))
-        
-        # Body
-        self.styles.add(ParagraphStyle(
-            name='Body',
-            parent=self.styles['Normal'],
-            fontSize=11,
-            fontName='Times-Roman',
-            textColor=colors.black,
-            spaceAfter=10,
-            alignment=TA_LEFT,
-            leading=14
-        ))
-        
-        # List heading
-        self.styles.add(ParagraphStyle(
-            name='ListHeading',
-            parent=self.styles['Normal'],
-            fontSize=11,
-            fontName='Times-Bold',
-            textColor=colors.black,
-            spaceAfter=8,
-            alignment=TA_LEFT
-        ))
-        
-        # List item
-        self.styles.add(ParagraphStyle(
-            name='ListItem',
-            parent=self.styles['Normal'],
-            fontSize=11,
-            fontName='Times-Roman',
-            textColor=colors.black,
-            spaceAfter=3,
-            alignment=TA_LEFT,
-            leftIndent=20,
-            leading=13
-        ))
-        
-        # Closing
-        self.styles.add(ParagraphStyle(
-            name='Closing',
-            parent=self.styles['Normal'],
-            fontSize=11,
-            fontName='Times-Roman',
-            textColor=colors.black,
-            spaceAfter=8,
-            alignment=TA_LEFT,
-            leading=14
-        ))
-        
-        # Signature
-        self.styles.add(ParagraphStyle(
-            name='Signature',
-            parent=self.styles['Normal'],
-            fontSize=11,
-            fontName='Times-Bold',
-            textColor=colors.black,
-            spaceAfter=0,
-            alignment=TA_LEFT
-        ))
-    
-    def parse(self, html_content: str):
-        """Parse HTML content and convert to flowables"""
-        soup = BeautifulSoup(html_content, 'html.parser')
-        body = soup.find('body')
-        
-        if body:
-            self._parse_element(body)
-    
-    def _parse_element(self, element):
-        """Recursively parse HTML elements"""
-        # Handle text nodes
-        if isinstance(element, str):
-            text = element.strip()
-            if text:
-                return text
-            return None
-        
-        # Get tag name
-        tag_name = element.name if hasattr(element, 'name') else None
-        
-        if tag_name == 'div':
-            class_name = element.get('class', [''])[0] if element.get('class') else ''
-            
-            if class_name == 'header':
-                self._parse_header(element)
-            elif class_name == 'office-info':
-                text = self._get_element_text(element)
-                if text:
-                    self.flowables.append(Paragraph(text, self.styles['OfficeInfo']))
-            elif class_name == 'office-details':
-                self._parse_office_details(element)
-            elif class_name == 'ref-date':
-                self._parse_ref_date(element)
-            elif class_name == 'salutation':
-                text = self._get_element_text(element)
-                if text:
-                    self.flowables.append(Spacer(1, 0.15*inch))
-                    self.flowables.append(Paragraph(text, self.styles['Salutation']))
-            elif class_name == 'subject':
-                text = self._get_element_text(element)
-                if text:
-                    self.flowables.append(Paragraph(text, self.styles['Subject']))
-            elif class_name == 'body':
-                self._parse_body_section(element)
-            elif class_name == 'closing':
-                self._parse_closing(element)
+            textColor=colors.HexColor("#64748b"), spaceBefore=12)
+
+    # ------------------------------------------------------------------
+    # Public entry point
+    # ------------------------------------------------------------------
+    def build(self, html: str, context: dict):
+        """Render template, parse HTML, populate self.flowables."""
+        rendered = _render_template(html, context)
+        soup = BeautifulSoup(rendered, "html.parser")
+        body = soup.find("body") or soup
+
+        self._parse_body(body, context)
+
+    # ------------------------------------------------------------------
+    # Section dispatchers
+    # ------------------------------------------------------------------
+    def _parse_body(self, body, context):
+        S = self._styles
+
+        # --- Header table -----------------------------------------------
+        header_tbl = body.find("table", class_="header-table")
+        if header_tbl:
+            self._build_header(header_tbl, context)
+
+        # --- Office of the Registrar title ------------------------------
+        reg_title = body.find(class_="registrar-title")
+        if reg_title:
+            self.flowables.append(
+                Paragraph("OFFICE OF THE REGISTRAR", S["RegTitle"])
+            )
+
+        # --- Registrar details box (two-column table) ------------------
+        reg_box = body.find("table", class_="registrar-box")
+        if reg_box:
+            self._build_registrar_box(reg_box)
+
+        # --- Ref / Date meta table -------------------------------------
+        meta_tbl = body.find("table", class_="meta-table")
+        if meta_tbl:
+            self._build_meta_table(meta_tbl)
+
+        # --- Salutation ------------------------------------------------
+        sal = body.find(class_="salutation")
+        if sal:
+            self.flowables.append(
+                Paragraph(self._inline(sal), S["Salutation"])
+            )
+
+        # --- Subject ---------------------------------------------------
+        subj = body.find(class_="subject")
+        if subj:
+            self.flowables.append(
+                Paragraph(self._inline(subj), S["Subject"])
+            )
+
+        # --- Numbered body table ---------------------------------------
+        # The main content is a single <table> without a special class,
+        # located after the subject div.
+        numbered_tbl = None
+        if subj:
+            for sib in subj.find_next_siblings():
+                if sib.name == "table":
+                    numbered_tbl = sib
+                    break
+        if numbered_tbl:
+            self._build_numbered_table(numbered_tbl)
+
+        # --- Signature -------------------------------------------------
+        sig_div = body.find(class_="signature")
+        if sig_div:
+            self._build_signature(sig_div, context)
+
+    # ------------------------------------------------------------------
+    # Individual section builders
+    # ------------------------------------------------------------------
+
+    def _build_header(self, tbl, context):
+        S = self._styles
+        logo_cell = tbl.find("td", class_="header-logo-cell")
+        text_cell = tbl.find("td", class_="header-text-cell")
+
+        # Logo
+        logo_img = None
+        if context.get("logo_image"):
+            try:
+                img_data = base64.b64decode(context["logo_image"])
+                buf = io.BytesIO(img_data)
+                logo_img = Image(buf, width=self.LOGO_SIZE, height=self.LOGO_SIZE)
+            except Exception:
+                logo_img = None
+
+        if logo_img is None:
+            logo_img = Paragraph("<i>LOGO</i>", S["Normal"])
+
+        # Text column
+        title_para   = Paragraph("PRECIOUS CORNERSTONE UNIVERSITY", S["UnivTitle"])
+        address_para = Paragraph(
+            "Garden of Victory, Olaogun Street, Old Ife Road,<br/>"
+            "P.M.B. 60, Agodi Post Office, Ibadan, Oyo State.<br/>"
+            "A Tertiary Institution of The Sword of The Spirit Ministries",
+            S["UnivAddress"],
+        )
+
+        usable = self.PAGE_WIDTH
+        logo_w = self.LOGO_SIZE + 0.2 * cm
+        text_w = usable - logo_w
+
+        data = [[logo_img, [title_para, address_para]]]
+        t = Table(data, colWidths=[logo_w, text_w])
+        t.setStyle(TableStyle([
+            ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING",  (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING",   (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING",(0, 0), (-1, -1), 4),
+        ]))
+        self.flowables.append(t)
+
+    def _build_registrar_box(self, tbl):
+        S = self._styles
+        left_para = Paragraph(
+            "<b>Registrar</b><br/>"
+            "<b>Mrs. Morenike F. Afolabi</b> "
+            "<font size='7'>B.A, MPA (Ife), M.ED (IB), MNIM, MANUPA, IPMA (UK)</font>",
+            S["RegLeft"],
+        )
+        right_para = Paragraph(
+            "<b>Phone:</b> +2348033931410<br/>"
+            "<b>Email:</b> <u>registrar@pcu.edu.ng</u>",
+            S["RegRight"],
+        )
+        usable = self.PAGE_WIDTH
+        data = [[left_para, right_para]]
+        t = Table(data, colWidths=[usable * 0.60, usable * 0.40])
+        t.setStyle(TableStyle([
+            ("VALIGN",       (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING",  (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING",   (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING",(0, 0), (-1, -1), 4),
+        ]))
+        self.flowables.append(t)
+
+    def _build_meta_table(self, tbl):
+        S = self._styles
+        # Pull text from the two <td> cells
+        cells = tbl.find_all("td")
+        ref_text  = self._inline(cells[0]) if len(cells) > 0 else ""
+        date_text = self._inline(cells[1]) if len(cells) > 1 else ""
+
+        ref_para  = Paragraph(ref_text,  S["Meta"])
+        date_para = Paragraph(date_text, S["MetaRight"])
+
+        usable = self.PAGE_WIDTH
+        data = [[ref_para, date_para]]
+        t = Table(data, colWidths=[usable * 0.5, usable * 0.5])
+        t.setStyle(TableStyle([
+            ("VALIGN",       (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING",  (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING",   (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING",(0, 0), (-1, -1), 4),
+        ]))
+        self.flowables.append(t)
+
+    def _build_numbered_table(self, tbl):
+        """
+        Build the numbered-paragraph table.  Each top-level <tr> has:
+          col 0 – number (e.g. "1.")
+          col 1 – content (may contain nested sub-tables)
+        """
+        S = self._styles
+        usable = self.PAGE_WIDTH
+        num_w  = 1.2 * cm
+        body_w = usable - num_w
+
+        rows = tbl.find_all("tr", recursive=False)
+        table_data = []
+
+        for row in rows:
+            cells = row.find_all("td", recursive=False)
+            if len(cells) < 2:
+                continue
+
+            num_text  = cells[0].get_text(strip=True)
+            body_cell = cells[1]
+
+            num_para = Paragraph(f"<b>{num_text}</b>", S["Body"])
+
+            # Check for nested sub-table (documents list / fee table)
+            nested_tbl = body_cell.find("table")
+            if nested_tbl:
+                content = self._build_nested_content(body_cell, nested_tbl, body_w)
             else:
-                # Generic div - might contain sections with headings
-                self._parse_generic_div(element)
-        
-        elif tag_name == 'p':
-            text = self._get_element_text(element)
-            if text:
-                parent_class = element.parent.get('class', [''])[0] if element.parent.get('class') else ''
-                if parent_class == 'body':
-                    self.flowables.append(Paragraph(text, self.styles['Body']))
-                elif parent_class == 'closing':
-                    if '<b>' in text or any(child.name == 'b' for child in element.find_all()):
-                        self.flowables.append(Paragraph(text, self.styles['Signature']))
-                    else:
-                        self.flowables.append(Paragraph(text, self.styles['Closing']))
-                else:
-                    # Check if paragraph is styled as a heading
-                    style_attr = element.get('style', '')
-                    if 'font-weight: bold' in style_attr:
-                        self.flowables.append(Paragraph(text, self.styles['ListHeading']))
-                    else:
-                        self.flowables.append(Paragraph(text, self.styles['Body']))
-        
-        elif tag_name == 'ol':
-            self._parse_list(element)
-        
-        elif tag_name is None:
-            # Text node - skip if whitespace only
-            if str(element).strip():
-                pass
-        
+                content = Paragraph(self._inline(body_cell), S["Body"])
+
+            table_data.append([num_para, content])
+
+        t = Table(table_data, colWidths=[num_w, body_w])
+        t.setStyle(TableStyle([
+            ("VALIGN",       (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING",  (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING",   (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING",(0, 0), (-1, -1), 3),
+        ]))
+        self.flowables.append(t)
+
+    def _build_nested_content(self, body_cell, nested_tbl, body_w):
+        """
+        Return a list of flowables for a cell that contains both intro text
+        and a nested table (sub-list or fee table).
+        """
+        S = self._styles
+        parts = []
+
+        # Intro text before the nested table
+        intro_parts = []
+        for node in body_cell.children:
+            if node == nested_tbl:
+                break
+            if isinstance(node, str):
+                t = node.strip()
+                if t:
+                    intro_parts.append(t)
+            elif hasattr(node, "get_text"):
+                t = self._inline(node)
+                if t:
+                    intro_parts.append(t)
+
+        if intro_parts:
+            parts.append(Paragraph(" ".join(intro_parts), S["Body"]))
+
+        # Determine sub-table type by class
+        cls = " ".join(nested_tbl.get("class", []))
+        if "fee-list" in cls:
+            parts.append(self._build_fee_table(nested_tbl, body_w))
         else:
-            # Other tags - recurse
-            if hasattr(element, 'children'):
-                for child in element.children:
-                    self._parse_element(child)
-    
-    def _parse_header(self, header_div):
-        """Parse header section"""
-        logo_div = header_div.find('div', class_='header-logo')
-        content_div = header_div.find('div', class_='header-content')
-        
-        if content_div:
-            title = content_div.find('div', class_='header-title')
-            if title:
-                text = self._get_element_text(title)
-                if text:
-                    self.flowables.append(Paragraph(text, self.styles['HeaderTitle']))
-            
-            address = content_div.find('div', class_='header-address')
-            if address:
-                text = self._get_element_text(address)
-                if text:
-                    self.flowables.append(Paragraph(text, self.styles['HeaderAddress']))
-            
-            tertiary = content_div.find('div', class_='header-tertiary')
-            if tertiary:
-                text = self._get_element_text(tertiary)
-                if text:
-                    self.flowables.append(Paragraph(text, self.styles['HeaderTertiary']))
-    
-    def _parse_office_details(self, details_div):
-        """Parse office details"""
-        for div in details_div.find_all('div', recursive=False):
-            text = self._get_element_text(div)
-            if text:
-                self.flowables.append(Paragraph(text, self.styles['OfficeDetails']))
-    
-    def _parse_ref_date(self, ref_div):
-        """Parse ref/date table"""
-        table = ref_div.find('table')
-        if table:
-            rows = table.find_all('tr')
-            for row in rows:
-                cells = row.find_all('td')
-                if len(cells) == 2:
-                    ref_text = self._get_element_text(cells[0])
-                    date_text = self._get_element_text(cells[1])
-                    
-                    ref_para = Paragraph(ref_text if ref_text else '', self.styles['Body'])
-                    date_para = Paragraph(date_text if date_text else '', ParagraphStyle(
-                        'RefDate',
-                        parent=self.styles['Normal'],
-                        fontSize=11,
-                        fontName='Times-Roman',
-                        alignment=TA_RIGHT
-                    ))
-                    
-                    table_data = [[ref_para, date_para]]
-                    tbl = Table(table_data, colWidths=[3*inch, 2.5*inch])
-                    tbl.setStyle(TableStyle([
-                        ('LEFTPADDING', (0, 0), (-1, -1), 0),
-                        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-                        ('TOPPADDING', (0, 0), (-1, -1), 0),
-                        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
-                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                    ]))
-                    self.flowables.append(tbl)
-                    self.flowables.append(Spacer(1, 0.15*inch))
-    
-    def _parse_generic_div(self, div_element):
-        """Parse generic div that may contain mixed content"""
-        for child in div_element.children:
-            if isinstance(child, str):
-                text = child.strip()
-                if text:
-                    self.flowables.append(Paragraph(text, self.styles['Body']))
-            elif hasattr(child, 'name'):
-                if child.name == 'p':
-                    text = self._get_element_text(child)
-                    if text:
-                        style_attr = child.get('style', '')
-                        if 'font-weight: bold' in style_attr:
-                            self.flowables.append(Paragraph(text, self.styles['ListHeading']))
+            # Sub-list (roman numerals)
+            parts.append(self._build_sublist_table(nested_tbl, body_w))
+
+        return parts
+
+    def _build_sublist_table(self, tbl, parent_w):
+        S = self._styles
+        # indent from left edge, label column wide enough for "(viii.)" worst case
+        indent  = 0.5 * cm
+        num_w   = 1.4 * cm   # ~40pt — fits "(viii.)" without wrapping
+        body_w  = parent_w - indent - num_w
+
+        # SubItemLabel: same as SubItem but no word-wrap (nowrap via large leading)
+        label_style = ParagraphStyle(
+            "SubItemLabel",
+            parent=S["SubItem"],
+            wordWrap=None,   # disable word wrap so label stays on one line
+        )
+
+        rows = tbl.find_all("tr", recursive=False)
+        data = []
+        for row in rows:
+            cells = row.find_all("td", recursive=False)
+            if len(cells) < 2:
+                continue
+            # get_text() gives the raw text; strip() cleans whitespace
+            label_text = cells[0].get_text().strip()
+            num  = Paragraph(label_text, label_style)
+            body = Paragraph(self._inline(cells[1]), S["SubItem"])
+            data.append([num, body])
+
+        t = Table(data, colWidths=[num_w, body_w])
+        t.setStyle(TableStyle([
+            ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING",   (0, 0), (0, -1), indent),
+            ("LEFTPADDING",   (1, 0), (1, -1), 0),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 0),
+            ("TOPPADDING",    (0, 0), (-1, -1), 1),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+        ]))
+        return t
+
+    def _build_fee_table(self, tbl, parent_w):
+        S = self._styles
+        indent = 1.5 * cm
+        label_w = 7.0 * cm
+        amt_w   = parent_w - indent - label_w
+
+        rows = tbl.find_all("tr", recursive=False)
+        data = []
+        for row in rows:
+            cells = row.find_all("td", recursive=False)
+            if len(cells) < 2:
+                continue
+            label = Paragraph(self._inline(cells[0]), S["FeeItem"])
+            amt   = Paragraph(self._inline(cells[1]), S["FeeItem"])
+            data.append([label, amt])
+
+        t = Table(data, colWidths=[label_w, amt_w])
+        t.setStyle(TableStyle([
+            ("VALIGN",       (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING",  (0, 0), (0, -1), indent),
+            ("LEFTPADDING",  (1, 0), (1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING",   (0, 0), (-1, -1), 1),
+            ("BOTTOMPADDING",(0, 0), (-1, -1), 1),
+        ]))
+        return t
+
+    def _build_signature(self, sig_div, context):
+        S = self._styles
+        # Signature image
+        if context.get("sig_image"):
+            try:
+                img_data = base64.b64decode(context["sig_image"])
+                buf = io.BytesIO(img_data)
+                sig_img = Image(buf, height=1.0 * cm, hAlign="LEFT")
+                sig_img.hAlign = "LEFT"
+                self.flowables.append(Spacer(1, 0.15 * cm))
+                self.flowables.append(sig_img)
+            except Exception:
+                pass
+        self.flowables.append(
+            Paragraph("<b>Mrs. Morenike F. Afolabi</b>", S["SigName"])
+        )
+        self.flowables.append(Paragraph("Registrar", S["Body"]))
+
+    # ------------------------------------------------------------------
+    # Utility: extract inline ReportLab-safe markup from a BS4 element
+    # ------------------------------------------------------------------
+    def _inline(self, element) -> str:
+        """
+        Walk element children and return a ReportLab-safe markup string.
+
+        Raw text nodes are kept as-is (whitespace collapsed but not stripped)
+        so that punctuation like "(i.)" is never broken into "( i . )".
+        Parts are joined with "" so natural whitespace in the source carries
+        the spacing between words without inserting extra spaces.
+        """
+        parts = []
+        for node in element.children:
+            if isinstance(node, str):
+                # Collapse multi-whitespace/newlines to a single space but
+                # keep surrounding spaces so siblings stay correctly separated.
+                normalized = re.sub(r'[ \t\r\n]+', ' ', node)
+                if normalized:
+                    parts.append(normalized)
+            elif hasattr(node, "name"):
+                tag = node.name
+                inner = self._inline(node)
+                if tag in ("b", "strong"):
+                    parts.append("<b>{}</b>".format(inner))
+                elif tag in ("i", "em"):
+                    parts.append("<i>{}</i>".format(inner))
+                elif tag == "u":
+                    parts.append("<u>{}</u>".format(inner))
+                elif tag == "br":
+                    parts.append("<br/>")
+                elif tag == "s":
+                    parts.append(inner)
+                elif tag == "span":
+                    style = node.get("style", "")
+                    if "font-size" in style:
+                        m = re.search(r"font-size:\s*([\d.]+)pt", style)
+                        if m:
+                            parts.append('<font size="{}">{}</font>'.format(m.group(1), inner))
                         else:
-                            self.flowables.append(Paragraph(text, self.styles['Body']))
-                elif child.name == 'ol' or child.name == 'ul':
-                    self._parse_list(child)
-                elif child.name == 'div':
-                    self._parse_generic_div(child)
-    
-    def _parse_body_section(self, body_div):
-        """Parse body section with paragraphs"""
-        for child in body_div.children:
-            if hasattr(child, 'name') and child.name == 'p':
-                text = self._get_element_text(child)
-                if text:
-                    self.flowables.append(Paragraph(text, self.styles['Body']))
-    
-    def _parse_list(self, ol_element):
-        """Parse ordered/unordered list"""
-        items = ol_element.find_all('li', recursive=False)
-        
-        for idx, li in enumerate(items, 1):
-            text = self._get_element_text(li)
-            if text:
-                # Use bullet points or numbers
-                list_item = f"{idx}. {text}"
-                self.flowables.append(Paragraph(list_item, self.styles['ListItem']))
-        
-        self.flowables.append(Spacer(1, 0.1*inch))
-    
-    def _parse_closing(self, closing_div):
-        """Parse closing section"""
-        for p in closing_div.find_all('p', recursive=False):
-            text = self._get_element_text(p)
-            if text:
-                if any(child.name == 'b' for child in p.find_all()):
-                    self.flowables.append(Paragraph(text, self.styles['Signature']))
-                    self.flowables.append(Spacer(1, 0.05*inch))
-                else:
-                    self.flowables.append(Paragraph(text, self.styles['Closing']))
-    
-    def _get_element_text(self, element) -> str:
-        """Extract text from element preserving formatting tags"""
-        if not element:
-            return ""
-        
-        text_parts = []
-        
-        for child in element.children:
-            if isinstance(child, str):
-                text = child.strip()
-                if text:
-                    text_parts.append(text)
-            elif hasattr(child, 'name'):
-                if child.name == 'b' or child.name == 'strong':
-                    child_text = self._get_element_text(child)
-                    text_parts.append(f"<b>{child_text}</b>")
-                elif child.name == 'i' or child.name == 'em':
-                    child_text = self._get_element_text(child)
-                    text_parts.append(f"<i>{child_text}</i>")
-                elif child.name == 'br':
-                    text_parts.append("<br/>")
-                else:
-                    child_text = self._get_element_text(child)
-                    if child_text:
-                        text_parts.append(child_text)
-        
-        return " ".join(text_parts).strip()
+                            parts.append(inner)
+                    else:
+                        parts.append(inner)
+                elif inner:
+                    parts.append(inner)
+        return "".join(parts).strip()
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def _load_image_b64(filename: str) -> str:
+    """
+    Load an image file from the same directory as this module (utils/) and
+    return it as a base64-encoded string, or an empty string if not found.
+    """
+    path = os.path.join(os.path.dirname(__file__), filename)
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
+    return ""
+
 
 class PDFGenerator:
-    """Generate PDFs from HTML using ReportLab (cross-platform, no system dependencies)."""
+    """Generate PDFs from the JUPEB admission letter template using ReportLab."""
 
     @staticmethod
-    def _load_template():
+    def _load_template() -> str:
         template_path = os.path.join(
             os.path.dirname(__file__),
             "admission_letter_template.html",
@@ -400,49 +502,56 @@ class PDFGenerator:
         if os.path.exists(template_path):
             with open(template_path, "r", encoding="utf-8") as f:
                 return f.read()
-        return "<p>No template found</p>"
+        return "<body><p>No template found</p></body>"
 
     @staticmethod
     def generate_admission_letter_pdf(body_html: str = "", **kwargs) -> bytes:
-        # Load template if no HTML provided
+        """
+        Generate a PDF admission letter.
+
+        Parameters
+        ----------
+        body_html : str
+            Raw HTML string for the letter.  If empty the bundled template is
+            loaded from disk.
+        **kwargs : dict
+            Template context variables, e.g.:
+              ref_number     – reference number string
+              date           – formatted date string
+              candidate_name – recipient's name
+
+            logo_image and sig_image are loaded automatically from
+            utils/logo.png and utils/signature.png respectively.
+            Any value passed in kwargs will override the auto-loaded one.
+        """
+        # Auto-load logo and signature from the utils folder if not supplied
+        if not kwargs.get("logo_image"):
+            kwargs["logo_image"] = _load_image_b64("logo.png")
+        if not kwargs.get("sig_image"):
+            kwargs["sig_image"] = _load_image_b64("signature.png")
+
         if not body_html.strip():
             body_html = PDFGenerator._load_template()
 
-        # Replace placeholders in the template
-        for key, value in kwargs.items():
-            pattern = r"\{\{\s*" + re.escape(key) + r"\s*\}\}"
-            body_html = re.sub(pattern, str(value or ""), body_html, flags=re.IGNORECASE)
-
-        # Create PDF document in memory
         pdf_buffer = io.BytesIO()
-        doc = SimpleDocTemplate(pdf_buffer, pagesize=letter,
-                                rightMargin=0.75*inch, leftMargin=0.75*inch,
-                                topMargin=0.75*inch, bottomMargin=0.75*inch)
-        
-        # Parse HTML and build flowables
-        parser = HTMLToFlowablesParser()
-        
-        try:
-            parser.parse(body_html)
-        except Exception as e:
-            print(f"[PDF Generator] Error parsing HTML: {str(e)}")
-            raise
-        
-        story = parser.flowables.copy()
-        
-        # Add footer with generation date
-        story.append(Spacer(1, 0.3*inch))
-        footer_text = f"Generated on {datetime.now().strftime('%d %B %Y')}"
-        footer_style = ParagraphStyle(
-            'Footer',
-            parent=parser.styles['Normal'],
-            fontSize=8,
-            textColor=colors.HexColor('#64748b'),
-            alignment=TA_CENTER
+        doc = SimpleDocTemplate(
+            pdf_buffer,
+            pagesize=A4,
+            rightMargin=1.5 * cm,
+            leftMargin=1.5 * cm,
+            topMargin=0.8 * cm,
+            bottomMargin=0.8 * cm,
         )
-        story.append(Paragraph(footer_text, footer_style))
-        
-        # Build PDF
+
+        parser = NewTemplateParser()
+        try:
+            parser.build(body_html, kwargs)
+        except Exception as e:
+            print(f"[PDFGenerator] Error building flowables: {e}")
+            raise
+
+        story = parser.flowables[:]
+
         doc.build(story)
         pdf_buffer.seek(0)
         return pdf_buffer.getvalue()

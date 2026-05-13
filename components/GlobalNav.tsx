@@ -33,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { ApiClient } from "@/lib/api";
 
 const LANDING_NAV_ITEMS = [
   { label: 'Undergraduate', href: '/student/login', icon: GraduationCap },
@@ -139,6 +140,7 @@ export function GlobalNav() {
   const pathname = usePathname();
   const { isAuthenticated, user, logout, isLoading } = useAuth();
   const { isOpen, toggle } = useSidebar();
+  const [pendingCount, setPendingCount] = React.useState(0);
 
   const handleLogout = async () => {
     await logout();
@@ -153,9 +155,27 @@ export function GlobalNav() {
   const isIctPortal = isAuthenticated && user?.role === 'ictdirector';
   const isManagementPortal = isAuthenticated && ['hod', 'dean'].includes(user?.role || '');
 
+  React.useEffect(() => {
+    const fetchCount = () => {
+      if (isAdminPortal) {
+        ApiClient.getApplications('submitted').then(res => {
+          if (res && res.applications) {
+            setPendingCount(res.applications.length);
+          }
+        }).catch(err => console.error(err));
+      }
+    };
+
+    fetchCount();
+
+    window.addEventListener('application-reviewed', fetchCount);
+    return () => window.removeEventListener('application-reviewed', fetchCount);
+  }, [isAdminPortal]);
+
   // Determine nav items based on role
   const getNavItems = () => {
-    if (isLoading && !user) return [];
+    // While verifying the token, always show public nav to avoid sidebar flash
+    if (isLoading) return LANDING_NAV_ITEMS;
     if (!isAuthenticated) return LANDING_NAV_ITEMS;
     
     if (isApplicantPortal) return APPLICANT_NAV_ITEMS;
@@ -288,14 +308,21 @@ export function GlobalNav() {
                     !isActive && "text-slate-500 hover:text-slate-900"
                   )}
                 >
-                  <div className={cn(
-                    "flex items-center justify-center transition-all duration-300 shrink-0",
-                    "w-11 h-11 rounded-xl border shadow-sm",
-                    isActive 
-                      ? "bg-[#6b21a8] border-[#6b21a8] text-white shadow-[#6b21a8]/20" 
-                      : "bg-white border-slate-100 text-slate-500 group-hover:border-purple-200 group-hover:scale-105"
-                  )}>
-                    <item.icon size={20} className={cn(isActive && "animate-pulse")} />
+                  <div className="relative shrink-0">
+                    <div className={cn(
+                      "flex items-center justify-center transition-all duration-300",
+                      "w-11 h-11 rounded-xl border shadow-sm",
+                      isActive 
+                        ? "bg-[#6b21a8] border-[#6b21a8] text-white shadow-[#6b21a8]/20" 
+                        : "bg-white border-slate-100 text-slate-500 group-hover:border-purple-200 group-hover:scale-105"
+                    )}>
+                      <item.icon size={20} className={cn(isActive && "animate-pulse")} />
+                    </div>
+                    {item.label === 'Applications' && pendingCount > 0 && (
+                      <div className="absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white leading-none shadow-sm z-50 border-2 border-white">
+                        {pendingCount > 99 ? '99+' : pendingCount}
+                      </div>
+                    )}
                   </div>
                   
                   <span className={cn(

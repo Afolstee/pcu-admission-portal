@@ -4,7 +4,7 @@ from config import config
 import os
 
 ALLOWED_ORIGINS = [
-    "http://localhost:3000",                      
+    "http://localhost:3000",
     "https://pcu-admission-portal.vercel.app",
 ]
 
@@ -16,20 +16,10 @@ def create_app(config_name='development'):
     CORS(
         app,
         supports_credentials=True,
-        origins=ALLOWED_ORIGINS
+        origins=ALLOWED_ORIGINS,
+        allow_headers=["Content-Type", "Authorization"],
+        methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     )
-
-    @app.after_request
-    def after_request(response):
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
-        response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        return response
-
-    @app.before_request
-    def handle_preflight():
-        if request.method == "OPTIONS":
-            return "", 200
 
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])

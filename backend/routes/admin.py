@@ -28,10 +28,12 @@ def get_applications(payload):
                              pt.name AS program_name,
                              app.applicant_stage AS application_status,
                              app.updated_at AS submitted_at,
-                             app.form_no
+                             app.form_no,
+                             COALESCE(asess.name, CAST(app.academic_session_id AS TEXT)) AS session
                       FROM applications app
                       JOIN users u ON app.user_id = u.id
-                      LEFT JOIN program_types pt ON app.prog_type = pt.id'''
+                      LEFT JOIN program_types pt ON app.prog_type = pt.id
+                      LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id'''
 
     if status == 'admitted':
         # Show both admitted (awaiting fee) and accepted (fee paid)
@@ -212,19 +214,22 @@ def review_application(payload):
     if decision in ['accept', 'recommend'] and not approved_course:
         return jsonify({'message': 'approved_course is required when decision is accept or recommend'}), 400
 
+    officer_user_id = payload['user_id']
+
     stage_map  = {'accept': 'admitted', 'reject': 'rejected', 'recommend': 'screening'}
     new_status = stage_map[decision]
 
     success = Database.execute_update(
         '''UPDATE applications
-           SET applicant_stage   = %s,
-               decision          = %s,
-               decision_date     = NOW(),
-               approved_course   = %s,
-               finalised_course  = %s,
-               updated_at        = NOW()
+           SET applicant_stage         = %s,
+               decision                = %s,
+               decision_date           = NOW(),
+               approved_course         = %s,
+               finalised_course        = %s,
+               decision_maker_user_id  = %s,
+               updated_at              = NOW()
            WHERE id = %s''',
-        (new_status, decision, approved_course, approved_course, applicant_id)
+        (new_status, decision, approved_course, approved_course, officer_user_id, applicant_id)
     )
 
     if not success:
@@ -254,7 +259,7 @@ def send_admission_letter(payload):
     except Exception:
         admission_date_display = admission_date_db
 
-    ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id:04d}"
+    ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id}"
 
     applicant = Database.execute_query(
         f'''SELECT u.id,
@@ -281,14 +286,23 @@ def send_admission_letter(payload):
     applicant_data = applicant[0]
 
     fees = Database.execute_query(
-        'SELECT acceptance_fee, tuition_fee, other_fees FROM program_fees WHERE program_id = %s',
+        '''SELECT fc.name, pf.amount
+        FROM program_fees pf
+        JOIN fee_components fc ON pf.fee_component_id = fc.id
+        WHERE pf.program_type = %s''',
         (applicant_data['program_id'],)
     )
     acceptance_fee_str = tuition_fee_str = other_fees_str = ''
     if fees:
-        acceptance_fee_str = f"₦{fees[0]['acceptance_fee']:,.2f}"
-        tuition_fee_str    = f"₦{fees[0]['tuition_fee']:,.2f}"
-        other_fees_str     = f"₦{fees[0].get('other_fees', 0):,.2f}"
+        for fee in fees:
+            name = (fee['name'] or '').lower()
+            amount = fee['amount'] or 0
+            if 'acceptance' in name:
+                acceptance_fee_str = f"₦{amount:,.2f}"
+            elif 'tuition' in name or 'accommodation' in name:
+                tuition_fee_str = f"₦{amount:,.2f}"
+            elif 'sundry' in name or 'other' in name or 'digital' in name:
+                other_fees_str = f"₦{amount:,.2f}"
 
     session_res = Database.execute_query("SELECT name AS value FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
     default_session = session_res[0]['value'] if session_res else '2025/2026'
@@ -331,17 +345,14 @@ def send_admission_letter(payload):
     }), 201 if email_sent else 500
 
 
-@admin_bp.route('/preview-admission-letter', methods=['POST', 'OPTIONS'])
+@admin_bp.route('/preview-admission-letter', methods=['POST'])
 @AuthHandler.token_required
 @AuthHandler.admissions_officer_required
 def preview_admission_letter(payload):
-    if request.method == 'OPTIONS':
-        return '', 200
-
     data = request.get_json() or {}
     if 'applicant_id' not in data:
         return jsonify({'message': 'applicant_id is required'}), 400
-
+ 
     applicant_id      = data['applicant_id']
     admission_date_db = data.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
     try:
@@ -349,9 +360,9 @@ def preview_admission_letter(payload):
         admission_date_display = date_obj.strftime('%d %B, %Y')
     except Exception:
         admission_date_display = admission_date_db
-
-    ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id:04d}"
-
+ 
+    ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id}"
+ 
     applicant = Database.execute_query(
         f'''SELECT u.id,
                    {USER_NAME_EXPR} AS name,
@@ -363,25 +374,34 @@ def preview_admission_letter(payload):
             FROM applications app
             JOIN users u ON app.user_id = u.id
             LEFT JOIN program_types pt ON app.prog_type = pt.id
-            WHERE app.id = %s AND app.applicant_stage = 'admitted' ''',
+            WHERE app.id = %s AND app.applicant_stage IN ('admitted', 'accepted') ''',
         (applicant_id,)
     )
-
+ 
     if not applicant:
         return jsonify({'message': 'Applicant not found or application not admitted'}), 404
-
+ 
     applicant_data = applicant[0]
-
+ 
     fees = Database.execute_query(
-        'SELECT acceptance_fee, tuition_fee, other_fees FROM program_fees WHERE program_id = %s',
+        '''SELECT fc.name, pf.amount
+            FROM program_fees pf
+            JOIN fee_components fc ON pf.fee_component_id = fc.id
+            WHERE pf.program_type = %s''',
         (applicant_data['program_id'],)
     )
     acceptance_fee_str = tuition_fee_str = other_fees_str = ''
     if fees:
-        acceptance_fee_str = f"₦{fees[0]['acceptance_fee']:,.2f}"
-        tuition_fee_str    = f"₦{fees[0]['tuition_fee']:,.2f}"
-        other_fees_str     = f"₦{fees[0].get('other_fees', 0):,.2f}"
-
+        for fee in fees:
+            name = (fee['name'] or '').lower()
+            amount = fee['amount'] or 0
+            if 'acceptance' in name:
+                acceptance_fee_str = f"₦{amount:,.2f}"
+            elif 'tuition' in name or 'accommodation' in name:
+                tuition_fee_str = f"₦{amount:,.2f}"
+            elif 'sundry' in name or 'other' in name or 'digital' in name:
+                other_fees_str = f"₦{amount:,.2f}"
+ 
     pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
         candidateName=applicant_data['name'],
         email=applicant_data['email'],
@@ -399,7 +419,7 @@ def preview_admission_letter(payload):
         reference=ref_no,
         body_html=''
     )
-
+ 
     return Response(pdf_bytes, mimetype='application/pdf', headers={
         'Content-Disposition': 'inline; filename=admission_preview.pdf'
     })
@@ -432,7 +452,7 @@ def send_batch_letters(payload):
 
     for applicant_id in applicant_ids:
         try:
-            ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id:04d}"
+            ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id}"
 
             applicant = Database.execute_query(
                 f'''SELECT u.id,
@@ -456,14 +476,23 @@ def send_batch_letters(payload):
             applicant_data = applicant[0]
 
             fees = Database.execute_query(
-                'SELECT acceptance_fee, tuition_fee, other_fees FROM program_fees WHERE program_id = %s',
+                '''SELECT fc.name, pf.amount
+                FROM program_fees pf
+                JOIN fee_components fc ON pf.fee_component_id = fc.id
+                WHERE pf.program_type = %s''',
                 (applicant_data['program_id'],)
             )
             acceptance_fee_str = tuition_fee_str = other_fees_str = ''
             if fees:
-                acceptance_fee_str = f"₦{fees[0]['acceptance_fee']:,.2f}"
-                tuition_fee_str    = f"₦{fees[0]['tuition_fee']:,.2f}"
-                other_fees_str     = f"₦{fees[0].get('other_fees', 0):,.2f}"
+                for fee in fees:
+                    name = (fee['name'] or '').lower()
+                    amount = fee['amount'] or 0
+                    if 'acceptance' in name:
+                        acceptance_fee_str = f"₦{amount:,.2f}"
+                    elif 'tuition' in name or 'accommodation' in name:
+                        tuition_fee_str = f"₦{amount:,.2f}"
+                    elif 'sundry' in name or 'other' in name or 'digital' in name:
+                        other_fees_str = f"₦{amount:,.2f}"
 
             pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
                 candidateName=applicant_data['name'],
@@ -512,36 +541,32 @@ def send_batch_letters(payload):
     email_result = {'success': 0, 'failed': 0, 'total': len(applicants_with_pdfs), 'errors': []}
 
     try:
-        from sendgrid import SendGridAPIClient
+        import resend as _resend
         from config import Config
-        import base64
 
-        if not all([Config.SENDGRID_API_KEY, Config.SENDGRID_FROM_EMAIL]):
-            raise ValueError("SendGrid API key or sender email not configured")
+        if not all([Config.RESEND_API_KEY, Config.RESEND_FROM_EMAIL]):
+            raise ValueError("Resend API key or sender email not configured")
 
-        sg = SendGridAPIClient(Config.SENDGRID_API_KEY)
+        _resend.api_key   = Config.RESEND_API_KEY
+        from_email_str    = f"{Config.RESEND_FROM_NAME} <{Config.RESEND_FROM_EMAIL}>"
 
-        personalizations = [
-            {"to": [{"email": a['email'], "name": a['name']}]}
-            for a in applicants_with_pdfs
-        ]
-
-        encoded_file = base64.b64encode(applicants_with_pdfs[0]['pdf_bytes']).decode()
-        payload_sg = {
-            "from":             {"email": Config.SENDGRID_FROM_EMAIL, "name": Config.SENDGRID_FROM_NAME},
-            "subject":          "Provisional Admission Letter",
-            "personalizations": personalizations,
-            "content":          [{"type": "text/html", "value": "<p>Dear recipient,</p><p>Please find attached your provisional admission letter.</p><p>Best regards,<br>Admissions Office</p>"}],
-            "attachments":      [{"content": encoded_file, "type": "application/pdf", "filename": "admission_letter.pdf", "disposition": "attachment"}]
-        }
-
-        response = sg.client.mail.send.post(request_body=payload_sg)
-
-        if response.status_code in [200, 201, 202]:
-            email_result['success'] = len(applicants_with_pdfs)
-        else:
-            email_result['failed'] = len(applicants_with_pdfs)
-            email_result['errors'].append(f"SendGrid returned status {response.status_code}")
+        for a in applicants_with_pdfs:
+            try:
+                resp = _resend.Emails.send({
+                    "from":    from_email_str,
+                    "to":      [a['email']],
+                    "subject": "Provisional Admission Letter",
+                    "html":    "<p>Dear " + a['name'] + ",</p><p>Please find attached your provisional admission letter.</p><p>Best regards,<br>Admissions Office</p>",
+                    "attachments": [{"filename": "admission_letter.pdf", "content": list(a['pdf_bytes'])}]
+                })
+                if resp and resp.get("id"):
+                    email_result['success'] += 1
+                else:
+                    email_result['failed'] += 1
+                    email_result['errors'].append(f"Resend error for {a['email']}: {resp}")
+            except Exception as _e:
+                email_result['failed'] += 1
+                email_result['errors'].append(f"Error sending to {a['email']}: {str(_e)}")
 
     except Exception as e:
         email_result['failed'] = len(applicants_with_pdfs)
@@ -570,7 +595,7 @@ def revoke_admission(payload):
     if not data or 'applicant_id' not in data:
         return jsonify({'message': 'applicant_id is required'}), 400
 
-    applicant_id = data['applicant_id']
+    applicant_id = int(data['applicant_id'])
 
     success = Database.execute_update(
         "UPDATE applications SET applicant_stage = 'rejected', updated_at = NOW() WHERE id = %s",
@@ -583,90 +608,36 @@ def revoke_admission(payload):
     return jsonify({'message': 'Admission revoked successfully'}), 200
 
 
-@admin_bp.route('/recent-activity', methods=['GET'])
+@admin_bp.route('/dashboard', methods=['GET'])
 @AuthHandler.token_required
 @AuthHandler.admissions_officer_required
-def get_recent_activity(payload):
-    """Unified recent activity feed"""
-    limit = int(request.args.get('limit', 15))
+def get_dashboard(payload):
+    """
+    Single endpoint that returns both statistics and recent activity.
+    Replaces two separate HTTP calls from the frontend with one.
+    All heavy lifting is done server-side in 3 DB queries total.
+    """
+    activity_limit = int(request.args.get('limit', 10))
 
-    reviews = Database.execute_query(
-        f'''SELECT app.decision,
-                   {USER_NAME_EXPR} AS applicant_name,
-                   app.form_no,
-                   app.decision_date AS event_time
-            FROM applications app
-            JOIN users u ON app.user_id = u.id
-            WHERE app.decision IS NOT NULL
-            ORDER BY app.decision_date DESC NULLS LAST
-            LIMIT %s''',
-        (limit,)
+    # ── 1. All scalar counts in one aggregation pass ─────────────────────────
+    counts = Database.execute_query(
+        '''SELECT
+               COUNT(*)                                                          AS total_applications,
+               COUNT(*) FILTER (WHERE applicant_stage IN ('admitted','accepted')) AS total_admitted,
+               COUNT(*) FILTER (WHERE applicant_stage = 'in_progress')           AS pending_submission,
+               COUNT(*) FILTER (WHERE applicant_stage = 'submitted')             AS review_applications,
+               COUNT(*) FILTER (WHERE applicant_stage = 'screening')             AS under_review
+           FROM applications'''
     )
+    row = counts[0] if counts else {}
 
-    submissions = Database.execute_query(
-        f'''SELECT {USER_NAME_EXPR} AS applicant_name,
-                   app.form_no,
-                   app.updated_at AS event_time
-            FROM applications app
-            JOIN users u ON app.user_id = u.id
-            WHERE app.applicant_stage = 'submitted'
-            ORDER BY app.updated_at DESC
-            LIMIT %s''',
-        (limit,)
-    )
-
-    fee_paid = Database.execute_query(
-        f'''SELECT {USER_NAME_EXPR} AS applicant_name,
-                   app.form_no,
-                   app.updated_at AS event_time
-            FROM applications app
-            JOIN users u ON app.user_id = u.id
-            WHERE app.applicant_stage = 'accepted'
-            ORDER BY app.updated_at DESC
-            LIMIT %s''',
-        (limit,)
-    )
-
-    events = []
-
-    for r in (reviews or []):
-        label = {
-            'accept':    f"{r['form_no']} accepted — {r['applicant_name']}",
-            'reject':    f"{r['form_no']} rejected — {r['applicant_name']}",
-            'recommend': f"{r['form_no']} recommended — {r['applicant_name']}",
-        }.get(r['decision'], f"{r['form_no']} reviewed — {r['applicant_name']}")
-        events.append({'type': r['decision'], 'label': label, 'event_time': r['event_time'].isoformat() if r['event_time'] else None})
-
-    for s in (submissions or []):
-        events.append({'type': 'submitted', 'label': f"New application received — {s['applicant_name']}", 'event_time': s['event_time'].isoformat() if s['event_time'] else None})
-
-    for f in (fee_paid or []):
-        events.append({'type': 'fee_paid', 'label': f"Acceptance fee paid — {f['applicant_name']}", 'event_time': f['event_time'].isoformat() if f['event_time'] else None})
-
-    events.sort(key=lambda e: e['event_time'] or '', reverse=True)
-    events = events[:limit]
-
-    return jsonify({'activities': events}), 200
-
-
-@admin_bp.route('/statistics', methods=['GET'])
-@AuthHandler.token_required
-@AuthHandler.admissions_officer_required
-def get_statistics(payload):
-    """Get application statistics"""
-    stats = {}
-
-    total = Database.execute_query("SELECT COUNT(*) AS count FROM applications")
-    stats['total_applications'] = total[0]['count'] if total else 0
-
-    # Use applicant_stage (correct column name)
+    # ── 2. Status + program breakdowns (two GROUP BY queries) ────────────────
     by_status = Database.execute_query(
         '''SELECT applicant_stage AS application_status, COUNT(*) AS count
            FROM applications
            GROUP BY applicant_stage
            ORDER BY count DESC'''
     )
-    stats['by_status'] = by_status or []
 
     by_program = Database.execute_query(
         '''SELECT pt.name, COUNT(*) AS count
@@ -675,29 +646,190 @@ def get_statistics(payload):
            GROUP BY pt.name
            ORDER BY count DESC'''
     )
-    stats['by_program'] = by_program or []
 
-    admitted = Database.execute_query(
-        "SELECT COUNT(*) AS count FROM applications WHERE applicant_stage IN ('admitted', 'accepted')"
+    # ── 3. Recent activity — single UNION ALL ────────────────────────────────
+    activity_rows = Database.execute_query(
+        f'''SELECT event_type, form_no, applicant_name, event_time
+            FROM (
+                SELECT app.decision          AS event_type,
+                       app.form_no,
+                       {USER_NAME_EXPR}      AS applicant_name,
+                       app.decision_date     AS event_time
+                FROM applications app
+                JOIN users u ON app.user_id = u.id
+                WHERE app.decision IS NOT NULL
+                  AND app.decision_date IS NOT NULL
+
+                UNION ALL
+
+                SELECT 'submitted'           AS event_type,
+                       app.form_no,
+                       {USER_NAME_EXPR}      AS applicant_name,
+                       app.updated_at        AS event_time
+                FROM applications app
+                JOIN users u ON app.user_id = u.id
+                WHERE app.applicant_stage = 'submitted'
+
+                UNION ALL
+
+                SELECT 'fee_paid'            AS event_type,
+                       app.form_no,
+                       {USER_NAME_EXPR}      AS applicant_name,
+                       app.updated_at        AS event_time
+                FROM applications app
+                JOIN users u ON app.user_id = u.id
+                WHERE app.applicant_stage = 'accepted'
+            ) combined
+            ORDER BY event_time DESC NULLS LAST
+            LIMIT %s''',
+        (activity_limit,)
     )
-    stats['total_admitted'] = admitted[0]['count'] if admitted else 0
 
-    pending = Database.execute_query(
-        "SELECT COUNT(*) AS count FROM applications WHERE applicant_stage = 'in_progress'"
+    label_map = {
+        'accept':    lambda r: f"{r['form_no']} accepted — {r['applicant_name']}",
+        'reject':    lambda r: f"{r['form_no']} rejected — {r['applicant_name']}",
+        'recommend': lambda r: f"{r['form_no']} recommended — {r['applicant_name']}",
+        'submitted': lambda r: f"New application received — {r['applicant_name']}",
+        'fee_paid':  lambda r: f"Acceptance fee paid — {r['applicant_name']}",
+    }
+
+    activities = []
+    for r in (activity_rows or []):
+        etype = r['event_type']
+        fn = label_map.get(etype) or (lambda r: f"{r['form_no']} reviewed — {r['applicant_name']}")
+        activities.append({
+            'type':       etype,
+            'label':      fn(r),
+            'event_time': r['event_time'].isoformat() if r['event_time'] else None,
+        })
+
+    return jsonify({
+        'statistics': {
+            'total_applications':  int(row.get('total_applications', 0)),
+            'total_admitted':      int(row.get('total_admitted', 0)),
+            'pending_submission':  int(row.get('pending_submission', 0)),
+            'review_applications': int(row.get('review_applications', 0)),
+            'under_review':        int(row.get('under_review', 0)),
+            'by_status':           by_status  or [],
+            'by_program':          by_program or [],
+        },
+        'recent_activity': activities,
+    }), 200
+
+
+@admin_bp.route('/recent-activity', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.admissions_officer_required
+def get_recent_activity(payload):
+    """Unified recent activity feed — single UNION ALL query."""
+    limit = int(request.args.get('limit', 15))
+
+    # One round-trip: merge reviews, submissions, and fee-paid events
+    rows = Database.execute_query(
+        f'''SELECT event_type, form_no, applicant_name, event_time
+            FROM (
+                -- Reviewed applications
+                SELECT app.decision          AS event_type,
+                       app.form_no,
+                       {USER_NAME_EXPR}      AS applicant_name,
+                       app.decision_date     AS event_time
+                FROM applications app
+                JOIN users u ON app.user_id = u.id
+                WHERE app.decision IS NOT NULL
+                  AND app.decision_date IS NOT NULL
+
+                UNION ALL
+
+                -- Submitted applications
+                SELECT 'submitted'           AS event_type,
+                       app.form_no,
+                       {USER_NAME_EXPR}      AS applicant_name,
+                       app.updated_at        AS event_time
+                FROM applications app
+                JOIN users u ON app.user_id = u.id
+                WHERE app.applicant_stage = 'submitted'
+
+                UNION ALL
+
+                -- Acceptance fee paid
+                SELECT 'fee_paid'            AS event_type,
+                       app.form_no,
+                       {USER_NAME_EXPR}      AS applicant_name,
+                       app.updated_at        AS event_time
+                FROM applications app
+                JOIN users u ON app.user_id = u.id
+                WHERE app.applicant_stage = 'accepted'
+            ) combined
+            ORDER BY event_time DESC NULLS LAST
+            LIMIT %s''',
+        (limit,)
     )
-    stats['pending_submission'] = pending[0]['count'] if pending else 0
 
-    review = Database.execute_query(
-        "SELECT COUNT(*) AS count FROM applications WHERE applicant_stage = 'submitted'"
+    label_map = {
+        'accept':    lambda r: f"{r['form_no']} accepted — {r['applicant_name']}",
+        'reject':    lambda r: f"{r['form_no']} rejected — {r['applicant_name']}",
+        'recommend': lambda r: f"{r['form_no']} recommended — {r['applicant_name']}",
+        'submitted': lambda r: f"New application received — {r['applicant_name']}",
+        'fee_paid':  lambda r: f"Acceptance fee paid — {r['applicant_name']}",
+    }
+
+    activities = []
+    for r in (rows or []):
+        etype = r['event_type']
+        fn = label_map.get(etype) or (lambda r: f"{r['form_no']} reviewed — {r['applicant_name']}")
+        activities.append({
+            'type':       etype,
+            'label':      fn(r),
+            'event_time': r['event_time'].isoformat() if r['event_time'] else None,
+        })
+
+    return jsonify({'activities': activities}), 200
+
+
+@admin_bp.route('/statistics', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.admissions_officer_required
+def get_statistics(payload):
+    """Get application statistics — all counts in a single aggregation pass."""
+
+    # ── One query: all scalar counts + status breakdown in one pass ──────────
+    counts = Database.execute_query(
+        '''SELECT
+               COUNT(*)                                                          AS total_applications,
+               COUNT(*) FILTER (WHERE applicant_stage IN ('admitted','accepted')) AS total_admitted,
+               COUNT(*) FILTER (WHERE applicant_stage = 'in_progress')           AS pending_submission,
+               COUNT(*) FILTER (WHERE applicant_stage = 'submitted')             AS review_applications,
+               COUNT(*) FILTER (WHERE applicant_stage = 'screening')             AS under_review
+           FROM applications'''
     )
-    stats['review_applications'] = review[0]['count'] if review else 0
+    row = counts[0] if counts else {}
 
-    screening = Database.execute_query(
-        "SELECT COUNT(*) AS count FROM applications WHERE applicant_stage = 'screening'"
+    # ── Status breakdown ─────────────────────────────────────────────────────
+    by_status = Database.execute_query(
+        '''SELECT applicant_stage AS application_status, COUNT(*) AS count
+           FROM applications
+           GROUP BY applicant_stage
+           ORDER BY count DESC'''
     )
-    stats['under_review'] = screening[0]['count'] if screening else 0
 
-    return jsonify(stats), 200
+    # ── Program breakdown ────────────────────────────────────────────────────
+    by_program = Database.execute_query(
+        '''SELECT pt.name, COUNT(*) AS count
+           FROM applications app
+           LEFT JOIN program_types pt ON app.prog_type = pt.id
+           GROUP BY pt.name
+           ORDER BY count DESC'''
+    )
+
+    return jsonify({
+        'total_applications':  int(row.get('total_applications', 0)),
+        'total_admitted':      int(row.get('total_admitted', 0)),
+        'pending_submission':  int(row.get('pending_submission', 0)),
+        'review_applications': int(row.get('review_applications', 0)),
+        'under_review':        int(row.get('under_review', 0)),
+        'by_status':           by_status  or [],
+        'by_program':          by_program or [],
+    }), 200
 
 
 @admin_bp.route('/letter-templates', methods=['GET'])
@@ -717,6 +849,7 @@ def get_faculty_departments(payload):
         FROM applications app
         JOIN program_types pt ON app.prog_type = pt.id
         WHERE app.applicant_stage = 'accepted'
+          AND (app.admission_letter_sent IS NULL OR app.admission_letter_sent = FALSE)
         GROUP BY pt.name
         ORDER BY pt.name
     '''
@@ -746,6 +879,7 @@ def get_department_applicants(payload, department_name):
         JOIN users u ON app.user_id = u.id
         JOIN program_types pt ON app.prog_type = pt.id
         WHERE app.applicant_stage = 'accepted'
+          AND (app.admission_letter_sent IS NULL OR app.admission_letter_sent = FALSE)
           AND pt.name = %s
         ORDER BY u.firstname ASC
     '''
@@ -759,9 +893,8 @@ def get_department_applicants(payload, department_name):
 @AuthHandler.admissions_officer_required
 def send_department_letters(payload):
     """Send admission letters to all pending applicants in a department"""
-    from sendgrid import SendGridAPIClient
+    import resend as _resend
     from config import Config
-    import base64
 
     data            = request.get_json()
     department_name = data.get('department_name')
@@ -786,7 +919,7 @@ def send_department_letters(payload):
 
     for applicant_id in applicant_ids:
         try:
-            ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id:04d}"
+            ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id}"
 
             applicant = Database.execute_query(
                 f'''SELECT app.id,
@@ -810,14 +943,23 @@ def send_department_letters(payload):
             applicant_data = applicant[0]
 
             fees = Database.execute_query(
-                'SELECT acceptance_fee, tuition_fee, other_fees FROM program_fees WHERE program_id = %s',
+                '''SELECT fc.name, pf.amount
+                   FROM program_fees pf
+                   JOIN fee_components fc ON pf.fee_component_id = fc.id
+                   WHERE pf.program_type = %s''',
                 (applicant_data['program_id'],)
-            )
+)
             acceptance_fee_str = tuition_fee_str = other_fees_str = ''
             if fees:
-                acceptance_fee_str = f"₦{fees[0]['acceptance_fee']:,.2f}"
-                tuition_fee_str    = f"₦{fees[0]['tuition_fee']:,.2f}"
-                other_fees_str     = f"₦{fees[0].get('other_fees', 0):,.2f}"
+                for fee in fees:
+                    name = (fee['name'] or '').lower()
+                    amount = fee['amount'] or 0
+                    if 'acceptance' in name:
+                        acceptance_fee_str = f"₦{amount:,.2f}"
+                    elif 'tuition' in name or 'accommodation' in name:
+                        tuition_fee_str = f"₦{amount:,.2f}"
+                    elif 'sundry' in name or 'other' in name or 'digital' in name:
+                        other_fees_str = f"₦{amount:,.2f}"
 
             pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
                 candidateName=applicant_data['name'],
@@ -851,34 +993,31 @@ def send_department_letters(payload):
         return jsonify({'message': 'No valid applicants to send letters', 'sent': sent_list, 'failed': failed_list}), 400
 
     try:
-        if not all([Config.SENDGRID_API_KEY, Config.SENDGRID_FROM_EMAIL]):
-            raise ValueError("SendGrid not configured")
+        if not all([Config.RESEND_API_KEY, Config.RESEND_FROM_EMAIL]):
+            raise ValueError("Resend not configured")
 
-        sg = SendGridAPIClient(Config.SENDGRID_API_KEY)
-        personalizations = [{"to": [{"email": a['email'], "name": a['name']}]} for a in applicants_with_pdfs]
+        _resend.api_key  = Config.RESEND_API_KEY
+        from_email_str   = f"{Config.RESEND_FROM_NAME} <{Config.RESEND_FROM_EMAIL}>"
 
-        encoded_file = base64.b64encode(applicants_with_pdfs[0]['pdf_bytes']).decode()
-        payload_sg = {
-            "from":             {"email": Config.SENDGRID_FROM_EMAIL, "name": Config.SENDGRID_FROM_NAME},
-            "subject":          "Provisional Admission Letter",
-            "personalizations": personalizations,
-            "content":          [{"type": "text/html", "value": "<p>Dear recipient,</p><p>Please find attached your provisional admission letter.</p><p>Best regards,<br>Admissions Office</p>"}],
-            "attachments":      [{"content": encoded_file, "type": "application/pdf", "filename": "admission_letter.pdf", "disposition": "attachment"}]
-        }
-
-        response = sg.client.mail.send.post(request_body=payload_sg)
-
-        if response.status_code in [200, 201, 202]:
-            for a in applicants_with_pdfs:
-                Database.execute_update(
-                    'UPDATE applications SET admission_letter_sent = TRUE, updated_at = NOW() WHERE id = %s',
-                    (a['applicant_id'],)
-                )
-                sent_list.append({'applicant_id': a['applicant_id'], 'name': a['name'], 'email': a['email']})
-        else:
-            error_msg = f"SendGrid error: {response.status_code}"
-            for a in applicants_with_pdfs:
-                failed_list.append({'applicant_id': a['applicant_id'], 'error': error_msg})
+        for a in applicants_with_pdfs:
+            try:
+                resp = _resend.Emails.send({
+                    "from":    from_email_str,
+                    "to":      [a['email']],
+                    "subject": "Provisional Admission Letter",
+                    "html":    "<p>Dear " + a['name'] + ",</p><p>Please find attached your provisional admission letter.</p><p>Best regards,<br>Admissions Office</p>",
+                    "attachments": [{"filename": "admission_letter.pdf", "content": list(a['pdf_bytes'])}]
+                })
+                if resp and resp.get("id"):
+                    Database.execute_update(
+                        'UPDATE applications SET admission_letter_sent = TRUE, updated_at = NOW() WHERE id = %s',
+                        (a['applicant_id'],)
+                    )
+                    sent_list.append({'applicant_id': a['applicant_id'], 'name': a['name'], 'email': a['email']})
+                else:
+                    failed_list.append({'applicant_id': a['applicant_id'], 'error': f"Resend error: {resp}"})
+            except Exception as _e:
+                failed_list.append({'applicant_id': a['applicant_id'], 'error': str(_e)})
 
     except Exception as e:
         for a in applicants_with_pdfs:
@@ -897,46 +1036,79 @@ def send_department_letters(payload):
 @AuthHandler.token_required
 @AuthHandler.admissions_officer_required
 def get_letter_status_summary(payload):
-    query = f'''SELECT app.id,
-                       {USER_NAME_EXPR} AS name,
-                       u.email,
-                       pt.name AS program_name,
-                       alt.status, alt.sent_at, alt.error_message, alt.retry_count
-                FROM applications app
-                JOIN users u ON app.user_id = u.id
-                LEFT JOIN program_types pt ON app.prog_type = pt.id
-                LEFT JOIN admission_letter_tracking alt ON app.id = alt.applicant_id
-                WHERE app.applicant_stage = 'accepted'
-                ORDER BY alt.status, alt.sent_at DESC'''
+    # --- Sent: derive from admission_letter_sent column (source of truth) ---
+    sent_query = f'''SELECT app.id,
+                            app.form_no,
+                            {USER_NAME_EXPR} AS name,
+                            u.email,
+                            COALESCE(app.approved_course, pt.name) AS course,
+                            pt.name AS program_name,
+                            app.updated_at AS sent_at
+                     FROM applications app
+                     JOIN users u ON app.user_id = u.id
+                     LEFT JOIN program_types pt ON app.prog_type = pt.id
+                     WHERE app.admission_letter_sent = TRUE
+                     ORDER BY app.updated_at DESC'''
 
-    results = Database.execute_query(query)
+    sent_rows = Database.execute_query(sent_query) or []
+    sent = [
+        {
+            'applicant_id': r['id'],
+            'form_no':      r['form_no'],
+            'name':         r['name'],
+            'email':        r['email'],
+            'course':       r['course'] or r['program_name'] or '—',
+            'program':      r['program_name'],
+            'sent_at':      r['sent_at'].isoformat() if r['sent_at'] else None,
+        }
+        for r in sent_rows
+    ]
 
-    sent = []
-    failed = []
+    # --- Failed / Pending: use tracking table for applicants who haven't been sent yet ---
+    tracking_query = f'''SELECT app.id,
+                                app.form_no,
+                                {USER_NAME_EXPR} AS name,
+                                u.email,
+                                pt.name AS program_name,
+                                alt.status, alt.sent_at, alt.error_message, alt.retry_count
+                         FROM applications app
+                         JOIN users u ON app.user_id = u.id
+                         LEFT JOIN program_types pt ON app.prog_type = pt.id
+                         LEFT JOIN admission_letter_tracking alt ON app.id = alt.applicant_id
+                         WHERE app.applicant_stage = 'accepted'
+                           AND (app.admission_letter_sent IS NULL OR app.admission_letter_sent = FALSE)
+                         ORDER BY alt.status NULLS LAST, app.updated_at DESC'''
+
+    tracking_rows = Database.execute_query(tracking_query) or []
+    failed  = []
     pending = []
 
-    if results:
-        for row in results:
-            item = {
-                'applicant_id':  row['id'],
-                'name':          row['name'],
-                'email':         row['email'],
-                'program':       row['program_name'],
-                'status':        row['status'] or 'pending',
-                'sent_at':       row['sent_at'],
-                'error_message': row['error_message'],
-                'retry_count':   row['retry_count'] or 0
-            }
-            if row['status'] == 'sent':
-                sent.append(item)
-            elif row['status'] in ['failed', 'sent_with_errors']:
-                failed.append(item)
-            else:
-                pending.append(item)
+    for row in tracking_rows:
+        item = {
+            'applicant_id':  row['id'],
+            'form_no':       row['form_no'],
+            'name':          row['name'],
+            'email':         row['email'],
+            'program':       row['program_name'],
+            'status':        row['status'] or 'pending',
+            'sent_at':       row['sent_at'].isoformat() if row['sent_at'] else None,
+            'error_message': row['error_message'],
+            'retry_count':   row['retry_count'] or 0
+        }
+        if row['status'] in ['failed', 'sent_with_errors']:
+            failed.append(item)
+        else:
+            pending.append(item)
 
     return jsonify({
-        'sent': sent, 'failed': failed, 'pending': pending,
-        'summary': {'total_sent': len(sent), 'total_failed': len(failed), 'total_pending': len(pending)}
+        'sent':    sent,
+        'failed':  failed,
+        'pending': pending,
+        'summary': {
+            'total_sent':    len(sent),
+            'total_failed':  len(failed),
+            'total_pending': len(pending)
+        }
     }), 200
 
 
@@ -944,9 +1116,8 @@ def get_letter_status_summary(payload):
 @AuthHandler.token_required
 @AuthHandler.admissions_officer_required
 def resend_letter(payload, applicant_id):
-    from sendgrid import SendGridAPIClient
+    import resend as _resend
     from config import Config
-    import base64
 
     data = request.get_json()
     admission_date_str = data.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
@@ -958,7 +1129,7 @@ def resend_letter(payload, applicant_id):
         except Exception:
             admission_date_display = admission_date_str
 
-        ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id:04d}"
+        ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id}"
 
         applicant = Database.execute_query(
             f'''SELECT u.id,
@@ -981,14 +1152,23 @@ def resend_letter(payload, applicant_id):
         applicant_data = applicant[0]
 
         fees = Database.execute_query(
-            'SELECT acceptance_fee, tuition_fee, other_fees FROM program_fees WHERE program_id = %s',
+            '''SELECT fc.name, pf.amount
+            FROM program_fees pf
+            JOIN fee_components fc ON pf.fee_component_id = fc.id
+            WHERE pf.program_type = %s''',
             (applicant_data['program_id'],)
-        )
+)
         acceptance_fee_str = tuition_fee_str = other_fees_str = ''
         if fees:
-            acceptance_fee_str = f"₦{fees[0]['acceptance_fee']:,.2f}"
-            tuition_fee_str    = f"₦{fees[0]['tuition_fee']:,.2f}"
-            other_fees_str     = f"₦{fees[0].get('other_fees', 0):,.2f}"
+            for fee in fees:
+                name = (fee['name'] or '').lower()
+                amount = fee['amount'] or 0
+                if 'acceptance' in name:
+                    acceptance_fee_str = f"₦{amount:,.2f}"
+                elif 'tuition' in name or 'accommodation' in name:
+                    tuition_fee_str = f"₦{amount:,.2f}"
+                elif 'sundry' in name or 'other' in name or 'digital' in name:
+                    other_fees_str = f"₦{amount:,.2f}"
 
         pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
             candidateName=applicant_data['name'],
@@ -1002,29 +1182,28 @@ def resend_letter(payload, applicant_id):
             resumptionDate='', reference=ref_no, body_html=''
         )
 
-        if not all([Config.SENDGRID_API_KEY, Config.SENDGRID_FROM_EMAIL]):
-            raise ValueError("SendGrid not configured")
+        if not all([Config.RESEND_API_KEY, Config.RESEND_FROM_EMAIL]):
+            raise ValueError("Resend not configured")
 
-        sg = SendGridAPIClient(Config.SENDGRID_API_KEY)
-        encoded_file = base64.b64encode(pdf_bytes).decode()
-        payload_sg = {
-            "from":             {"email": Config.SENDGRID_FROM_EMAIL, "name": Config.SENDGRID_FROM_NAME},
-            "personalizations": [{"to": [{"email": applicant_data['email'], "name": applicant_data['name']}]}],
-            "subject":          "Provisional Admission Letter - Resend",
-            "content":          [{"type": "text/html", "value": f"<p>Dear {applicant_data['name']},</p><p>Please find attached your provisional admission letter.</p><p>Best regards,<br>Admissions Office</p>"}],
-            "attachments":      [{"content": encoded_file, "type": "application/pdf", "filename": "admission_letter.pdf", "disposition": "attachment"}]
-        }
+        _resend.api_key = Config.RESEND_API_KEY
+        from_email_str  = f"{Config.RESEND_FROM_NAME} <{Config.RESEND_FROM_EMAIL}>"
 
-        response = sg.client.mail.send.post(request_body=payload_sg)
+        resp = _resend.Emails.send({
+            "from":    from_email_str,
+            "to":      [applicant_data['email']],
+            "subject": "Provisional Admission Letter - Resend",
+            "html":    f"<p>Dear {applicant_data['name']},</p><p>Please find attached your provisional admission letter.</p><p>Best regards,<br>Admissions Office</p>",
+            "attachments": [{"filename": "admission_letter.pdf", "content": list(pdf_bytes)}]
+        })
 
-        if response.status_code in [200, 201, 202]:
+        if resp and resp.get("id"):
             Database.execute_update(
                 "UPDATE admission_letter_tracking SET status = 'sent', sent_at = NOW(), retry_count = retry_count + 1 WHERE applicant_id = %s",
                 (applicant_id,)
             )
             return jsonify({'message': 'Letter resent successfully', 'applicant_id': applicant_id, 'status': 'sent'}), 200
         else:
-            error_msg = f"SendGrid error: {response.status_code}"
+            error_msg = f"Resend error: {resp}"
             Database.execute_update(
                 "UPDATE admission_letter_tracking SET status = 'failed', error_message = %s, retry_count = retry_count + 1 WHERE applicant_id = %s",
                 (error_msg, applicant_id)
@@ -1039,7 +1218,7 @@ def resend_letter(payload, applicant_id):
         return jsonify({'message': 'Error resending letter', 'error': str(e)}), 500
 
 
-@admin_bp.route('/preview-letter/<int:applicant_id>', methods=['GET'])
+@admin_bp.route('/preview-letter/<applicant_id>', methods=['GET'])
 @AuthHandler.token_required
 @AuthHandler.admissions_officer_required
 def preview_letter(payload, applicant_id):
@@ -1052,7 +1231,7 @@ def preview_letter(payload, applicant_id):
         except Exception:
             admission_date_display = admission_date_str
 
-        ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id:04d}"
+        ref_no = f"PCU/ADM/{datetime.now().strftime('%Y')}/{applicant_id}"
 
         applicant = Database.execute_query(
             f'''SELECT u.id,
@@ -1075,14 +1254,23 @@ def preview_letter(payload, applicant_id):
         applicant_data = applicant[0]
 
         fees = Database.execute_query(
-            'SELECT acceptance_fee, tuition_fee, other_fees FROM program_fees WHERE program_id = %s',
+            '''SELECT fc.name, pf.amount
+            FROM program_fees pf
+            JOIN fee_components fc ON pf.fee_component_id = fc.id
+            WHERE pf.program_type = %s''',
             (applicant_data['program_id'],)
         )
         acceptance_fee_str = tuition_fee_str = other_fees_str = ''
         if fees:
-            acceptance_fee_str = f"₦{fees[0]['acceptance_fee']:,.2f}"
-            tuition_fee_str    = f"₦{fees[0]['tuition_fee']:,.2f}"
-            other_fees_str     = f"₦{fees[0].get('other_fees', 0):,.2f}"
+            for fee in fees:
+                name = (fee['name'] or '').lower()
+                amount = fee['amount'] or 0
+                if 'acceptance' in name:
+                    acceptance_fee_str = f"₦{amount:,.2f}"
+                elif 'tuition' in name or 'accommodation' in name:
+                    tuition_fee_str = f"₦{amount:,.2f}"
+                elif 'sundry' in name or 'other' in name or 'digital' in name:
+                    other_fees_str = f"₦{amount:,.2f}"
 
         pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
             candidateName=applicant_data['name'],

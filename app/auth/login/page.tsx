@@ -25,6 +25,7 @@ export default function LoginPage() {
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [localError, setLocalError] = useState("");
   const [showError, setShowError] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
   
   const isPortalLocked = portalStatus?.locked;
   const loadingConfig = isPortalLoading;
@@ -59,21 +60,14 @@ export default function LoginPage() {
 
     const role = user.role;
 
-    // Admissions admin → admissions admin panel
-    if (role === "admissionofficer") {
-      router.replace("e-portal/admission_officer/dashboard");
-      return;
-    }
-
-    // ICT Director -> ICT dashboard
-    if (role === "admin") {
-      router.replace("/ict/dashboard");
-      return;
-    }
-
-    // Any other staff role accidentally hit this page → send to staff portal
-    if (["lecturer", "deo", "hod", "dean", "registrar"].includes(role)) {
-      router.replace("/staff/login");
+    // Staff roles that don't belong here — deny access with a clear error
+    const staffRoles = ["admissionofficer", "admin", "ictdirector", "lecturer", "deo", "hod", "dean", "registrar"];
+    if (staffRoles.includes(role)) {
+      setAccessDenied(true);
+      setLocalError("Access denied.");
+      setShowError(true);
+      // Sign the user out so they are not stuck in a broken state
+      logout();
       return;
     }
 
@@ -82,12 +76,8 @@ export default function LoginPage() {
       return;
     }
 
-    // Applicant: must select a program before accessing dashboard/application
-    if (!applicant?.program_id) {
-      router.replace("/applicant/dashboard");
-    } else {
-      router.replace("/applicant/dashboard");
-    }
+    // Applicant → dashboard
+    router.replace("/applicant/dashboard");
   }, [isAuthenticated, user, applicant, router]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {

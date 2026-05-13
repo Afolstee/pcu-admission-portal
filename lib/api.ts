@@ -231,7 +231,7 @@ export interface StudentProfile {
 export class ApiClient {
   private static token: string | null = null;
   private static cache = new Map<string, { data: any; timestamp: number }>();
-  private static CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache default
+  private static CACHE_TTL = 10 * 60 * 1000; // 10 minutes — form data rarely changes mid-session
 
   static clearCache() {
     this.cache.clear();
@@ -379,8 +379,9 @@ export class ApiClient {
     return data;
   }
 
-  static async getPrograms() {
-    const { data } = await this.fetch("/applicant/programs");
+  static async getPrograms(program_type_id?: number) {
+    const qs = program_type_id ? `?program_type_id=${program_type_id}` : '';
+    const { data } = await this.fetch(`/applicant/programs${qs}`);
     return data;
   }
 
@@ -753,6 +754,41 @@ export class ApiClient {
       method: "POST",
       body: JSON.stringify({ applicant_id }),
     });
+    return data;
+  }
+
+  static async getDashboard(activityLimit = 10): Promise<{
+    statistics: {
+      total_applications: number;
+      total_admitted: number;
+      pending_submission: number;
+      review_applications: number;
+      under_review: number;
+      by_status: Array<{ application_status: string; count: number }>;
+      by_program: Array<{ name: string; count: number }>;
+    };
+    recent_activity: Array<{
+      type: string;
+      label: string;
+      event_time: string | null;
+    }>;
+  }> {
+    const { data } = await this.fetch<{
+      statistics: {
+        total_applications: number;
+        total_admitted: number;
+        pending_submission: number;
+        review_applications: number;
+        under_review: number;
+        by_status: Array<{ application_status: string; count: number }>;
+        by_program: Array<{ name: string; count: number }>;
+      };
+      recent_activity: Array<{
+        type: string;
+        label: string;
+        event_time: string | null;
+      }>;
+    }>(`/admission_officer/dashboard?limit=${activityLimit}`);
     return data;
   }
 

@@ -1,9 +1,6 @@
 import base64
+import resend
 from typing import Optional, List, Tuple, Dict, Any
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import (
-    Mail, Attachment, FileContent, FileName, FileType, Disposition, Email, To
-)
 
 from config import Config
 
@@ -16,48 +13,45 @@ def send_email(
     attachments: Optional[List[Tuple[str, bytes]]] = None,
 ) -> bool:
     """
-    Send an email with optional attachments using SendGrid API.
+    Send an email with optional attachments using Resend API.
     Optimized for production with error handling.
     """
 
     # --- Validate config ---
-    if not all([Config.SENDGRID_API_KEY, Config.SENDGRID_FROM_EMAIL]):
-        print("Email not sent: SendGrid configuration is missing")
+    if not all([Config.RESEND_API_KEY, Config.RESEND_FROM_EMAIL]):
+        print("Email not sent: Resend configuration is missing")
         return False
 
-    from_name = from_name or Config.SENDGRID_FROM_NAME
-    from_email = Config.SENDGRID_FROM_EMAIL
+    resend.api_key = Config.RESEND_API_KEY
+
+    sender_name = from_name or Config.RESEND_FROM_NAME
+    from_email  = f"{sender_name} <{Config.RESEND_FROM_EMAIL}>"
 
     try:
-        # Create Mail object
-        mail = Mail(
-            from_email=Email(from_email, from_name),
-            to_emails=To(to_email),
-            subject=subject,
-            plain_text_content=body_text
-        )
+        params: dict = {
+            "from":    from_email,
+            "to":      [to_email],
+            "subject": subject,
+            "text":    body_text,
+        }
 
         # Add attachments
         if attachments:
-            for filename, file_bytes in attachments:
-                encoded_file = base64.b64encode(file_bytes).decode()
-                attachment = Attachment(
-                    FileContent(encoded_file),
-                    FileName(filename),
-                    FileType('application/pdf'),
-                    Disposition('attachment')
-                )
-                mail.add_attachment(attachment)
+            params["attachments"] = [
+                {
+                    "filename": filename,
+                    "content":  list(file_bytes),   # Resend expects a list of ints
+                }
+                for filename, file_bytes in attachments
+            ]
 
-        # Send email via SendGrid
-        sg = SendGridAPIClient(Config.SENDGRID_API_KEY)
-        response = sg.send(mail)
+        response = resend.Emails.send(params)
 
-        # Check response status
-        if response.status_code in [200, 201, 202]:
+        # Resend returns a dict with an 'id' key on success
+        if response and response.get("id"):
             return True
         else:
-            print(f"SendGrid error sending to {to_email}: Status {response.status_code}")
+            print(f"Resend error sending to {to_email}: {response}")
             return False
 
     except Exception as e:
@@ -74,35 +68,35 @@ def send_batch_emails(
     batch_size: int = 100
 ) -> Dict[str, Any]:
     """
-    Send emails in batches (up to 100 per batch) to improve throughput.
-    
+    Send emails in batches to improve throughput.
+
     Args:
         recipients: List of dicts with 'email', 'name', and optional 'data' for template
         subject: Email subject
         body_text_template: Email body template (use {name} for personalization)
         from_name: Sender name
         attachment_generator: Function that takes recipient dict and returns (filename, bytes) or None
-        batch_size: Number of emails per SendGrid batch (default 100)
-    
+        batch_size: Number of emails per batch (default 100)
+
     Returns:
         Dict with 'success', 'failed', and 'errors' keys
     """
 
     # --- Validate config ---
-    if not all([Config.SENDGRID_API_KEY, Config.SENDGRID_FROM_EMAIL]):
-        print("Batch emails not sent: SendGrid configuration is missing")
-        return {'success': 0, 'failed': len(recipients), 'errors': ['SendGrid config missing']}
+    if not all([Config.RESEND_API_KEY, Config.RESEND_FROM_EMAIL]):
+        print("Batch emails not sent: Resend configuration is missing")
+        return {'success': 0, 'failed': len(recipients), 'errors': ['Resend config missing']}
 
-    from_name = from_name or Config.SENDGRID_FROM_NAME
-    from_email = Config.SENDGRID_FROM_EMAIL
+    resend.api_key = Config.RESEND_API_KEY
+
+    sender_name = from_name or Config.RESEND_FROM_NAME
+    from_email  = f"{sender_name} <{Config.RESEND_FROM_EMAIL}>"
 
     success_count = 0
-    failed_count = 0
-    errors = []
+    failed_count  = 0
+    errors        = []
 
     try:
-        sg = SendGridAPIClient(Config.SENDGRID_API_KEY)
-
         # Process in batches
         for i in range(0, len(recipients), batch_size):
             batch = recipients[i : i + batch_size]
@@ -110,7 +104,7 @@ def send_batch_emails(
             for recipient in batch:
                 try:
                     to_email = recipient.get('email')
-                    to_name = recipient.get('name', '')
+                    to_name  = recipient.get('name', '')
 
                     if not to_email:
                         failed_count += 1
@@ -120,38 +114,32 @@ def send_batch_emails(
                     # Personalize body text
                     body = body_text_template.format(name=to_name, **recipient.get('data', {}))
 
-                    # Create Mail object
-                    mail = Mail(
-                        from_email=Email(from_email, from_name),
-                        to_emails=To(to_email),
-                        subject=subject,
-                        plain_text_content=body
-                    )
+                    params: dict = {
+                        "from":    from_email,
+                        "to":      [to_email],
+                        "subject": subject,
+                        "text":    body,
+                    }
 
                     # Add attachment if generator provided
                     if attachment_generator:
                         attachment_data = attachment_generator(recipient)
                         if attachment_data:
                             filename, file_bytes = attachment_data
-                            encoded_file = base64.b64encode(file_bytes).decode()
-                            attachment = Attachment(
-                                FileContent(encoded_file),
-                                FileName(filename),
-                                FileType('application/pdf'),
-                                Disposition('attachment')
-                            )
-                            mail.add_attachment(attachment)
+                            params["attachments"] = [
+                                {
+                                    "filename": filename,
+                                    "content":  list(file_bytes),
+                                }
+                            ]
 
-                    # Send email
-                    response = sg.send(mail)
+                    response = resend.Emails.send(params)
 
-                    if response.status_code in [200, 201, 202]:
+                    if response and response.get("id"):
                         success_count += 1
                     else:
                         failed_count += 1
-                        errors.append(
-                            f"Email to {to_email} failed with status {response.status_code}"
-                        )
+                        errors.append(f"Email to {to_email} failed: {response}")
 
                 except Exception as e:
                     failed_count += 1
@@ -159,14 +147,14 @@ def send_batch_emails(
 
         return {
             'success': success_count,
-            'failed': failed_count,
-            'errors': errors
+            'failed':  failed_count,
+            'errors':  errors
         }
 
     except Exception as e:
         print(f"Batch email error: {str(e)}")
         return {
             'success': 0,
-            'failed': len(recipients),
-            'errors': [str(e)]
+            'failed':  len(recipients),
+            'errors':  [str(e)]
         }

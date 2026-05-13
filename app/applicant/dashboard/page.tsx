@@ -305,7 +305,7 @@ export default function ApplicantDashboard() {
               {apps.map((app) => (
                 <tr key={app.id} className="border-t border-slate-100 hover:bg-slate-50 transition-colors">
                   <td className="p-4 text-sm text-slate-600 capitalize">{app.user_name}</td>
-                  <td className="p-4 text-sm text-slate-600">PT{new Date(app.created_at).getFullYear()}{app.id.toString().padStart(4, '0')}</td>
+                  <td className="p-4 text-sm text-slate-600 font-mono">{app.form_no || '-'}</td>
                   <td className="p-4 text-sm text-slate-600">-</td>
                   <td className="p-4 text-sm text-slate-600 uppercase font-bold">{app.program_name}</td>
                   <td className="p-4 text-sm">
@@ -322,58 +322,60 @@ export default function ApplicantDashboard() {
                       onClick={async () => {
                          setViewingFormId(app.id);
 
-                         // ── Try to serve from cache first (instant) ──────────
+                         // ── Serve from cache first (zero-delay when warm) ──────
                          const cachedTemplate = preloadedTemplates[app.program_type_id];
                          const cachedForm     = preloadedForms[app.id];
 
-                         if (cachedTemplate) {
-                           setFormTemplate(cachedTemplate);
-                         }
+                         // Both cached → open instantly, no spinner
+                         if (cachedTemplate) setFormTemplate(cachedTemplate);
                          if (cachedForm) {
                            setSubmittedFormData(cachedForm.form);
                            setSubmittedDocuments(cachedForm.documents);
                          }
 
-                         // If both are cached we can skip the loading spinner entirely
-                         const isProfileStage = ['submitted', 'admitted', 'accepted'].includes(app.application_status);
-                         const needsAcceptanceFee = isProfileStage && ['admitted', 'accepted'].includes(app.application_status);
-                         const fullyReady = !!cachedTemplate && (!isProfileStage || !!cachedForm);
-
+                         const fullyReady = !!cachedTemplate && !!cachedForm;
                          if (!fullyReady) setProfileLoading(true);
 
                          try {
-                            // Always ensure template is loaded
-                            if (!cachedTemplate) {
-                              const template = await ApiClient.getFormTemplate(app.program_type_id);
-                              setFormTemplate(template);
-                            }
+                           // Fetch template + ALL saved form values in parallel
+                           const [templateResult, formResult] = await Promise.all([
+                             cachedTemplate
+                               ? Promise.resolve(cachedTemplate)
+                               : ApiClient.getFormTemplate(app.program_type_id),
+                             cachedForm
+                               ? Promise.resolve(cachedForm)
+                               : ApiClient.getForm(app.id)
+                                   .then(r => ({ form: r.form ?? r, documents: r.documents ?? [] }))
+                                   .catch(() => ({ form: null, documents: [] })),
+                           ]);
 
-                            if (isProfileStage && !cachedForm) {
-                               const formData = await ApiClient.getForm(app.id);
-                               setSubmittedFormData(formData.form);
-                               setSubmittedDocuments(formData.documents || []);
-                            }
+                           if (!cachedTemplate) setFormTemplate(templateResult);
+                           if (!cachedForm) {
+                             setSubmittedFormData((formResult as any).form);
+                             setSubmittedDocuments((formResult as any).documents ?? []);
+                           }
 
-                            if (needsAcceptanceFee) {
-                              try {
-                                const feeData = await ApiClient.getAcceptanceFee();
-                                setAcceptanceFeeData({
-                                  amount: feeData.acceptance_fee,
-                                  feeName: feeData.fee_name,
-                                  paid: app.has_paid_acceptance_fee
-                                });
-                              } catch (e) {
-                                console.error('Failed to load acceptance fee', e);
-                              }
-                            } else {
-                              setAcceptanceFeeData(null);
-                            }
+                           // Acceptance fee banner for admitted / accepted
+                           if (['admitted', 'accepted'].includes(app.application_status)) {
+                             try {
+                               const feeData = await ApiClient.getAcceptanceFee();
+                               setAcceptanceFeeData({
+                                 amount: feeData.acceptance_fee,
+                                 feeName: feeData.fee_name,
+                                 paid: app.has_paid_acceptance_fee,
+                               });
+                             } catch (e) {
+                               console.error('Failed to load acceptance fee', e);
+                             }
+                           } else {
+                             setAcceptanceFeeData(null);
+                           }
                          } catch (e) {
-                            console.error("Failed to load data", e);
+                           console.error('Failed to load form data', e);
                          } finally {
-                            setProfileLoading(false);
+                           setProfileLoading(false);
                          }
-                      }}
+                       }}
                     >
                       {['submitted', 'admitted', 'accepted'].includes(app.application_status) ? 'Profile' : 'Apply'}
                     </Button>
@@ -475,8 +477,8 @@ export default function ApplicantDashboard() {
                     programId={currentApp?.program_id || 0}
                     programTypeId={currentApp?.program_type_id}
                     user={user}
-                    initialFormData={viewingFormId ? preloadedForms[viewingFormId]?.form : undefined}
-                    initialDocuments={viewingFormId ? preloadedForms[viewingFormId]?.documents : undefined}
+                    initialFormData={submittedFormData ?? undefined}
+                    initialDocuments={submittedDocuments ?? undefined}
                     onSuccess={() => {
                       setViewingFormId(null);
                       setFormTemplate(null);

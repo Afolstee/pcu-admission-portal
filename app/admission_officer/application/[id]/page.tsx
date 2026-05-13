@@ -331,10 +331,19 @@ function ReviewsTab({
   const [approvedCourse, setApprovedCourse] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [reviewSuccess, setReviewSuccess] = useState<string | null>(null);
+  const [programs, setPrograms] = useState<{ program_id: number; program: string; department: string; degree: string }[]>([]);
 
-  const applicantId = application.applicant.id;
-  const firstChoice  = application.form?.first_choice_program_name  as string | undefined;
-  const secondChoice = application.form?.second_choice_program_name as string | undefined;
+  const applicantId   = application.applicant.id;
+  // admin.py returns prog_type (the program_types.id FK)
+  const programTypeId: number | null = application.applicant.prog_type ?? application.applicant.program_id ?? null;
+
+  // Fetch all available programs for this applicant's program type
+  useEffect(() => {
+    if (!programTypeId) return;
+    ApiClient.getPrograms(programTypeId)
+      .then((res: any) => setPrograms(res.programs || []))
+      .catch(() => setPrograms([]));
+  }, [programTypeId]);
 
   // Existing decision already stored on the application row
   const currentDecision     = application.applicant.decision      as string | undefined;
@@ -365,6 +374,7 @@ function ReviewsTab({
       setReviewSuccess(`Application ${labels[decision] || "reviewed"} successfully.`);
       setApprovedCourse("");
       setDecision("accept");
+      window.dispatchEvent(new Event('application-reviewed'));
       onReviewSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit review");
@@ -475,36 +485,71 @@ function ReviewsTab({
               ))}
             </div>
 
-            {/* Approved course selector (accept / recommend) */}
-            {needsCourse && (
+            {/* Accept — choose from applicant's 1st / 2nd choice */}
+            {decision === "accept" && (
               <div className="space-y-1">
-                <label className="text-sm font-medium">
-                  {decision === "accept" ? "Accepted Course" : "Recommended Course"}
-                </label>
+                <label className="text-sm font-medium">Accepted Course</label>
                 <Select
                   value={approvedCourse}
                   onValueChange={setApprovedCourse}
                   disabled={reviewing}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select first or second choice course" />
+                    <SelectValue placeholder="Select applicant's 1st or 2nd choice" />
                   </SelectTrigger>
                   <SelectContent>
-                    {firstChoice && (
-                      <SelectItem value={firstChoice}>
-                        1st Choice — {firstChoice}
+                    {application.form?.first_choice_program_name && (
+                      <SelectItem value={application.form.first_choice_program_name}>
+                        1st Choice — {application.form.first_choice_program_name}
                       </SelectItem>
                     )}
-                    {secondChoice && (
-                      <SelectItem value={secondChoice}>
-                        2nd Choice — {secondChoice}
+                    {application.form?.second_choice_program_name && (
+                      <SelectItem value={application.form.second_choice_program_name}>
+                        2nd Choice — {application.form.second_choice_program_name}
                       </SelectItem>
+                    )}
+                    {!application.form?.first_choice_program_name && !application.form?.second_choice_program_name && (
+                      <SelectItem value="__none__" disabled>No choices on record</SelectItem>
                     )}
                   </SelectContent>
                 </Select>
                 {approvedCourse && (
                   <p className="text-xs text-slate-500 pt-0.5">
                     This will be recorded as the <strong>approved_course</strong> and <strong>finalised_course</strong>.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Recommend — all courses available for this program type */}
+            {decision === "recommend" && (
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Recommended Course</label>
+                <Select
+                  value={approvedCourse}
+                  onValueChange={setApprovedCourse}
+                  disabled={reviewing}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={programs.length ? "Select a course" : "Loading courses…"} />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    {programs.map((p) => (
+                      <SelectItem key={p.program_id} value={p.program}>
+                        {p.program}
+                        {p.department ? (
+                          <span className="text-xs text-muted-foreground ml-1">— {p.department}</span>
+                        ) : null}
+                      </SelectItem>
+                    ))}
+                    {programs.length === 0 && (
+                      <SelectItem value="__none__" disabled>No courses found</SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+                {approvedCourse && (
+                  <p className="text-xs text-slate-500 pt-0.5">
+                    This recommendation will be recorded as the <strong>approved_course</strong>.
                   </p>
                 )}
               </div>

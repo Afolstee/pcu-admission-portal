@@ -3,15 +3,18 @@ import { useState } from "react";
 import { ApiClient } from "@/lib/api";
 
 const ROLE_REDIRECTS: Record<string, string> = {
-  admin:              "/ict/dashboard",
-  ict_director:       "/ict/dashboard",
-  admissionofficer: "/admission_officer/dashboard",
-  lecturer:           "/lecturer/dashboard",
-  deo:                "/deo/dashboard",
-  hod:                "/hod/dashboard",
-  dean:               "/dean/dashboard",
-  registrar:          "/registrar/dashboard",
+  admin:            "/e-portal/ict/dashboard",
+  ictdirector:      "/e-portal/ict/dashboard",
+  admissionofficer: "/e-portal/admission_officer/dashboard",
+  lecturer:         "/e-portal/lecturer/dashboard",
+  deo:              "/e-portal/deo/dashboard",
+  hod:              "/e-portal/hod/dashboard",
+  dean:             "/e-portal/dean/dashboard",
+  registrar:        "/e-portal/registrar/dashboard",
 };
+
+// Roles that must NOT use this portal
+const APPLICANT_ROLES = ["applicant", "freshapplicant"];
 
 export default function StaffLogin() {
   const [form, setForm]   = useState({ email: "", password: "" });
@@ -25,24 +28,24 @@ export default function StaffLogin() {
       const data = await ApiClient.login(form.email, form.password);
       const role: string = data?.user?.role ?? "";
 
-      if (role === "applicant") {
-        setError("This portal is for staff only. Applicants should use the Admissions portal.");
+      if (APPLICANT_ROLES.includes(role)) {
+        // Do NOT store the token — deny access immediately
+        setError("Access denied.");
         return;
       }
       if (role === "student") {
-        setError("This portal is for staff only. Students should use the Student Login.");
+        setError("Access denied.");
         return;
       }
       if (!ROLE_REDIRECTS[role]) {
-        setError(`Unrecognised role '${role}'. Please contact IT support.`);
+        setError("Access denied.");
         return;
       }
 
       ApiClient.setToken(data.token);
       localStorage.setItem("auth_user", JSON.stringify(data.user));
-      // Full page reload re-initializes AuthContext from localStorage.
-      // Prefix with basePath (/e-portal) since window.location.href bypasses Next.js routing.
-      window.location.href = `/e-portal${ROLE_REDIRECTS[role]}`;
+      // Use window.location.href so Next.js basePath is bypassed and we use absolute paths.
+      window.location.href = ROLE_REDIRECTS[role];
     } catch (err: any) {
       setError(err.message || "Login failed. Please check your credentials.");
     } finally {
@@ -56,14 +59,6 @@ export default function StaffLogin() {
         {/* Logo / Header */}
         <div className="staff-login-header">
           <div className="staff-login-logo">PCU</div>
-          <h1 className="staff-login-title">Staff Portal</h1>
-          <p className="staff-login-subtitle">
-            Lecturers · HODs · Deans · DEOs · Registrar · Admin
-          </p>
-          <p className="staff-login-subtitle" style={{ marginTop: "0.25rem", fontSize: "0.72rem" }}>
-            Admissions portal admin? Use the{" "}
-            <a href="/auth/login" style={{ color: "rgba(147,197,253,0.9)", textDecoration: "underline" }}>Admissions Login</a>
-          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="staff-login-form">
@@ -98,12 +93,6 @@ export default function StaffLogin() {
             {loading ? "Signing in…" : "Sign In"}
           </button>
         </form>
-
-        <footer className="staff-login-footer">
-          <a href="/auth/login">← Applicant / Admissions login</a>
-          &nbsp;·&nbsp;
-          <a href="/student/login">Student login</a>
-        </footer>
       </div>
 
       <style jsx>{`

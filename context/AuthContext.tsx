@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { ApiClient, StudentData } from '@/lib/api';
 
 type StaffRole = 'lecturer' | 'deo' | 'hod' | 'dean' | 'registrar' | 'admissionofficer' | 'ictdirector' | 'admin' | 'freshapplicant';
@@ -80,13 +80,60 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem('auth_user', JSON.stringify(u));
     } else {
       localStorage.removeItem('auth_user');
+      localStorage.removeItem('last_active');
     }
   };
+
+  // ─── Inactivity timeout (15 minutes) ───────────────────────────────────────
+  const INACTIVITY_LIMIT = 15 * 60 * 1000; // 15 minutes in ms
+  const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const resetInactivityTimer = useCallback(() => {
+    if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
+    localStorage.setItem('last_active', Date.now().toString());
+    inactivityTimer.current = setTimeout(() => {
+      // Auto-logout on inactivity
+      ApiClient.setToken(null);
+      saveUserAndRole(null);
+      setApplicant(null);
+      setStudent(null);
+      setError('You have been signed out due to inactivity. Please sign in again.');
+    }, INACTIVITY_LIMIT);
+  }, []);
+
+  // Attach activity listeners when user is authenticated
+  useEffect(() => {
+    const activityEvents = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'];
+    const handler = () => resetInactivityTimer();
+
+    if (user) {
+      activityEvents.forEach(e => window.addEventListener(e, handler, { passive: true }));
+      resetInactivityTimer(); // start the timer immediately on login / page load
+    } else {
+      // Clear timer when not authenticated
+      if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
+    }
+
+    return () => {
+      activityEvents.forEach(e => window.removeEventListener(e, handler));
+      if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
+    };
+  }, [user, resetInactivityTimer]);
 
   useEffect(() => {
     const token = ApiClient.getToken();
     if (token) {
-      verifyToken();
+      // Check if the session was already stale before loading the page
+      const lastActive = localStorage.getItem('last_active');
+      if (lastActive && Date.now() - parseInt(lastActive, 10) > INACTIVITY_LIMIT) {
+        // Session expired while browser was closed — clear everything and don't verify
+        ApiClient.setToken(null);
+        localStorage.removeItem('auth_user');
+        localStorage.removeItem('last_active');
+        setIsLoading(false);
+      } else {
+        verifyToken();
+      }
     } else {
       setIsLoading(false);
       localStorage.removeItem('auth_user');
@@ -172,6 +219,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       if (response.student) {
         setStudent(response.student);
+      }
+
+      // ── Background warm-up: pre-fetch all applicant form data immediately
+      // after login so the ApiClient cache is hot before the dashboard mounts.
+      // Only runs for applicant / freshapplicant roles — staff don't need it.
+      const role = response.user?.role;
+      if (role === 'applicant' || role === 'freshapplicant') {
+        Promise.resolve().then(async () => {
+          try {
+            // 1. Get the list of applications (also warms the status cache)
+            const statusRes = await ApiClient.getApplicantStatus();
+            const apps = statusRes?.applicants || [];
+
+            // 2. Warm form data + template for every application in parallel
+            if (apps.length > 0) {
+              await Promise.all(
+                apps.map((app: any) =>
+                  Promise.all([
+                    ApiClient.getForm(app.id).catch(() => null),
+                    ApiClient.getFormTemplate(app.program_type_id).catch(() => null),
+                  ])
+                )
+              );
+            }
+          } catch {
+            // Silently ignore — the dashboard will fall back to its own fetch
+          }
+        });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed';

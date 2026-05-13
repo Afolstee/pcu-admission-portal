@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient } from "@/lib/api";
@@ -16,7 +15,6 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
-  LogOut,
   Mail,
   AlertCircle,
   CheckCircle2,
@@ -30,6 +28,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import AdmissionLetterPreviewModal from "@/components/AdmissionLetterPreviewModal";
 
 interface FacultyData {
   [faculty: string]: Array<{
@@ -47,9 +46,11 @@ interface DepartmentApplicant {
 
 interface LetterStatus {
   applicant_id: number;
+  form_no: string | null;
   name: string;
   email: string;
   program: string;
+  course: string;
   status: "pending" | "sent" | "failed";
   sent_at: string | null;
   error_message: string | null;
@@ -63,22 +64,17 @@ export default function SendLettersPage() {
   // Faculty/Department pending state
   const [faculties, setFaculties] = useState<FacultyData>({});
   const [expandedFaculty, setExpandedFaculty] = useState<string | null>(null);
-  const [selectedDepartment, setSelectedDepartment] = useState<string | null>(
-    null,
-  );
-  const [departmentApplicants, setDepartmentApplicants] = useState<
-    DepartmentApplicant[]
-  >([]);
-  const [selectedApplicants, setSelectedApplicants] = useState<Set<number>>(
-    new Set(),
-  );
+  const [selectedDepartment, setSelectedDepartment] = useState<string | null>(null);
+  const [departmentApplicants, setDepartmentApplicants] = useState<DepartmentApplicant[]>([]);
+  const [selectedApplicants, setSelectedApplicants] = useState<Set<number>>(new Set());
 
   // Status tabs state
-  const [activeTab, setActiveTab] = useState<"pending" | "sent" | "failed">(
-    "pending",
-  );
+  const [activeTab, setActiveTab] = useState<"pending" | "sent" | "failed">("pending");
   const [sentLetters, setSentLetters] = useState<LetterStatus[]>([]);
   const [failedLetters, setFailedLetters] = useState<LetterStatus[]>([]);
+
+  // Preview modal state
+  const [previewApplicantId, setPreviewApplicantId] = useState<number | null>(null);
 
   // UI state
   const [loading, setLoading] = useState(true);
@@ -93,7 +89,6 @@ export default function SendLettersPage() {
       return;
     }
 
-    // Set admission date to today on client mount
     if (!admissionDate) {
       setAdmissionDate(new Date().toISOString().split("T")[0]);
     }
@@ -147,9 +142,7 @@ export default function SendLettersPage() {
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedApplicants(
-        new Set(departmentApplicants.map((app) => app.id)),
-      );
+      setSelectedApplicants(new Set(departmentApplicants.map((app) => app.id)));
     } else {
       setSelectedApplicants(new Set());
     }
@@ -178,8 +171,7 @@ export default function SendLettersPage() {
       setSelectedApplicants(new Set());
       await loadData();
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to send letters";
+      const message = err instanceof Error ? err.message : "Failed to send letters";
       setError(message);
     } finally {
       setSending(false);
@@ -192,19 +184,7 @@ export default function SendLettersPage() {
       setSuccessMessage("Letter resent successfully");
       await loadData();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to resend letter",
-      );
-    }
-  };
-
-  const handlePreviewLetter = async (applicantId: number) => {
-    try {
-      window.open(`/admission_officer/preview-letter/${applicantId}`, "_blank");
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to preview letter",
-      );
+      setError(err instanceof Error ? err.message : "Failed to resend letter");
     }
   };
 
@@ -219,6 +199,15 @@ export default function SendLettersPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">
+
+      {/* Preview Modal */}
+      {previewApplicantId !== null && (
+        <AdmissionLetterPreviewModal
+          applicantId={previewApplicantId}
+          admissionDate={admissionDate}
+          onClose={() => setPreviewApplicantId(null)}
+        />
+      )}
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -356,8 +345,7 @@ export default function SendLettersPage() {
                               <Checkbox
                                 id="select-all"
                                 checked={
-                                  selectedApplicants.size ===
-                                    departmentApplicants.length &&
+                                  selectedApplicants.size === departmentApplicants.length &&
                                   departmentApplicants.length > 0
                                 }
                                 onCheckedChange={(checked) =>
@@ -402,7 +390,7 @@ export default function SendLettersPage() {
                                 <Button
                                   size="sm"
                                   variant="ghost"
-                                  onClick={() => handlePreviewLetter(app.id)}
+                                  onClick={() => setPreviewApplicantId(app.id)}
                                   disabled={sending}
                                   title="Preview admission letter"
                                 >
@@ -423,18 +411,14 @@ export default function SendLettersPage() {
                                 id="admission-date-pending"
                                 type="date"
                                 value={admissionDate}
-                                onChange={(e) =>
-                                  setAdmissionDate(e.target.value)
-                                }
+                                onChange={(e) => setAdmissionDate(e.target.value)}
                                 disabled={sending}
                               />
                             </div>
 
                             <Button
                               onClick={handleSendLetters}
-                              disabled={
-                                sending || selectedApplicants.size === 0
-                              }
+                              disabled={sending || selectedApplicants.size === 0}
                               className="w-full gap-2"
                             >
                               <Mail className="h-4 w-4" />
@@ -458,74 +442,64 @@ export default function SendLettersPage() {
 
           {/* Sent Successfully Tab */}
           <TabsContent value="sent">
-            <Card>
-              <CardHeader>
-                <CardTitle>Successfully Sent</CardTitle>
-                <CardDescription>
-                  {sentLetters.length} applicants have received letters
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {sentLetters.length === 0 ? (
-                  <div className="text-center py-12">
-                    <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <p className="text-muted-foreground">No sent letters yet</p>
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                {sentLetters.length} applicant{sentLetters.length !== 1 ? "s have" : " has"} received letters
+              </p>
+            </div>
+
+            {sentLetters.length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <AlertCircle className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+                  <p className="text-muted-foreground text-sm">No letters have been sent yet</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {sentLetters.map((letter) => (
+                  <div
+                    key={letter.applicant_id}
+                    className="flex items-start gap-3 p-4 rounded-lg border border-border bg-card hover:bg-accent/40 transition-colors"
+                  >
+                    {/* Icon */}
+                    <div className="mt-0.5 flex-shrink-0 h-8 w-8 rounded-full bg-green-100 flex items-center justify-center">
+                      <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    </div>
+
+                    {/* Info */}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-mono text-muted-foreground leading-none mb-1">
+                        {letter.form_no || "—"}
+                      </p>
+                      <p className="font-medium text-sm leading-snug truncate">{letter.name}</p>
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">
+                        {letter.course || letter.program || "—"}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {letter.sent_at
+                          ? new Date(letter.sent_at).toLocaleDateString("en-GB", {
+                              day: "2-digit",
+                              month: "short",
+                              year: "numeric",
+                            })
+                          : "—"}
+                      </p>
+                    </div>
+
+                    {/* Resend action */}
+                    <button
+                      onClick={() => handleResend(letter.applicant_id)}
+                      disabled={sending}
+                      title="Resend letter"
+                      className="flex-shrink-0 p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    </button>
                   </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-border">
-                          <th className="text-left py-3 px-4 font-medium">
-                            Name
-                          </th>
-                          <th className="text-left py-3 px-4 font-medium">
-                            Email
-                          </th>
-                          <th className="text-left py-3 px-4 font-medium">
-                            Program
-                          </th>
-                          <th className="text-left py-3 px-4 font-medium">
-                            Sent Date
-                          </th>
-                          <th className="text-left py-3 px-4 font-medium">
-                            Action
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sentLetters.map((letter) => (
-                          <tr key={letter.applicant_id} className="border-b border-border hover:bg-muted/50">
-                            <td className="py-3 px-4">{letter.name}</td>
-                            <td className="py-3 px-4 text-xs">{letter.email}</td>
-                            <td className="py-3 px-4 text-xs">{letter.program}</td>
-                            <td className="py-3 px-4 text-xs">
-                              {letter.sent_at
-                                ? new Date(letter.sent_at).toLocaleDateString()
-                                : "—"}
-                            </td>
-                            <td className="py-3 px-4">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() =>
-                                  handleResend(letter.applicant_id)
-                                }
-                                disabled={sending}
-                                className="gap-2"
-                              >
-                                <RotateCcw className="h-3 w-3" />
-                                Resend
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                ))}
+              </div>
+            )}
           </TabsContent>
 
           {/* Failed Tab */}
@@ -566,17 +540,25 @@ export default function SendLettersPage() {
                                 Attempts: {letter.retry_count}
                               </p>
                             </div>
-                            <Button
-                              size="sm"
-                              onClick={() =>
-                                handleResend(letter.applicant_id)
-                              }
-                              disabled={sending}
-                              className="gap-2"
-                            >
-                              <RotateCcw className="h-3 w-3" />
-                              Retry
-                            </Button>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setPreviewApplicantId(letter.applicant_id)}
+                                title="Preview letter"
+                              >
+                                <Eye className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => handleResend(letter.applicant_id)}
+                                disabled={sending}
+                                className="gap-2"
+                              >
+                                <RotateCcw className="h-3 w-3" />
+                                Retry
+                              </Button>
+                            </div>
                           </div>
                         </CardContent>
                       </Card>

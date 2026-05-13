@@ -77,12 +77,9 @@ export default function AdminDashboard() {
 
     const load = async () => {
       try {
-        const [statsRes, activityRes] = await Promise.all([
-          ApiClient.getStatistics(),
-          ApiClient.getRecentActivity(10),
-        ]);
-        setStats(statsRes);
-        setActivity(activityRes.activities || []);
+        const res = await ApiClient.getDashboard(10);
+        setStats(res.statistics);
+        setActivity(res.recent_activity || []);
       } catch (err) {
         console.error("Dashboard load error:", err);
       } finally {

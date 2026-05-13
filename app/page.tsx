@@ -78,12 +78,26 @@ export default function UniversityLandingPage() {
   const [heroVisible, setHeroVisible] = useState(false);
 
   useEffect(() => {
-    if (isAuthenticated && user && !isLoading) {
-      if (user.role !== "applicant") {
-        // Staff users are handled by the staff login page; don't redirect from the landing page
-        return;
-      }
-      router.replace("/applicant/dashboard");
+    if (!isAuthenticated || !user || isLoading) return;
+
+    // Redirect every authenticated role to their correct dashboard
+    const ROLE_HOME: Record<string, string> = {
+      applicant:        "/applicant/dashboard",
+      freshapplicant:   "/applicant/dashboard",
+      student:          "/student/dashboard",
+      admissionofficer: "/admission_officer/dashboard",
+      admin:            "/ict/dashboard",
+      ictdirector:      "/ict/dashboard",
+      lecturer:         "/lecturer/dashboard",
+      deo:              "/deo/dashboard",
+      hod:              "/hod/dashboard",
+      dean:             "/dean/dashboard",
+      registrar:        "/registrar/dashboard",
+    };
+
+    const destination = ROLE_HOME[user.role];
+    if (destination) {
+      router.replace(destination);
     }
   }, [isAuthenticated, user, isLoading, router]);
 

@@ -241,7 +241,7 @@ export default function LoginPage() {
     <CardHeader className="space-y-4 text-center">
           <div className="flex justify-center">
             <Image
-              src="/e-portal/images/logo new.png"
+              src="/images/logo new.png"
               alt="University Logo"
               width={120}
               height={120}

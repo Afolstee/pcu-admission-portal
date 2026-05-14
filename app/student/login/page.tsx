@@ -138,7 +138,7 @@ export default function StudentLoginPage() {
         <div className="flex flex-col items-center">
             <Link href="/" className="mb-8 hover:opacity-80 transition-opacity">
                 <Image
-                src="/e-portal/images/logo new.png"
+                src="/images/logo new.png"
                 alt="University Logo"
                 width={100}
                 height={100}

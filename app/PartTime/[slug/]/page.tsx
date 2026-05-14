@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
-import CourseDetailPage from "../CourseDetailPage";
-import { coursesData } from "../coursesData";
+import CourseDetailPage from "../../../PartTime/CourseDetailPage";
+import { coursesData } from "../../../PartTime/coursesData";
 
 export async function generateStaticParams() {
   return coursesData.map((course) => ({

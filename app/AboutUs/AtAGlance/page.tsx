@@ -14,7 +14,7 @@ export default function AtAGlancePage() {
       {/* Hero Banner */}
       <div className="relative w-full h-64 md:h-80 overflow-hidden">
         <img 
-          src="e-portal/images/students.jpg"
+          src="/e-portal/images/students.jpg"
           alt="PCU at a Glance"
           className="absolute inset-0 w-full h-full object-cover"
         />

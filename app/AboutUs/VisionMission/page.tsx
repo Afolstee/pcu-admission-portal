@@ -19,7 +19,7 @@ export default function VisionMissionPage() {
       {/* Hero Banner */}
       <div className="relative w-full h-64 md:h-80 overflow-hidden">
         <img 
-          src="e-portal/images/students.jpg"
+          src="/e-portal/images/students.jpg"
           alt="Vision & Mission"
           className="absolute inset-0 w-full h-full object-cover"
         />

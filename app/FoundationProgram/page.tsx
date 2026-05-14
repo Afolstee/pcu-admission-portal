@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import PageSidebar from "../components/PageSidebar";
+
 // ── Accordion ────────────────────────────────────────────────────────────────
 
 function Accordion({
@@ -108,8 +110,13 @@ export default function FoundationProgramPage() {
       <div className="flex justify-center bg-white">
         <div className="flex flex-col md:flex-row w-full max-w-6xl py-16 px-6 gap-12">
           
+          {/* Left Sidebar */}
+          <div className="order-last md:order-first w-full md:w-1/4">
+            <PageSidebar variant="undergraduate" activePath="/FoundationProgram" />
+          </div>
+
           {/* Right Content */}
-          <div className="flex-1 min-w-0 w-full">
+          <div className="flex-1 min-w-0 md:w-3/4">
             
             {/* Get Started Section */}
             <div className="flex flex-col md:flex-row gap-10 mb-16">
@@ -129,7 +136,7 @@ export default function FoundationProgramPage() {
               <div className="w-full md:w-1/2">
                 <div className="relative w-full aspect-square md:aspect-[4/5] overflow-hidden bg-gray-100">
                   <img
-                    src="e-portal/images/social-sciences.jpeg"
+                    src="/e-portal/images/social-sciences.jpeg"
                     alt="Foundation Program Student"
                     className="w-full h-full object-cover"
                   />
@@ -172,4 +179,3 @@ export default function FoundationProgramPage() {
     </div>
   );
 }
-

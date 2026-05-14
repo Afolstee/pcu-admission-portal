@@ -353,7 +353,7 @@ export default function Navbar() {
           <a href="/" className="shrink-0">
             <div className="w-16 h-16 border-2 border-gray-200 rounded-lg overflow-hidden flex items-center justify-center bg-white">
               <img
-                src="e-portal/images/logo new.png"
+                src="/e-portal/images/logo new.png"
                 alt="University Logo"
                 sizes="(max-width: 500px) 100vw, 500px"
                 className="aspect-[auto_500_/_500] box-border caret-transparent inline-block max-w-full break-words text-center w-20 md:text-left md:w-4/5"

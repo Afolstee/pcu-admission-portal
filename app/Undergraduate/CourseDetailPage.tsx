@@ -94,7 +94,7 @@ export default function UndergraduateCourseDetailPage({ course }: Props) {
       <div
         className="flex justify-center"
         // style={{
-        //   backgroundImage: "url('e-portal/images/dot-bg-mono.jpg')",
+        //   backgroundImage: "url('/e-portal/images/dot-bg-mono.jpg')",
         //   backgroundSize: "cover",
         //   backgroundPosition: "center",
         // }}

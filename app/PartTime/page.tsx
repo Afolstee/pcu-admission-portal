@@ -4,6 +4,7 @@ import PartTimeHero from "./PartTimeHero";
 import DeansSpeech from "./DeansSpeech";
 import OurMission from "./OurMission";
 import AccreditedCourses from "./AccreditedCourses";
+import PageSidebar from "../components/PageSidebar";
 import { useEffect } from "react";
 
 export default function PartTimePage() {
@@ -38,8 +39,11 @@ export default function PartTimePage() {
       {/* Body: Sidebar (left) + Content (right) */}
       <div className="flex justify-center">
         <div className="flex w-full max-w-5xl py-10 px-4 gap-10 items-stretch">
+          {/* Left: Sidebar nav */}
+          <PageSidebar variant="parttime" activePath="/PartTime" />
+
           {/* Right: Main content stacked */}
-          <div className="flex-1 min-w-0 w-full">
+          <div className="flex-1 min-w-0">
             <DeansSpeech />
             <OurMission />
             <AccreditedCourses />
@@ -49,4 +53,3 @@ export default function PartTimePage() {
     </div>
   );
 }
-

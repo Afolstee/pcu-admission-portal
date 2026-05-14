@@ -47,7 +47,7 @@ export default function Home() {
         <section className="relative h-[85vh] w-full overflow-hidden">
           {/* Background Video */}
           <img
-            src="e-portal/images/school1.png"
+            src="/e-portal/images/school1.png"
             alt="Hero Background"
             className="absolute top-0 left-0 w-full h-full object-cover"
           />

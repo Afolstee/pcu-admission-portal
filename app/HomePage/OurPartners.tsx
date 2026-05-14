@@ -1,9 +1,9 @@
 const partners = [
-  { name: "Rome Business School", img: "e-portal/images/Rome-Business-School.png" },
-  { name: "JUPEB Board", img: "e-portal/images/JUPEBLogoSmall.png" },
-  { name: "Nigerian Bioinformatics & Genomics Network", img: "e-portal/images/nbgn_logo.png" },
-  { name: "CEPRO Center For Peace Promotion", img: "e-portal/images/CEPRO.png" },
-  { name: "Cocoa Research Institute of Nigeria", img: "e-portal/images/CRIN-logo-150x150.jpg" },
+  { name: "Rome Business School", img: "/e-portal/images/Rome-Business-School.png" },
+  { name: "JUPEB Board", img: "/e-portal/images/JUPEBLogoSmall.png" },
+  { name: "Nigerian Bioinformatics & Genomics Network", img: "/e-portal/images/nbgn_logo.png" },
+  { name: "CEPRO Center For Peace Promotion", img: "/e-portal/images/CEPRO.png" },
+  { name: "Cocoa Research Institute of Nigeria", img: "/e-portal/images/CRIN-logo-150x150.jpg" },
 ];
 
 export default function OurPartners() {

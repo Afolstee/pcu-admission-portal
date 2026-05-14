@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-const STATIC_IMAGE = "e-portal/images/a8.jpg";
+const STATIC_IMAGE = "/e-portal/images/a8.jpg";
 
 const programs = [
   {

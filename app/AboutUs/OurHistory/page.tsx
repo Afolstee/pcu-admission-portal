@@ -6,7 +6,7 @@ export default function OurHistoryPage() {
       <div className="relative w-full h-64 md:h-80 overflow-hidden">
         {/* Background Image */}
         <img 
-          src="e-portal/images/school1.png"
+          src="/e-portal/images/school1.png"
           alt="PCU History"
           className="absolute inset-0 w-full h-full object-cover"
         />

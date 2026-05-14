@@ -120,7 +120,7 @@ export default function PcuFooter() {
         {/* Right: Instagram image block */}
         <div className="relative rounded overflow-hidden h-64 lg:h-auto min-h-[260px]">
           <img
-            src="e-portal/images/school1.png"
+            src="/e-portal/images/school1.png"
             alt="PCU Campus"
             className="w-full h-full object-cover"
             onError={(e) => {

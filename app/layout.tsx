@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   title: "PRECIOUS CORNERSTONE UNIVERSITY",
   description: "Submit your application and track your admission status",
   icons: {
-    icon: "e-portal/images/logo new.png",
+    icon: "/e-portal/images/logo new.png",
   },
 };
 

@@ -129,7 +129,7 @@ export default function FoundationProgramPage() {
               <div className="w-full md:w-1/2">
                 <div className="relative w-full aspect-square md:aspect-[4/5] overflow-hidden bg-gray-100">
                   <img
-                    src="/images/social-sciences.jpeg"
+                    src="e-portal/images/social-sciences.jpeg"
                     alt="Foundation Program Student"
                     className="w-full h-full object-cover"
                   />

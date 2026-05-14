@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient, ApplicantStatus } from "@/lib/api";
@@ -86,55 +85,17 @@ function PaymentContent() {
     setError(null);
 
     try {
-      let amount = 0;
-      if (selectedType === "acceptance_fee") {
-        amount = 50000;
-      } else {
-        amount = 150000;
-      }
+      // Call backend → Interswitch to get the hosted-page redirect URL.
+      // Amount is resolved server-side from the DB fee tables.
+      const result = await ApiClient.initiatePayment(selectedType);
 
-      const programFees: Record<
-        number,
-        { acceptance: number; tuition: number }
-      > = {
-        1: { acceptance: 20000, tuition: 177000 },
-        2: { acceptance: 25000, tuition: 250000 },
-        3: { acceptance: 20000, tuition: 180000 },
-        4: { acceptance: 30000, tuition: 350000 },
-        5: { acceptance: 25000, tuition: 220000 },
-      };
+      // Redirect to Interswitch Webpay hosted page.
+      // After payment, Interswitch redirects to /applicant/payment/callback
+      window.location.href = result.redirect_url;
 
-      const fees = programFees[status.program_id] || {
-        acceptance: 50000,
-        tuition: 150000,
-      };
-      const paymentAmount =
-        selectedType === "acceptance_fee" ? fees.acceptance : fees.tuition;
-
-      // Simulate network delay for "processing payment"
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      const response = await ApiClient.processPayment(
-        selectedType,
-        paymentAmount,
-        "online",
-        "completed",
-        status.program_name,
-        status.program_id,
-      );
-
-      setTransactionId(response.receipt_no);
-      if (response.upgraded_to_student) {
-        setIsUpgraded(true);
-        if (response.initial_password) {
-          setInitialPassword(response.initial_password);
-        }
-      }
-      setSuccess(true);
     } catch (err: any) {
-      console.error("Payment error:", err);
-      setError(err.message || "Payment failed. Please try again.");
-    } finally {
+      console.error("Payment initiation error:", err);
+      setError(err.message || "Failed to start payment. Please try again.");
       setProcessing(false);
     }
   };
@@ -349,23 +310,17 @@ function PaymentContent() {
 
               <div className="p-6 rounded-2xl border-2 border-primary bg-primary/5 flex items-center justify-between shadow-sm">
                 <div className="flex items-center gap-5">
-                  <div className="bg-white p-3 rounded-xl shadow-md border border-border">
-                    <Image
-                      src="https://checkout.paystack.com/assets/img/paystack_logo.png"
-                      alt="Paystack"
-                      width={100}
-                      height={24}
-                      className="h-5 object-contain"
-                    />
+                  <div className="bg-[#00425F] p-3 rounded-xl shadow-md">
+                    <ShieldCheck className="h-6 w-6 text-white" />
                   </div>
                   <div>
-                    <p className="font-bold text-lg">Paystack Secure Payment</p>
+                    <p className="font-bold text-lg">Interswitch Secure Payment</p>
                     <p className="text-sm text-muted-foreground font-medium">
-                      Cards, Bank Transfer, USSD, Apple Pay
+                      Cards, Bank Transfer, USSD &amp; more
                     </p>
                   </div>
                 </div>
-                <div className="bg-primary text-white text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full shadow-lg shadow-primary/30">
+                <div className="bg-[#00425F] text-white text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full shadow-lg">
                   Recommended
                 </div>
               </div>

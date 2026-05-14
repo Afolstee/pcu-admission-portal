@@ -148,17 +148,7 @@ export interface PaymentTransaction {
   client_name?: string;
 }
 
-export interface PaymentResponse {
-  message: string;
-  reference_no: string;
-  receipt_no: string;
-  payment_type: string;
-  amount: number;
-  is_successful: boolean;
-  created_at: string;
-  upgraded_to_student?: boolean;
-  initial_password?: string;
-}
+
 
 export interface Recommendation {
   review_id: number;
@@ -563,36 +553,68 @@ export class ApiClient {
   }
 
   // Payment endpoints
-  static async processPayment(
+
+  /**
+   * Step 1 — Initiate a real Interswitch payment.
+   * Returns the Webpay hosted-page redirect URL. The caller should do:
+   *   window.location.href = result.redirect_url
+   */
+  static async initiatePayment(
     payment_type: "application_fee" | "acceptance_fee" | "tuition",
-    amount: number,
-    payment_method: string = "online",
-    status: "pending" | "completed" | "cancelled" = "completed",
-    app_type?: string,
     program_type_id?: number,
     fee_component_id?: number,
     installment_plan_id?: number,
-    client_name?: string,
-  ): Promise<PaymentResponse> {
-    const { data } = await this.fetch<PaymentResponse>(
-      "/applicant/process-payment",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          payment_type,
-          amount,
-          payment_method,
-          status,
-          app_type,
-          program_type_id,
-          fee_component_id,
-          installment_plan_id,
-          client_name,
-        }),
-      },
-    );
+  ): Promise<{ redirect_url: string; reference_no: string; amount: number; amount_kobo: number }> {
+    const { data } = await this.fetch<{
+      redirect_url: string;
+      reference_no: string;
+      amount: number;
+      amount_kobo: number;
+    }>("/applicant/initiate-payment", {
+      method: "POST",
+      body: JSON.stringify({
+        payment_type,
+        program_type_id,
+        fee_component_id,
+        installment_plan_id,
+      }),
+    });
     return data;
   }
+
+  /**
+   * Step 2 — Verify payment after Interswitch redirects back.
+   * Call this from the /applicant/payment/callback page.
+   * payment_type is resolved server-side from the transaction record.
+   */
+  static async verifyPayment(
+    reference_no: string,
+  ): Promise<{
+    tran_status: string;
+    response_code: string;
+    response_desc: string;
+    is_successful: boolean;
+    amount: number;
+    reference_no: string;
+    receipt_no: string;
+    payment_type: string;
+  }> {
+    const { data } = await this.fetch<{
+      tran_status: string;
+      response_code: string;
+      response_desc: string;
+      is_successful: boolean;
+      amount: number;
+      reference_no: string;
+      receipt_no: string;
+      payment_type: string;
+    }>("/applicant/verify-payment", {
+      method: "POST",
+      body: JSON.stringify({ reference_no }),
+    });
+    return data;
+  }
+
 
   static async getPaymentHistory(): Promise<{
     payment_history: PaymentTransaction[];

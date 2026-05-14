@@ -27,8 +27,9 @@ export default function LoginPage() {
   const [showError, setShowError] = useState(false);
   const [accessDenied, setAccessDenied] = useState(false);
   
-  const isPortalLocked = portalStatus?.locked;
-  const loadingConfig = isPortalLoading;
+  // TEMPORARILY DISABLED — set back to `portalStatus?.locked` to re-enable
+  const isPortalLocked = false; // portalStatus?.locked;
+  const loadingConfig = isPortalLoading && false; // disabled alongside lock check
 
   // Show error from auth context (e.g., invalid credentials)
   useEffect(() => {

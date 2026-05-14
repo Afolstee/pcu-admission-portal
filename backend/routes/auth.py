@@ -8,10 +8,10 @@ auth_bp = Blueprint('auth', __name__)
 @auth_bp.route('/signup', methods=['POST'])
 def signup():
     """Create new user account"""
-    # Check if admission registration is locked
-    res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'admission_registration_locked'")
-    if res and res[0]['value'] == 'true':
-        return jsonify({'message': 'Admission registration is currently closed.'}), 403
+    # TEMPORARILY DISABLED — uncomment to re-enable the portal lock check
+    # res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'admission_registration_locked'")
+    # if res and res[0]['value'] == 'true':
+    #     return jsonify({'message': 'Admission registration is currently closed.'}), 403
         
     data = request.get_json()
     

@@ -3,7 +3,7 @@ export default function PartTimeHero() {
     <div className="relative w-full h-64 md:h-80 overflow-hidden">
       {/* Background image */}
       <img
-        src="e-portal/images/students.jpg"
+        src="/e-portal/images/students.jpg"
         alt="Part Time Programmes"
         className="absolute inset-0 w-full h-full object-cover"
       />

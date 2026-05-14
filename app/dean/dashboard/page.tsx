@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 export default function DeanDashboard() {
   const router = useRouter();

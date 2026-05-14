@@ -671,6 +671,8 @@ def initiate_payment(payload):
     valid_types = ['application_fee', 'acceptance_fee', 'tuition']
     if payment_type not in valid_types:
         return jsonify({'message': f'payment_type must be one of: {valid_types}'}), 400
+    
+    payment_type = str(payment_type)
 
     if payment_type != 'tuition':
         installment_plan_id = None
@@ -754,13 +756,8 @@ def initiate_payment(payload):
         print(f"Failed to create pending transaction: {e}")
         return jsonify({'message': 'Failed to initialise transaction record'}), 500
 
-    # ── Build clean callback URL — NO query params ────────────────────────────
-    # FIX: txnref and payment_type are NOT appended here.
-    # The callback page reads txnref from Interswitch's own redirect params,
-    # then looks up payment_type from the payment_transactions table.
     callback_url = f"{Config.FRONTEND_BASE_URL}/applicant/payment/callback"
 
-    # ── Build Interswitch redirect URL ────────────────────────────────────────
     try:
         result = InterswitchClient.build_redirect_url(
             payment_type   = payment_type,

@@ -135,27 +135,9 @@ class InterswitchClient:
         reference_no:   str,
         customer_name:  str,
         customer_email: str,
-        callback_url:   str,   # MUST be a clean URL — no query params
+        callback_url:   str, 
     ) -> dict:
-        """
-        Build the Interswitch Webpay redirect URL.
 
-        IMPORTANT — callback_url rules:
-          ✅  https://yourschool.edu.ng/payment/callback
-          ❌  https://yourschool.edu.ng/payment/callback?txnref=X&type=Y
-
-        Interswitch appends its own params to whatever URL you provide.
-        Store payment_type and reference_no in your DB; look them up on
-        the callback page using the txnref Interswitch appends.
-
-        Returns:
-            {
-                "redirect_url": str,   # full URL to redirect the browser to
-                "reference_no": str,
-                "amount_kobo":  int,
-            }
-        """
-        # Validate callback URL has no query string
         if '?' in callback_url:
             raise ValueError(
                 "callback_url must not contain query parameters. "
@@ -169,14 +151,14 @@ class InterswitchClient:
 
         params = {
             "merchantcode":      merchant_code,
-            "payitemid":         pay_item_id,       # FIX: was wrongly set to merchant_code in some places
+            "payitemid":         pay_item_id,
             "amount":            str(amount_kobo),
             "txnref":            reference_no,
             "name":              customer_name,
             "email":             customer_email,
             "cust_id":           customer_email,
-            "currency":          "566",              # NGN ISO 4217 numeric
-            "site_redirect_url": callback_url,       # FIX: removed duplicate redirect_url param
+            "currency":          "566",
+            "site_redirect_url": callback_url,
         }
 
         # FIX: urlencode handles special chars in name/email/URL safely

@@ -332,7 +332,7 @@ export default function ModernResultSystem() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!isAuthenticated || (user?.role !== "admin" && user?.role !== "ict_director")) {
+    if (!isAuthenticated || (user?.role !== "admin" && user?.role !== "ictdirector")) {
       router.replace("/staff/login");
       return;
     }

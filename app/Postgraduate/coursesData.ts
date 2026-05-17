@@ -28,7 +28,7 @@ export const coursesData: CourseData[] = [
   {
     slug: "accounting-postgraduate",
     heroTitle: "PGD - ACCOUNTING",
-    heroImage: "/images/Certified-Public-Accountant-_-How-CPAs-Simplify-Tax-Financial-Management-for-Businesses.jpg",
+    heroImage: "/e-portal/images/Certified-Public-Accountant-_-How-CPAs-Simplify-Tax-Financial-Management-for-Businesses.jpg",
     description:
       "The aim is to develop and strengthen the intellectual capacity of students in the accounting discipline so as to equip them with adequate business knowledge needed for understanding and analysis of the basic, current, complex financial transactions and issues in the private and public sectors of the Nigerian economy; honing critical thinking. To allow graduates to be the bridge that connects accounting and information technology and the go-to resource every company needs to operate at a higher level.",
     applyLink: "/auth/signup",
@@ -109,7 +109,7 @@ export const coursesData: CourseData[] = [
   {
     slug: "business-administration-postgraduate",
     heroTitle: "PGD - BUSINESS ADMINISTRATION",
-    heroImage: "/images/The-Ultimate-Guide-to-Business-Administration-College-Handbook.jpg",
+    heroImage: "/e-portal/images/The-Ultimate-Guide-to-Business-Administration-College-Handbook.jpg",
     description:
       "The Master of Business Administration is rooted in the pursuit of unbiased and The Master of Business Administration (MBA) programme is founded on the application of sound business principles, critical thinking, and strategic decision-making, with the aim of developing competent leaders and professionals who can navigate the complexities of today's dynamic business environment. The programme emphasizes the integration of theory with practical experience, preparing graduates to address real-world challenges and make impactful contributions across a wide range of industries.",
     applyLink: "/auth/signup",
@@ -158,7 +158,7 @@ export const coursesData: CourseData[] = [
   {
     slug: "microbiology-postgraduate",
     heroTitle: "PGD - MICROBIOLOGY",
-    heroImage: "/images/Biomed-Aesthetic.jpg",
+    heroImage: "/e-portal/images/Biomed-Aesthetic.jpg",
     description:
       "The Postgraduate Programme in Microbiology is designed to equip students with advanced knowledge and research skills in microbial sciences, preparing them for careers in academia, industry, and public health.",
     applyLink: "/auth/signup",
@@ -209,7 +209,7 @@ export const coursesData: CourseData[] = [
   {
     slug: "computer-science-postgraduate",
     heroTitle: "PGD - COMPUTER SCIENCE",
-    heroImage: "/images/🔹-Core-Concepts-of-Programming_-A-Beginners-Guide-🚀.jpg",
+    heroImage: "/e-portal/images/🔹-Core-Concepts-of-Programming_-A-Beginners-Guide-🚀.jpg",
     description:
       "The Postgraduate Programme in Computer Science is designed to develop advanced competencies in computing, software engineering, and information technology. The programme prepares graduates for careers in technology, research, and academia.",
     applyLink: "/auth/signup",

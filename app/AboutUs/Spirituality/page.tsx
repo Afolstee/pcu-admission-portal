@@ -1,6 +1,5 @@
 "use client";
 
-import PageSidebar from "../../components/PageSidebar";
 
 export default function SpiritualityPage() {
   const activities = [
@@ -63,7 +62,7 @@ export default function SpiritualityPage() {
       <div className="relative w-full h-64 md:h-80 overflow-hidden">
         {/* Background Image */}
         <img 
-          src="/images/SaveClip.App_622293849_18066424685640431_5554307820396018734_n.jpg"
+          src="/e-portal/images/SaveClip.App_622293849_18066424685640431_5554307820396018734_n.jpg"
           alt="Spirituality at PCU"
           className="absolute inset-0 w-full h-full object-cover"
         />
@@ -81,13 +80,8 @@ export default function SpiritualityPage() {
       <div className="flex justify-center">
         <div className="flex flex-col md:flex-row w-full max-w-5xl py-12 px-6 gap-12">
           
-          {/* Left: Sidebar (Order-last on mobile) */}
-          <div className="order-last md:order-first w-full md:w-fit">
-            <PageSidebar variant="about" activePath="/AboutUs/Spirituality" />
-          </div>
-
           {/* Right: Spirituality Content */}
-          <div className="flex-1 min-w-0 space-y-12">
+          <div className="flex-1 min-w-0 space-y-12 w-full">
             
             {/* Intro & Chaplain Profile */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
@@ -95,7 +89,7 @@ export default function SpiritualityPage() {
                 <div className="bg-white rounded-lg overflow-hidden border border-gray-100 shadow-sm w-full mx-auto">
                   <div className="aspect-[3/4] overflow-hidden bg-gray-50">
                      <img 
-                        src="/images/chaplain.jpeg" 
+                        src="/e-portal/images/chaplain.jpeg" 
                         alt="Pastor Adesoji Adeniji"
                         className="w-full h-full object-cover"
                         onError={(e) => {

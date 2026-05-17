@@ -6,28 +6,31 @@ load_dotenv()
 class Config:
     FLASK_ENV = os.getenv('FLASK_ENV', 'development')
 
-    # PostgreSQL (Render)
-    DB_USER = os.getenv('DB_USER')
-    DB_PASSWORD = os.getenv('DB_PASSWORD')
-    DB_HOST = os.getenv('DB_HOST')
-    DB_NAME = os.getenv('DB_NAME')
-    DB_PORT = int(os.getenv('DB_PORT', 5432))
-
     SECRET_KEY = os.getenv('SECRET_KEY')
     JWT_SECRET = os.getenv('JWT_SECRET')
+
 
     UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
     MAX_CONTENT_LENGTH = 15 * 1024 * 1024  # 15MB
     TARGET_COMPRESSION_SIZE = 5 * 1024
     ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'}
 
-    MAIL_SERVER = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
-    MAIL_PORT = int(os.getenv('MAIL_PORT', 587))
-    MAIL_USE_TLS = os.getenv('MAIL_USE_TLS', 'True') == 'True'
-    MAIL_USERNAME = os.getenv('MAIL_USERNAME')
-    MAIL_PASSWORD = os.getenv('MAIL_PASSWORD')
+    # Resend Configuration
+    RESEND_API_KEY = os.getenv('RESEND_API_KEY')
+    RESEND_FROM_EMAIL = os.getenv('RESEND_FROM_EMAIL')
+    RESEND_FROM_NAME = os.getenv('RESEND_FROM_NAME', 'PCU Admissions Office')
 
     PROGRAMS = ['Undergraduate', 'Postgraduate', 'HND', 'Part time', 'Jupeb']
+
+    # ── Interswitch Payment Gateway ───────────────────────────────────────────
+    INTERSWITCH_BASE_URL          = os.getenv('INTERSWITCH_BASE_URL', 'https://sandbox.interswitchng.com')
+    INTERSWITCH_CLIENT_ID         = os.getenv('INTERSWITCH_CLIENT_ID', '')
+    INTERSWITCH_CLIENT_SECRET     = os.getenv('INTERSWITCH_CLIENT_SECRET', '')
+    INTERSWITCH_MERCHANT_CODE     = os.getenv('INTERSWITCH_MERCHANT_CODE', '')
+    INTERSWITCH_PAY_ITEM_ID_APP   = os.getenv('INTERSWITCH_PAY_ITEM_ID_APP', '')   # Application fee
+    INTERSWITCH_PAY_ITEM_ID_ACC   = os.getenv('INTERSWITCH_PAY_ITEM_ID_ACC', '')   # Acceptance fee
+    INTERSWITCH_PAY_ITEM_ID_TUI   = os.getenv('INTERSWITCH_PAY_ITEM_ID_TUI', '')   # Tuition fee
+    FRONTEND_BASE_URL             = os.getenv('FRONTEND_BASE_URL', 'http://localhost:3000')
 
 
 class DevelopmentConfig(Config):

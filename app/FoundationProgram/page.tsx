@@ -92,7 +92,7 @@ export default function FoundationProgramPage() {
       {/* ── HERO BANNER ── */}
       <div className="relative w-full h-64 md:h-80 overflow-hidden">
         <img
-          src="/images/school1.png"
+          src="/e-portal/images/school1.png"
           alt="Foundation Program at PCU"
           className="absolute inset-0 w-full h-full object-cover object-center"
         />
@@ -136,7 +136,7 @@ export default function FoundationProgramPage() {
               <div className="w-full md:w-1/2">
                 <div className="relative w-full aspect-square md:aspect-[4/5] overflow-hidden bg-gray-100">
                   <img
-                    src="/images/social-sciences.jpeg"
+                    src="/e-portal/images/social-sciences.jpeg"
                     alt="Foundation Program Student"
                     className="w-full h-full object-cover"
                   />
@@ -179,4 +179,3 @@ export default function FoundationProgramPage() {
     </div>
   );
 }
-

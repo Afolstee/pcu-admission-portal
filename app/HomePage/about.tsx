@@ -55,7 +55,7 @@ export const AboutSection = () => {
 
                   <div className="box-border caret-transparent break-words mb-5">
                     <img
-                      src="images/bishop-signature-300x82.png"
+                      src="/e-portal/images/bishop-signature-300x82.png"
                       alt="Signature"
                       className="h-auto box-border caret-transparent clear-both max-w-full break-words w-[180px] md:w-[250px]"
                     />

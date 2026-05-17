@@ -19,9 +19,10 @@ import { AlertCircle, X } from "lucide-react";
 
 export default function SignupPage() {
   const router = useRouter();
-  const { signup, isLoading, error, isAuthenticated } = useAuth();
+  const { signup, isLoading, error, isAuthenticated, portalStatus, isPortalLoading } = useAuth();
   const [formData, setFormData] = useState({
-    name: "",
+    first_name: "",
+    last_name: "",
     email: "",
     password: "",
     confirmPassword: "",
@@ -29,6 +30,10 @@ export default function SignupPage() {
   });
   const [localError, setLocalError] = useState("");
   const [showError, setShowError] = useState(false);
+
+  // TEMPORARILY DISABLED — set back to `portalStatus?.locked` to re-enable
+  const isPortalLocked = false; // portalStatus?.locked;
+  const loadingConfig = isPortalLoading && false; // disabled alongside lock check
 
   // Valid email providers
   const validEmailProviders = [
@@ -41,6 +46,7 @@ export default function SignupPage() {
     "protonmail.com",
     "zoho.com",
     "aol.com",
+    "pcu.edu.ng",
   ];
 
   useEffect(() => {
@@ -97,8 +103,13 @@ export default function SignupPage() {
     setShowError(false);
 
     // Validation
-    if (!formData.name.trim()) {
-      setLocalError("Full name is required");
+    if (!formData.first_name.trim()) {
+      setLocalError("First name is required");
+      setShowError(true);
+      return;
+    }
+    if (!formData.last_name.trim()) {
+      setLocalError("Surname is required");
       setShowError(true);
       return;
     }
@@ -132,12 +143,13 @@ export default function SignupPage() {
 
     try {
       await signup(
-        formData.name,
+        formData.first_name,
+        formData.last_name,
         formData.email,
         formData.password,
         formData.phone_number,
       );
-      router.replace("/applicant/select-program");
+      router.replace("/applicant/dashboard");
     } catch (err) {
       // Error is already set in the auth context
     }
@@ -213,12 +225,37 @@ export default function SignupPage() {
         <Link href="/" className="inline-block mb-8">
           <Button variant="ghost">← Back</Button>
         </Link>
+        <Card className="w-full relative overflow-hidden">
+          {loadingConfig ? (
+            <div className="absolute inset-0 z-50 bg-white/80 backdrop-blur flex items-center justify-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto" />
+            </div>
+          ) : isPortalLocked ? (
+            <div className="absolute inset-0 z-50 bg-white flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-700">
+              <div className="mb-6 relative">
+                <div className="absolute inset-0 bg-red-100 rounded-full animate-ping opacity-75"></div>
+                <div className="relative bg-red-50 text-red-500 rounded-full h-24 w-24 flex items-center justify-center shadow-lg">
+                  <AlertCircle className="h-10 w-10" />
+                </div>
+              </div>
+              <h2 className="text-3xl font-black text-slate-800 mb-4 tracking-tight">Portal Closed</h2>
+              <p className="text-slate-500 max-w-sm mx-auto leading-relaxed">
+                We are sorry, but the admissions portal is currently closed. We are not accepting new logins or applications at this time. Please check back later!
+              </p>
+              <Button 
+                variant="outline" 
+                className="mt-8 shadow-sm rounded-xl font-semibold border-slate-200"
+                onClick={() => router.push("/")}
+              >
+                Return to Home
+              </Button>
+            </div>
+          ) : null}
 
-        <Card className="w-full">
           <CardHeader className="space-y-4 text-center">
             <div className="flex justify-center">
               <Image
-                src="/images/logo new.png"
+                src="/e-portal/images/logo new.png"
                 alt="University Logo"
                 width={120}
                 height={120}
@@ -232,16 +269,31 @@ export default function SignupPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Full Name</Label>
-                <Input
-                  id="name"
-                  name="name"
-                  placeholder="Enter your full name"
-                  value={formData.name}
-                  onChange={handleChange}
-                  disabled={isLoading}
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="first_name">First Name</Label>
+                  <Input
+                    id="first_name"
+                    name="first_name"
+                    placeholder="John"
+                    value={formData.first_name}
+                    onChange={handleChange}
+                    disabled={isLoading}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="last_name">Last name</Label>
+                  <Input
+                    id="last_name"
+                    name="last_name"
+                    placeholder="Doe"
+                    value={formData.last_name}
+                    onChange={handleChange}
+                    disabled={isLoading}
+                    required
+                  />
+                </div>
               </div>
 
               <div className="space-y-2">

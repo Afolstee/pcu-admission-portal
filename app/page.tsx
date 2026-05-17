@@ -21,12 +21,12 @@ import PcuFooter from "./HomePage/PcuFooter";
 
 const heroSlides = [
   {
-    image: "images/school1.png",
+    image: "/e-portal/images/school1.png",
     title: ["Welcome to Precious", "Cornerstone University"],
     alt: "Precious Cornerstone University campus",
   },
   {
-    image: "images/students.jpg",
+    image: "/e-portal/images/students.jpg",
     title: ["50% Off Selected Courses", "Apply Now"],
     alt: "Precious Cornerstone University students",
   },

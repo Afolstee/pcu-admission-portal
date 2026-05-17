@@ -44,7 +44,7 @@ export default function SocialManagementSciencesPage() {
             {/* Faculty Image */}
             <div className="relative rounded-2xl overflow-hidden shadow-xl aspect-[4/3] bg-gray-100 flex items-center justify-center text-gray-400 font-medium">
               <img 
-                src="/images/social-sciences.jpeg" 
+                src="/e-portal/images/social-sciences.jpeg" 
                 alt="Faculty of Social and Management Sciences" 
                 className="absolute inset-0 w-full h-full object-cover"
               />

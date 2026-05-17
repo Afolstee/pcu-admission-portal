@@ -1,4 +1,3 @@
-import PageSidebar from "../../components/PageSidebar";
 
 export default function VisionMissionPage() {
   const missionItems = [
@@ -20,7 +19,7 @@ export default function VisionMissionPage() {
       {/* Hero Banner */}
       <div className="relative w-full h-64 md:h-80 overflow-hidden">
         <img 
-          src="/images/students.jpg"
+          src="/e-portal/images/students.jpg"
           alt="Vision & Mission"
           className="absolute inset-0 w-full h-full object-cover"
         />
@@ -36,13 +35,8 @@ export default function VisionMissionPage() {
       <div className="flex justify-center">
         <div className="flex flex-col md:flex-row w-full max-w-5xl py-12 px-6 gap-12">
           
-          {/* Left: Sidebar (Order-last on mobile) */}
-          <div className="order-last md:order-first w-full md:w-fit">
-            <PageSidebar variant="about" activePath="/AboutUs/VisionMission" />
-          </div>
-
           {/* Right: Vision & Mission Content */}
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 w-full">
             <h2 className="text-3xl font-bold mb-8 text-gray-900">Our Mission</h2>
             
             <div className="space-y-6">

@@ -1,4 +1,3 @@
-import PageSidebar from "../../components/PageSidebar";
 
 export default function AtAGlancePage() {
   const stats = [
@@ -15,7 +14,7 @@ export default function AtAGlancePage() {
       {/* Hero Banner */}
       <div className="relative w-full h-64 md:h-80 overflow-hidden">
         <img 
-          src="/images/students.jpg"
+          src="/e-portal/images/students.jpg"
           alt="PCU at a Glance"
           className="absolute inset-0 w-full h-full object-cover"
         />
@@ -31,13 +30,8 @@ export default function AtAGlancePage() {
       <div className="flex justify-center">
         <div className="flex flex-col md:flex-row w-full max-w-5xl py-12 px-6 gap-12">
           
-          {/* Left: Sidebar (Order-last on mobile) */}
-          <div className="order-last md:order-first w-full md:w-fit">
-            <PageSidebar variant="about" activePath="/AboutUs/AtAGlance" />
-          </div>
-
           {/* Right: At a Glance Content */}
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 w-full">
             <h2 className="text-4xl font-bold mb-8 leading-tight border-b pb-4" style={{ color: "#54255F" }}>PCU at a Glance</h2>
             
             <div className="grid grid-cols-2 md:grid-cols-3 gap-6 mb-12">

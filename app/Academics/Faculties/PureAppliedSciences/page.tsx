@@ -52,7 +52,7 @@ export default function PureAppliedSciencesPage() {
             {/* Faculty Image */}
             <div className="relative rounded-2xl overflow-hidden shadow-xl aspect-[4/3] bg-gray-100 flex items-center justify-center text-gray-400 font-medium">
               <img 
-                src="/images/sciences.jpeg" 
+                src="/e-portal/images/sciences.jpeg" 
                 alt="Faculty of Pure and Applied Sciences" 
                 className="absolute inset-0 w-full h-full object-cover"
               />

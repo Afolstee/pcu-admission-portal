@@ -28,7 +28,7 @@ export const coursesData: CourseData[] = [
   {
     slug: "business-admin-parttime",
     heroTitle: "PART TIME - BUSINESS ADMINISTRATION",
-    heroImage: "/images/business-admin.jpg",
+    heroImage: "/e-portal/images/students.jpg",
     description:
       "Develop essential management and business skills through our flexible Part Time Business Administration programme. Designed for working professionals, this course covers strategic management, organizational behavior, finance, marketing, and operations management. Equip yourself with practical knowledge to advance your career in any organizational setting.",
     applyLink: "/auth/signup",
@@ -96,7 +96,7 @@ export const coursesData: CourseData[] = [
   {
     slug: "accounting-parttime",
     heroTitle: "PART TIME - ACCOUNTING",
-    heroImage: "/images/accounting.jpg",
+    heroImage: "/e-portal/images/students.jpg",
     description:
       "Master accounting principles and practices through our Part Time Accounting programme. Ideal for finance professionals and career changers, this programme covers financial accounting, management accounting, taxation, auditing, and accounting information systems. Gain professional qualifications while maintaining your current employment.",
     applyLink: "/auth/signup",
@@ -163,7 +163,7 @@ export const coursesData: CourseData[] = [
   {
     slug: "it-management-parttime",
     heroTitle: "PART TIME - IT MANAGEMENT & CYBERSECURITY",
-    heroImage: "/images/it-security.jpg",
+    heroImage: "/e-portal/images/students.jpg",
     description:
       "Stay current with the latest in information technology management and cybersecurity through our flexible Part Time programme. Learn IT strategy, systems management, network security, and data protection. Perfect for IT professionals seeking to advance their careers or transition into IT management roles.",
     applyLink: "/auth/signup",

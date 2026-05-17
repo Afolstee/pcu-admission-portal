@@ -1,19 +1,23 @@
+import React from "react";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import { BackgroundLayout } from "@/components/BackgroundLayout";
+import { KeepAlive } from "@/components/KeepAlive";
+import { ThemeProvider } from "@/components/theme-provider";
+import { SidebarProvider } from "@/context/SidebarContext";
+import { NavWrapper } from "./NavWrapper";
 
-import { Footer } from "@/components/Footer";
-import PcuFooter from "./HomePage/PcuFooter";
-import NavBar from "./HomePage/NavBar";
-import { AdmissionHero } from "./HomePage/AdmissionHero";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "PCU Admission Portal",
+  title: "PRECIOUS CORNERSTONE UNIVERSITY",
   description: "Submit your application and track your admission status",
+  icons: {
+    icon: "/e-portal/images/logo new.png",
+  },
 };
 
 export default function RootLayout({
@@ -24,15 +28,15 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
+        <KeepAlive />
         <AuthProvider>
-          <BackgroundLayout>
-            {/* <Header /> */}
-            <NavBar />
-            {/* main content pushed down to avoid fixed header */}
-            <main>{children}</main>
-<AdmissionHero/>
-            <PcuFooter />
-          </BackgroundLayout>
+          <SidebarProvider>
+            <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+              <BackgroundLayout>
+                <NavWrapper>{children}</NavWrapper>
+              </BackgroundLayout>
+            </ThemeProvider>
+          </SidebarProvider>
         </AuthProvider>
       </body>
     </html>

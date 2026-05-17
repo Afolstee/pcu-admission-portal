@@ -1,6 +1,5 @@
 "use client";
 
-import PageSidebar from "../components/PageSidebar";
 import Link from "next/link";
 
 
@@ -11,25 +10,25 @@ export default function AdmissionsPage() {
       title: "Foundation Program Admission",
       description: "Students who have been exposed to a minimum of one-year approved preparatory courses in PCU and subsequently have passed can seek Direct Entry admissions into the University Degree programmes at 200 level.",
       link: "/FoundationProgram",
-      image: "/images/social-sciences.jpeg",
+      image: "/e-portal/images/social-sciences.jpeg",
     },
      {
       title: "Part Time Admission",
       description: "Students who have been exposed to a minimum of one-year approved preparatory courses in PCU and subsequently have passed can seek Direct Entry admissions into the University Degree programmes at 200 level.",
       link: "/FoundationProgram",
-      image: "/images/a8-o8lkuj1li6ghb3dw31wbxviedhakhl9r3w04ydthe2.jpg",
+      image: "/e-portal/images/a8-o8lkuj1li6ghb3dw31wbxviedhakhl9r3w04ydthe2.jpg",
     },
     {
       title: "Undergraduate Admission",
       description: "Our programs fosters the growth and development of intellectuals and creativity in all our students through the delivery of a well designed training curriculum.",
       link: "/Undergraduate",
-      image: "/images/students.jpg",
+      image: "/e-portal/images/students.jpg",
     },
     {
       title: "Postgraduate Admission",
       description: "We offer a wide range of professional courses in different fields.",
       link: "/Postgraduate#accredited-courses",
-      image: "/images/professional-2-og9n9wctzgx2f32uhvrzphkoq4lr5eg535henculvu.jpg",
+      image: "/e-portal/images/professional-2-og9n9wctzgx2f32uhvrzphkoq4lr5eg535henculvu.jpg",
     }
   ];
 
@@ -38,7 +37,7 @@ export default function AdmissionsPage() {
       {/* Hero Banner */}
       <div className="relative w-full h-64 md:h-80 overflow-hidden">
         <img
-          src="/images/school1.png"
+          src="/e-portal/images/school1.png"
           alt="Admissions at PCU"
           className="absolute inset-0 w-full h-full object-cover"
         />
@@ -62,13 +61,8 @@ export default function AdmissionsPage() {
       {/* Main Content */}
       <div className="flex justify-center bg-white">
         <div className="flex flex-col md:flex-row w-full max-w-6xl py-16 px-6 gap-12">
-          {/* Left Sidebar */}
-          <div className="order-last md:order-first w-full md:w-1/4 flex flex-col gap-8">
-            <PageSidebar variant="admissions" activePath="/Admissions" />
-          </div>
-
           {/* Right Content */}
-          <div className="flex-1 min-w-0 md:w-3/4">
+          <div className="flex-1 min-w-0 w-full">
             <div className="mb-14">
              
             

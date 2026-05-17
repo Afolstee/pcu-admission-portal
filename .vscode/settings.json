@@ -1,4 +1,14 @@
 {
+  "python.defaultInterpreterPath": "c:\\Users\\USER\\Desktop\\projects\\Admission portal\\backend\\.venv\\Scripts\\python.exe",
+  "python.analysis.extraPaths": [
+    "c:\\Users\\USER\\Desktop\\projects\\Admission portal\\backend"
+  ],
+  "python.autoComplete.extraPaths": [
+    "c:\\Users\\USER\\Desktop\\projects\\Admission portal\\backend"
+  ],
+  "python.analysis.autoSearchPaths": true,
+  "python.analysis.typeCheckingMode": "basic",
+  "python.languageServer": "Pylance",
   "python-envs.defaultEnvManager": "ms-python.python:system",
   "python-envs.pythonProjects": []
 }

@@ -14,16 +14,22 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CardFooter,
 } from "@/components/ui/card";
-import { AlertCircle, X } from "lucide-react";
+import { AlertCircle, X, CheckCircle2 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, isLoading, error, isAuthenticated, user, applicant } =
+  const { login, logout, isLoading, error, isAuthenticated, user, applicant, student, portalStatus, isPortalLoading } =
     useAuth();
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [localError, setLocalError] = useState("");
   const [showError, setShowError] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
+  
+  // TEMPORARILY DISABLED — set back to `portalStatus?.locked` to re-enable
+  const isPortalLocked = false; // portalStatus?.locked;
+  const loadingConfig = isPortalLoading && false; // disabled alongside lock check
 
   // Show error from auth context (e.g., invalid credentials)
   useEffect(() => {
@@ -53,17 +59,26 @@ export default function LoginPage() {
   useEffect(() => {
     if (!isAuthenticated || !user) return;
 
-    if (user.role === "admin") {
-      router.replace("/admin/dashboard");
+    const role = user.role;
+
+    // Staff roles that don't belong here — deny access with a clear error
+    const staffRoles = ["admissionofficer", "admin", "ictdirector", "lecturer", "deo", "hod", "dean", "registrar"];
+    if (staffRoles.includes(role)) {
+      setAccessDenied(true);
+      setLocalError("Access denied.");
+      setShowError(true);
+      // Sign the user out so they are not stuck in a broken state
+      logout();
       return;
     }
 
-    // Applicant: must select a program before accessing dashboard/application
-    if (!applicant?.program_id) {
-      router.replace("/applicant/select-program");
-    } else {
-      router.replace("/applicant/dashboard");
+    // Admitted student — stay on this page to show the upgrade message
+    if (role === "student") {
+      return;
     }
+
+    // Applicant → dashboard
+    router.replace("/applicant/dashboard");
   }, [isAuthenticated, user, applicant, router]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -77,8 +92,9 @@ export default function LoginPage() {
     setLocalError("");
     setShowError(false);
 
-    if (!formData.email.includes("@")) {
-      setLocalError("Valid email is required");
+    // Basic validation: allow username (no @) or email
+    if (!formData.email) {
+      setLocalError("Email or Username is required");
       setShowError(true);
       return;
     }
@@ -96,6 +112,40 @@ export default function LoginPage() {
   };
 
   const displayError = localError || error;
+
+  if (isAuthenticated && user?.role === "student") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <Card className="w-full max-w-md border-primary/20 shadow-xl text-center">
+          <CardHeader>
+            <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+              <CheckCircle2 className="h-10 w-10 text-green-600" />
+            </div>
+            <CardTitle className="text-2xl text-primary">Congratulations!</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-lg">
+              You have been admitted to <strong>{student?.program_name || "your program"}</strong>.
+            </p>
+            <p className="text-sm text-muted-foreground mt-2">
+              Your account has been upgraded to a Student profile. Please, sign in to your student portal to continue.
+            </p>
+          </CardContent>
+          <CardFooter>
+            <Button 
+              className="w-full" 
+              onClick={async () => {
+                await logout();
+                router.push("/student/login");
+              }}
+            >
+              Sign In to Student Portal
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -161,11 +211,37 @@ export default function LoginPage() {
         </div>
       )}
 
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-4 text-center">
+  <Card className="w-full max-w-md relative overflow-hidden">
+    {loadingConfig ? (
+      <div className="absolute inset-0 z-50 bg-white/80 backdrop-blur flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto" />
+      </div>
+    ) : isPortalLocked ? (
+      <div className="absolute inset-0 z-50 bg-white flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-700">
+        <div className="mb-6 relative">
+          <div className="absolute inset-0 bg-red-100 rounded-full animate-ping opacity-75"></div>
+          <div className="relative bg-red-50 text-red-500 rounded-full h-24 w-24 flex items-center justify-center shadow-lg">
+            <AlertCircle className="h-10 w-10" />
+          </div>
+        </div>
+        <h2 className="text-3xl font-black text-slate-800 mb-4 tracking-tight">Portal Closed</h2>
+        <p className="text-slate-500 max-w-sm mx-auto leading-relaxed">
+          We are sorry, but the admissions portal is currently closed. We are not accepting new logins or applications at this time. Please check back later!
+        </p>
+        <Button 
+          variant="outline" 
+          className="mt-8 shadow-sm rounded-xl font-semibold border-slate-200"
+          onClick={() => router.push("/")}
+        >
+          Return to Home
+        </Button>
+      </div>
+    ) : null}
+
+    <CardHeader className="space-y-4 text-center">
           <div className="flex justify-center">
             <Image
-              src="/images/logo new.png"
+              src="/e-portal/images/logo new.png"
               alt="University Logo"
               width={120}
               height={120}
@@ -180,12 +256,12 @@ export default function LoginPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email Address</Label>
+              <Label htmlFor="email">Email or Username</Label>
               <Input
                 id="email"
                 name="email"
-                type="email"
-                placeholder="Enter your email"
+                type="text"
+                placeholder="Enter your email or surname"
                 value={formData.email}
                 onChange={handleChange}
                 disabled={isLoading}
@@ -212,16 +288,16 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <div className="mt-6 text-center text-sm">
-            <span className="text-muted-foreground">
+          <div className="mt-6 text-center text-sm space-y-4">
+            <div className="text-muted-foreground">
               Don't have an account?{" "}
-            </span>
-            <Link
-              href="/auth/signup"
-              className="text-primary font-medium hover:underline"
-            >
-              Create one
-            </Link>
+              <Link
+                href="/auth/signup"
+                className="text-primary font-medium hover:underline"
+              >
+                Create one
+              </Link>
+            </div>
           </div>
         </CardContent>
       </Card>

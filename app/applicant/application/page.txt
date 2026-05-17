@@ -1,0 +1,116 @@
+"use client";
+
+import React, { useState, useEffect } from "react";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import { ApiClient } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { LogOut, Upload, Save, Send, AlertCircle } from "lucide-react";
+import ApplicationFormComponent from "@/components/ApplicationForm";
+
+
+export default function ApplicationPage() {
+  const router = useRouter();
+  const { user, applicant, isAuthenticated, logout } = useAuth();
+  const [formTemplate, setFormTemplate] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+
+  useEffect(() => {
+    if (!isAuthenticated || user?.role !== "applicant") {
+      router.replace("/auth/login");
+      return;
+    }
+
+    const loadFormTemplate = async () => {
+      try {
+        if (!applicant?.program_id) {
+          router.replace("/applicant/dashboard");
+          return;
+        }
+        const response = await ApiClient.getFormTemplate(applicant.program_id);
+        setFormTemplate(response);
+      } catch (err) {
+        setError("Failed to load application form. Please try again.");
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadFormTemplate();
+  }, [isAuthenticated, user, applicant, router]);
+
+  const handleLogout = async () => {
+    await logout();
+    router.replace("/");
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading application form...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">
+      {/* Main Content */}
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header */}
+        <div className="mb-8">
+          <Button
+            variant="outline"
+            className="mb-4 bg-transparent"
+            onClick={() => router.back()}
+          >
+            ← Back
+          </Button>
+          <h1 className="text-3xl font-bold text-foreground mb-2">
+            Application Form - {formTemplate?.program || "Loading..."}
+          </h1>
+          <p className="text-muted-foreground">
+            Complete all required fields and upload the necessary documents
+          </p>
+        </div>
+
+        {error && (
+          <Card className="mb-6 border-destructive/50 bg-destructive/5">
+            <CardContent className="pt-6 flex gap-3">
+              <AlertCircle className="h-5 w-5 text-destructive flex-shrink-0" />
+              <p className="text-sm text-destructive">{error}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {formTemplate && (
+          <ApplicationFormComponent
+            template={formTemplate}
+            applicantId={applicant?.id || 0}
+            programId={applicant?.program_id || 0}
+            user={user}
+            onSuccess={() => {
+              router.push("/applicant/dashboard");
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}

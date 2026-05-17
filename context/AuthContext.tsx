@@ -1,75 +1,198 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { ApiClient } from '@/lib/api';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { ApiClient, StudentData } from '@/lib/api';
+
+type StaffRole = 'lecturer' | 'deo' | 'hod' | 'dean' | 'registrar' | 'admissionofficer' | 'ictdirector' | 'admin' | 'freshapplicant';
 
 interface User {
   id: number;
   name: string;
+  first_name?: string;
+  last_name?: string;
   email: string;
-  role: 'applicant' | 'admin';
+  phone_number?: string;
+  username?: string;
+  role: 'applicant' | 'admin' | 'student' | StaffRole;
 }
 
-interface ApplicantData {
+export const STAFF_ROLES: string[] = ['lecturer', 'deo', 'hod', 'dean', 'registrar', 'freshapplicant', 'admissionofficer', 'ictdirector', 'admin'];
+
+export interface ApplicantData {
   id: number;
   program_id: number;
   application_status: string;
   admission_status: string;
 }
 
+export interface ApiResponse {
+  user: User;
+  token: string;
+  applicant?: ApplicantData;
+  student?: StudentData;
+}
+
+interface PortalStatus {
+  locked: boolean;
+  programsLocked: number;
+}
+
 interface AuthContextType {
   user: User | null;
   applicant: ApplicantData | null;
+  student: StudentData | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  signup: (name: string, email: string, password: string, phone_number: string) => Promise<void>;
+  signup: (first_name: string, last_name: string, email: string, password: string, phone_number: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshStatus: () => Promise<void>;
   error: string | null;
+  portalStatus: PortalStatus | null;
+  isPortalLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  // Initialize from localStorage for instant UI responsiveness
+  const getStoredUser = () => {
+    if (typeof window === 'undefined') return null;
+    const stored = localStorage.getItem('auth_user');
+    try { return stored ? JSON.parse(stored) : null; } catch { return null; }
+  };
+
+  const storedUser = getStoredUser();
+  const [user, setUser] = useState<User | null>(storedUser);
   const [applicant, setApplicant] = useState<ApplicantData | null>(null);
+  const [student, setStudent] = useState<StudentData | null>(null);
+  
+  // Initialize as loading to ensure verifyToken completes before auto-redirects
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  const [portalStatus, setPortalStatus] = useState<PortalStatus | null>(null);
+  const [isPortalLoading, setIsPortalLoading] = useState(true);
 
-  // Check if user is already logged in on mount
+  const saveUserAndRole = (u: User | null) => {
+    setUser(u);
+    if (u) {
+      localStorage.setItem('auth_user', JSON.stringify(u));
+    } else {
+      localStorage.removeItem('auth_user');
+      localStorage.removeItem('last_active');
+    }
+  };
+
+  // ─── Inactivity timeout (15 minutes) ───────────────────────────────────────
+  const INACTIVITY_LIMIT = 15 * 60 * 1000; // 15 minutes in ms
+  const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const resetInactivityTimer = useCallback(() => {
+    if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
+    localStorage.setItem('last_active', Date.now().toString());
+    inactivityTimer.current = setTimeout(() => {
+      // Auto-logout on inactivity
+      ApiClient.setToken(null);
+      saveUserAndRole(null);
+      setApplicant(null);
+      setStudent(null);
+      setError('You have been signed out due to inactivity. Please sign in again.');
+    }, INACTIVITY_LIMIT);
+  }, []);
+
+  // Attach activity listeners when user is authenticated
+  useEffect(() => {
+    const activityEvents = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'];
+    const handler = () => resetInactivityTimer();
+
+    if (user) {
+      activityEvents.forEach(e => window.addEventListener(e, handler, { passive: true }));
+      resetInactivityTimer(); // start the timer immediately on login / page load
+    } else {
+      // Clear timer when not authenticated
+      if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
+    }
+
+    return () => {
+      activityEvents.forEach(e => window.removeEventListener(e, handler));
+      if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
+    };
+  }, [user, resetInactivityTimer]);
+
   useEffect(() => {
     const token = ApiClient.getToken();
     if (token) {
-      verifyToken();
+      // Check if the session was already stale before loading the page
+      const lastActive = localStorage.getItem('last_active');
+      if (lastActive && Date.now() - parseInt(lastActive, 10) > INACTIVITY_LIMIT) {
+        // Session expired while browser was closed — clear everything and don't verify
+        ApiClient.setToken(null);
+        localStorage.removeItem('auth_user');
+        localStorage.removeItem('last_active');
+        setIsLoading(false);
+      } else {
+        verifyToken();
+      }
     } else {
       setIsLoading(false);
+      localStorage.removeItem('auth_user');
     }
+    fetchPortalStatus();
   }, []);
+
+  const fetchPortalStatus = async () => {
+    try {
+      const { data } = await ApiClient.fetch<any>("/applicant/programs");
+      const programsLocked = data.programs?.filter((p: any) => p.is_locked)?.length || 0;
+      setPortalStatus({
+        locked: data.global_admission_locked,
+        programsLocked: programsLocked
+      });
+    } catch (err) {
+      console.error('Failed to fetch portal status:', err);
+    } finally {
+      setIsPortalLoading(false);
+    }
+  };
 
   const verifyToken = useCallback(async () => {
     try {
-      const response = await ApiClient.verifyToken();
-      // If token is valid, try to get user status
-      const status = await ApiClient.getApplicantStatus();
-      setApplicant(status.applicant);
+      const response = await ApiClient.verifyToken() as { token?: string; user: User; student?: StudentData; applicant?: ApplicantData };
+      // Save fresh token if backend returned one (role may have changed e.g. freshapplicant→applicant)
+      if (response.token) {
+        ApiClient.setToken(response.token);
+      }
+      saveUserAndRole(response.user);
+      
+      if (response.applicant) {
+        setApplicant(response.applicant);
+        setStudent(null);
+      } else if (response.student) {
+        setStudent(response.student);
+        setApplicant(null);
+      } else {
+        setApplicant(null);
+        setStudent(null);
+      }
     } catch (err) {
       ApiClient.setToken(null);
-      setUser(null);
+      saveUserAndRole(null);
       setApplicant(null);
+      setStudent(null);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   const signup = useCallback(
-    async (name: string, email: string, password: string, phone_number: string) => {
+    async (first_name: string, last_name: string, email: string, password: string, phone_number: string) => {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await ApiClient.signup(name, email, password, phone_number);
+        const response = await ApiClient.signup(first_name, last_name, email, password, phone_number) as ApiResponse;
         ApiClient.setToken(response.token);
-        setUser(response.user);
+        saveUserAndRole(response.user);
         if (response.applicant) {
           setApplicant(response.applicant);
         }
@@ -88,11 +211,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     setError(null);
     try {
-      const response = await ApiClient.login(email, password);
+      const response = await ApiClient.login(email, password) as ApiResponse;
       ApiClient.setToken(response.token);
-      setUser(response.user);
+      saveUserAndRole(response.user);
       if (response.applicant) {
         setApplicant(response.applicant);
+      }
+      if (response.student) {
+        setStudent(response.student);
+      }
+
+      // ── Background warm-up: pre-fetch all applicant form data immediately
+      // after login so the ApiClient cache is hot before the dashboard mounts.
+      // Only runs for applicant / freshapplicant roles — staff don't need it.
+      const role = response.user?.role;
+      if (role === 'applicant' || role === 'freshapplicant') {
+        Promise.resolve().then(async () => {
+          try {
+            // 1. Get the list of applications (also warms the status cache)
+            const statusRes = await ApiClient.getApplicantStatus();
+            const apps = statusRes?.applicants || [];
+
+            // 2. Warm form data + template for every application in parallel
+            if (apps.length > 0) {
+              await Promise.all(
+                apps.map((app: any) =>
+                  Promise.all([
+                    ApiClient.getForm(app.id).catch(() => null),
+                    ApiClient.getFormTemplate(app.program_type_id).catch(() => null),
+                  ])
+                )
+              );
+            }
+          } catch {
+            // Silently ignore — the dashboard will fall back to its own fetch
+          }
+        });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed';
@@ -111,8 +265,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Logout error:', err);
     } finally {
       ApiClient.setToken(null);
-      setUser(null);
+      saveUserAndRole(null);
       setApplicant(null);
+      setStudent(null);
       setError(null);
       setIsLoading(false);
     }
@@ -120,16 +275,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshStatus = useCallback(async () => {
     try {
-      const status = await ApiClient.getApplicantStatus();
-      setApplicant(status.applicant);
+      if (user?.role === 'applicant') {
+        const status = await ApiClient.getApplicantStatus();
+        setApplicant(status.applicant);
+      } else if (user?.role === 'student') {
+        const response = await ApiClient.verifyToken() as { user: User; student?: StudentData };
+        if (response.student) setStudent(response.student);
+      }
     } catch (err) {
       console.error('Error refreshing status:', err);
     }
-  }, []);
+  }, [user]);
 
   const value: AuthContextType = {
     user,
     applicant,
+    student,
     isLoading,
     isAuthenticated: !!user,
     signup,
@@ -137,6 +298,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     logout,
     refreshStatus,
     error,
+    portalStatus,
+    isPortalLoading
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

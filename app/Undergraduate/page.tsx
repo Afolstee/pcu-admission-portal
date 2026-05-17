@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { undergraduateCourses } from "./undergraduateData";
-import PageSidebar from "../components/PageSidebar";
 
 function useInView(threshold = 0.15) {
   const ref = useRef<HTMLDivElement>(null);
@@ -116,7 +115,7 @@ export default function UndergraduatePage() {
       {/* ── HERO BANNER ── */}
       <div className="relative w-full h-64 md:h-80 overflow-hidden">
         <img
-          src="/images/postgraduate-hero.jpg"
+          src="/e-portal/images/students.jpg"
           alt="Undergraduate Programs"
           className="absolute inset-0 w-full h-full object-cover"
         />
@@ -135,13 +134,8 @@ export default function UndergraduatePage() {
       <div className="flex justify-center bg-white">
         <div className="flex flex-col md:flex-row w-full max-w-6xl py-16 px-6 gap-12 items-stretch">
 
-          {/* Left: Sidebar */}
-          <div className="order-last md:order-first w-full md:w-1/4">
-            <PageSidebar variant="undergraduate" activePath="/Undergraduate" />
-          </div>
-
           {/* Right: Intro + Course list */}
-          <div className="flex-1 min-w-0 md:w-3/4">
+          <div className="flex-1 min-w-0 w-full">
             {/* Intro */}
             <div className="mb-10">
               <h2 className="text-3xl font-bold mb-4 text-[#54255f]">

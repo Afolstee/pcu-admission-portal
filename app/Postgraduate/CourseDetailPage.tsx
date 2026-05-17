@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { CourseData } from "./coursesData";
-import PageSidebar from "../components/PageSidebar";
 
 interface CourseDetailPageProps {
   course: CourseData;
@@ -29,11 +28,8 @@ export default function CourseDetailPage({ course }: CourseDetailPageProps) {
       <div className="flex justify-center">
         <div className="flex w-full max-w-5xl py-10 px-4 md:px-6 gap-10">
 
-          {/* Left: Sidebar */}
-          <PageSidebar activePath="/Postgraduate" />
-
           {/* Right: Course detail */}
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 w-full">
 
             {/* Description */}
             <p className="text-sm md:text-base text-gray-700 leading-relaxed text-justify pb-8">
@@ -86,9 +82,7 @@ export default function CourseDetailPage({ course }: CourseDetailPageProps) {
       <section className="bg-rose-50 py-10">
         <div className="flex justify-center">
           <div className="flex w-full max-w-5xl px-4 md:px-6 gap-10">
-            {/* spacer to align with content column */}
-            <div className="w-52 shrink-0 hidden md:block" />
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 w-full">
               <h2 className="text-2xl font-bold text-gray-800 mb-4">
                 Area of Specialization
               </h2>
@@ -109,8 +103,7 @@ export default function CourseDetailPage({ course }: CourseDetailPageProps) {
       <section className="py-10">
         <div className="flex justify-center">
           <div className="flex w-full max-w-5xl px-4 md:px-6 gap-10">
-            <div className="w-52 shrink-0 hidden md:block" />
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 w-full">
               <h2 className="text-2xl font-bold text-gray-800 mb-4">
                 Programmes Duration
               </h2>

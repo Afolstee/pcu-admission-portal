@@ -8,13 +8,13 @@ const faculties = [
     title: "Pure And Applied Sciences",
     description: "The Faculty is saddled with the responsibility to engage all its Academics in leading researches and inventions that provokes change for growth and development relatively to the society.",
     href: "/Academics/Faculties/PureAppliedSciences",
-    image: "/images/sciences.jpeg",
+    image: "/e-portal/images/sciences.jpeg",
   },
   {
     title: "Social And Management Sciences",
     description: "The faculty fosters the growth and development of intellectuals and creativity in both students and faculties of the university in the field of social and management sciences",
     href: "/Academics/Faculties/SocialManagementSciences",
-    image: "/images/social-sciences.jpeg",
+    image: "/e-portal/images/social-sciences.jpeg",
   },
 ];
 
@@ -26,7 +26,7 @@ export default function FacultiesPage() {
         {/* Background Overlay */}
         <div className="absolute inset-0 bg-[#1a1a1a]/80 z-10" />
         <img 
-          src="/images/school1.png" 
+          src="/e-portal/images/school1.png" 
           alt="Faculties Hero" 
           className="absolute inset-0 w-full h-full object-cover"
         />

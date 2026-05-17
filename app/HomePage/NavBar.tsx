@@ -7,7 +7,7 @@ import Link from "next/link";
 // Each entry has a label (what the user sees) and an href (where it links).
 const SEARCH_KEYWORDS: { label: string; href: string; category: string }[] = [
   // E-Portal
-  { label: "Student Portal", href: "#", category: "E-Portal" },
+  { label: "Student Portal", href: "/student/login", category: "E-Portal" },
   { label: "Staff Portal", href: "#", category: "E-Portal" },
   { label: "Result Checker", href: "#", category: "E-Portal" },
   // Programs
@@ -353,7 +353,7 @@ export default function Navbar() {
           <a href="/" className="shrink-0">
             <div className="w-16 h-16 border-2 border-gray-200 rounded-lg overflow-hidden flex items-center justify-center bg-white">
               <img
-                src="/images/logo new.png"
+                src="/e-portal/images/logo new.png"
                 alt="University Logo"
                 sizes="(max-width: 500px) 100vw, 500px"
                 className="aspect-[auto_500_/_500] box-border caret-transparent inline-block max-w-full break-words text-center w-20 md:text-left md:w-4/5"
@@ -375,7 +375,7 @@ export default function Navbar() {
 
           {/* Apply Now — desktop only */}
           <a
-            href="#"
+            href="/e-portal/auth/signup"
             className="hidden lg:inline-block bg-red-600 hover:bg-red-700 text-white text-sm font-bold px-5 py-2.5 rounded transition-colors whitespace-nowrap"
           >
             Apply Now
@@ -434,7 +434,7 @@ export default function Navbar() {
           {/* Apply Now */}
           <div className="px-5 py-4 border-b border-gray-100">
             <a
-              href="#"
+              href="/e-portal/auth/signup"
               className="block w-full text-center bg-red-600 hover:bg-red-700 text-white text-sm font-bold py-2.5 rounded transition-colors"
             >
               Apply Now

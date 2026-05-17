@@ -9,7 +9,7 @@ export default function DeansSpeech() {
       <div className="flex flex-col md:flex-row gap-6 mb-6">
         <div className="shrink-0 w-full md:w-56">
           <img
-            src="/images/dean.jpg"
+            src="/e-portal/images/dean.jpg"
             alt="Director of Part Time School"
             className="w-full md:w-56 h-64 object-cover"
           />

@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 import { UndergraduateCourse } from "./undergraduateData";
-import PageSidebar from "../components/PageSidebar";
 
 interface Props {
   course: UndergraduateCourse;
@@ -95,18 +94,15 @@ export default function UndergraduateCourseDetailPage({ course }: Props) {
       <div
         className="flex justify-center"
         // style={{
-        //   backgroundImage: "url('/images/dot-bg-mono.jpg')",
+        //   backgroundImage: "url('/e-portal/images/dot-bg-mono.jpg')",
         //   backgroundSize: "cover",
         //   backgroundPosition: "center",
         // }}
       >
         <div className="flex w-full max-w-5xl py-10 px-4 md:px-6 gap-10">
 
-          {/* Left: Sidebar */}
-          <PageSidebar variant="undergraduate" activePath="/Undergraduate" />
-
           {/* Right: Content */}
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 w-full">
 
             {/* Short summary — shown above accordions */}
             <p className="text-sm text-gray-700 leading-relaxed mb-8">

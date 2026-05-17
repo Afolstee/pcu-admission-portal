@@ -1,581 +1,567 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import Link from "next/link";
-import Image from "next/image";
-import { useRouter } from "next/navigation";
+import React, { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { ApiClient } from "@/lib/api";
+import { ApiClient, ApplicantStatus } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+  Card, CardContent, CardDescription,
+  CardFooter, CardHeader, CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { LogOut, AlertCircle, DollarSign, CheckCircle } from "lucide-react";
+import {
+  CreditCard, CheckCircle2, AlertCircle,
+  ShieldCheck, Building, DollarSign, Loader2, XCircle,
+} from "lucide-react";
 
-interface PaymentInfo {
-  applicant_id: number;
-  program_name: string;
-  admission_status: string;
-  acceptance_fee: number;
-  tuition_fee: number;
-  has_paid_acceptance_fee: boolean;
-  has_paid_tuition: boolean;
+// ── Interswitch inline checkout types ────────────────────────────────────────
+interface InterswitchPayConfig {
+  merchant_code: string;
+  pay_item_id: string;
+  txn_ref: string;
+  amount: number;        // in kobo
+  currency: string;      // "566" = NGN
+  site_redirect_url: string;
+  mode: "TEST" | "LIVE";
+  onComplete: (response: InterswitchPayResponse) => void;
 }
 
-interface PaymentModal {
-  isOpen: boolean;
-  type: "acceptance" | "tuition" | null;
-  step: "select" | "confirm" | "processing" | "success";
-  transactionId?: string;
-  transactionDbId?: number;
+interface InterswitchPayResponse {
+  resp: string;   // "00" = customer completed the flow
+  [key: string]: any;
 }
 
-export default function PaymentPage() {
+declare global {
+  interface Window {
+    // Interswitch inline checkout v2 SDK
+    webpayCheckout: (config: InterswitchPayConfig) => void;
+  }
+}
+
+// Interswitch inline checkout — use LIVE script URL with mode:"TEST" for sandbox
+const ISW_SCRIPT_URL =
+  "https://newwebpay.interswitchng.com/inline-checkout.js";
+
+// ── Main component ────────────────────────────────────────────────────────────
+function PaymentContent() {
   const router = useRouter();
-  const { user, applicant, isAuthenticated, logout } = useAuth();
-  const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [paymentModal, setPaymentModal] = useState<PaymentModal>({
-    isOpen: false,
-    type: null,
-    step: "select",
-    transactionId: undefined,
-  });
-  const [processingPayment, setProcessingPayment] = useState(false);
+  const searchParams = useSearchParams();
+  const typeParam = searchParams.get("type") as "acceptance_fee" | "tuition" | null;
+  const { user, isAuthenticated } = useAuth();
 
+  const [status, setStatus] = useState<ApplicantStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [scriptReady, setScriptReady] = useState(false);
+
+  const [selectedType, setSelectedType] = useState<"acceptance_fee" | "tuition" | null>(typeParam);
+
+  // Result state
+  const [payState, setPayState] = useState<"idle" | "success" | "failed">("idle");
+  const [receiptNo, setReceiptNo] = useState<string | null>(null);
+  const [paidAmount, setPaidAmount] = useState<number | null>(null);
+  const [paidType, setPaidType] = useState<string | null>(null);
+
+  // Timeout guard — fires if ThreatMetrix (h.online-metrix.net) is blocked by an
+  // ad blocker and the Interswitch modal never fires onComplete.
+  const modalTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onCompleteCalledRef = React.useRef(false);
+
+  // ── Load Interswitch inline checkout script once ──────────────────────────
   useEffect(() => {
-    if (!isAuthenticated || user?.role !== "applicant") {
+    if (typeof window === "undefined") return;
+    if (document.getElementById("isw-inline-checkout")) {
+      setScriptReady(true);
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = "isw-inline-checkout";
+    script.src = ISW_SCRIPT_URL;
+    script.onload = () => setScriptReady(true);
+    script.onerror = () =>
+      setError("Failed to load payment gateway. Please refresh the page.");
+    document.head.appendChild(script);
+  }, []);
+
+  // ── Load applicant status ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isAuthenticated) {
       router.replace("/auth/login");
       return;
     }
-
-    if (applicant?.admission_status !== "admitted") {
-      router.replace("/applicant/dashboard");
-      return;
-    }
-
-    loadPaymentInfo();
-  }, [isAuthenticated, user, applicant, router]);
-
-  const loadPaymentInfo = async () => {
-    try {
-      // Get applicant status from backend
-      const statusData = await ApiClient.getApplicantStatus();
-      const appStatus = statusData.applicant;
-
-      // Get program fees from admission letter data
-      const letterData = await ApiClient.getAdmissionLetter();
-
-      // Parse fees from formatted strings
-      const parseFee = (feeStr: string) => {
-        return parseInt(feeStr.replace(/₦|,/g, ""), 10);
-      };
-
-      const acceptance_fee = parseFee(letterData.acceptanceFee);
-      const tuition_fee = parseFee(letterData.tuition);
-
-      setPaymentInfo({
-        applicant_id: appStatus.id,
-        program_name: appStatus.program_name,
-        admission_status: appStatus.admission_status,
-        acceptance_fee,
-        tuition_fee,
-        has_paid_acceptance_fee: appStatus.has_paid_acceptance_fee,
-        has_paid_tuition: appStatus.has_paid_tuition,
-      });
-    } catch (err) {
-      console.error("Error loading payment info:", err);
-      // Fallback to default if API fails
-      setPaymentInfo({
-        applicant_id: 0,
-        program_name: "Unknown",
-        admission_status: "admitted",
-        acceptance_fee: 0,
-        tuition_fee: 0,
-        has_paid_acceptance_fee: false,
-        has_paid_tuition: false,
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    await logout();
-    router.replace("/");
-  };
-
-  const openPaymentModal = (type: "acceptance" | "tuition") => {
-    // Prevent tuition payment if acceptance fee not paid
-    if (type === "tuition" && !paymentInfo?.has_paid_acceptance_fee) {
-      alert(
-        "You must pay the acceptance fee first before paying tuition."
-      );
-      return;
-    }
-
-    setPaymentModal({
-      isOpen: true,
-      type,
-      step: "confirm",
-    });
-  };
-
-  const closePaymentModal = () => {
-    setPaymentModal({
-      isOpen: false,
-      type: null,
-      step: "select",
-      transactionId: undefined,
-    });
-  };
-
-  const downloadReceipt = async () => {
-    if (!paymentModal.transactionDbId) {
-      alert("Transaction ID not available. Please try again.");
-      return;
-    }
-
-    try {
-      const blob = await ApiClient.downloadPaymentReceipt(paymentModal.transactionDbId);
-
-      // Create download link
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `payment_receipt_${paymentModal.transactionId || "receipt"}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error("[v0] Error downloading receipt:", error);
-      alert("Failed to download receipt. Please try again.");
-    }
-  };
-
-  const simulateRemittaPayment = async () => {
-    if (!paymentModal.type || !paymentInfo) return;
-
-    setProcessingPayment(true);
-    setPaymentModal((prev) => ({ ...prev, step: "processing" }));
-
-    try {
-      // Determine payment type and amount
-      const paymentType =
-        paymentModal.type === "acceptance" ? "acceptance_fee" : "tuition";
-      const amount =
-        paymentModal.type === "acceptance"
-          ? paymentInfo.acceptance_fee
-          : paymentInfo.tuition_fee;
-
-      // Process payment via backend
-      const result = await ApiClient.processPayment(
-        paymentType as "acceptance_fee" | "tuition",
-        amount,
-        "remita",
-        `TXN-${Date.now()}`
-      );
-
-      console.log("[v0] Payment processed successfully:", result);
-
-      // Update payment status
-      if (paymentInfo) {
-        const updatedInfo = { ...paymentInfo };
-        if (paymentModal.type === "acceptance") {
-          updatedInfo.has_paid_acceptance_fee = true;
-        } else if (paymentModal.type === "tuition") {
-          updatedInfo.has_paid_tuition = true;
+    const load = async () => {
+      try {
+        const res = await ApiClient.getApplicantStatus();
+        setStatus(res.applicant);
+        if (!selectedType) {
+          if (!res.applicant.has_paid_acceptance_fee) setSelectedType("acceptance_fee");
+          else if (!res.applicant.has_paid_tuition)  setSelectedType("tuition");
         }
-        setPaymentInfo(updatedInfo);
+      } catch {
+        setError("Failed to load application status.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, router]);
+
+  // ── Trigger inline checkout ───────────────────────────────────────────────
+  const handlePayment = async () => {
+    if (!selectedType || !status || !scriptReady) return;
+
+    setProcessing(true);
+    setError(null);
+    onCompleteCalledRef.current = false;
+
+    // Clear any previous timeout
+    if (modalTimeoutRef.current) clearTimeout(modalTimeoutRef.current);
+
+    try {
+      const init = await ApiClient.initiatePayment(selectedType);
+
+      const callbackUrl =
+        `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/e-portal/applicant/payment/callback`;
+
+      if (typeof window.webpayCheckout !== "function") {
+        throw new Error("Payment gateway not ready. Please refresh the page.");
       }
 
-      setProcessingPayment(false);
-      setPaymentModal((prev) => ({
-        ...prev,
-        step: "success",
-        transactionId: result.transaction_id,
-        transactionDbId: result.transaction_db_id,
-      }));
+      // ── ThreatMetrix / ad-blocker guard ──────────────────────────────────
+      // If h.online-metrix.net is blocked (ERR_BLOCKED_BY_CLIENT), the
+      // Interswitch modal can get stuck and onComplete never fires.
+      // After 90 s we stop spinning and tell the user what happened.
+      modalTimeoutRef.current = setTimeout(() => {
+        if (!onCompleteCalledRef.current) {
+          setProcessing(false);
+          setError(
+            "The payment window appears to be stuck. This is usually caused by a browser " +
+            "ad blocker blocking a fraud-detection script (h.online-metrix.net). " +
+            "Please disable your ad blocker for this page and try again, or use a " +
+            "browser with no extensions. If you were already debited, your payment " +
+            "will be confirmed automatically — check your transaction history."
+          );
+        }
+      }, 90_000);
 
-      // Close modal after 2 seconds and reload data
-      setTimeout(() => {
-        closePaymentModal();
-        loadPaymentInfo(); // Refresh to get latest data
-      }, 2000);
-    } catch (error) {
-      console.error("[v0] Payment processing error:", error);
-      alert(
-        `Payment failed: ${error instanceof Error ? error.message : "Unknown error"}`
-      );
-      setProcessingPayment(false);
-      setPaymentModal((prev) => ({ ...prev, step: "confirm" }));
+      window.webpayCheckout({
+        merchant_code:     init.merchant_code,
+        pay_item_id:       init.pay_item_id,
+        txn_ref:           init.reference_no,
+        amount:            init.amount_kobo,
+        currency:          566,
+        site_redirect_url: callbackUrl,
+        mode:              (process.env.NEXT_PUBLIC_ISW_MODE as "TEST" | "LIVE") ?? "LIVE",
+        onComplete: async (response: InterswitchPayResponse) => {
+          onCompleteCalledRef.current = true;
+          if (modalTimeoutRef.current) clearTimeout(modalTimeoutRef.current);
+
+          // Always verify server-side — never trust client resp alone
+          try {
+            const verification = await ApiClient.verifyPayment(init.reference_no);
+            if (verification.is_successful) {
+              setReceiptNo(verification.receipt_no);
+              setPaidAmount(verification.amount);
+              setPaidType(verification.payment_type);
+              ApiClient.clearCache();
+              setPayState("success");
+            } else {
+              setPayState("failed");
+              setError(verification.response_desc || "Payment was not completed.");
+            }
+          } catch (err: any) {
+            setPayState("failed");
+            setError(
+              err.message ||
+              "Verification failed. Contact support if funds were debited."
+            );
+          } finally {
+            setProcessing(false);
+          }
+        },
+      });
+    } catch (err: any) {
+      if (modalTimeoutRef.current) clearTimeout(modalTimeoutRef.current);
+      setError(err.message || "Failed to start payment. Please try again.");
+      setProcessing(false);
     }
   };
 
+  const paymentLabel =
+    (paidType ?? selectedType) === "acceptance_fee" ? "Acceptance Fee" :
+    (paidType ?? selectedType) === "tuition"        ? "Tuition Fee"    :
+    "Payment";
+
+  // ── Loading screen ────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
-          <p className="text-muted-foreground">
-            Loading payment information...
-          </p>
+          <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">Initializing secure payment...</p>
         </div>
       </div>
     );
   }
 
-  if (!paymentInfo) {
+  // ── Success screen ────────────────────────────────────────────────────────
+  if (payState === "success") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Card className="w-full max-w-md">
-          <CardContent className="py-12 text-center">
-            <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-            <p className="text-foreground font-semibold mb-2">
-              Error Loading Payment
-            </p>
-            <p className="text-sm text-muted-foreground mb-6">
-              Unable to load payment information. Please try again later.
-            </p>
-            <Link href="/applicant/dashboard">
-              <Button>Go Back</Button>
-            </Link>
+      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-4">
+        <Card className="max-w-md w-full border-0 shadow-2xl rounded-[40px] overflow-hidden">
+          <div className="h-2 bg-gradient-to-r from-green-400 to-emerald-500" />
+          <CardHeader className="text-center pt-10 pb-2">
+            <div className="flex justify-center mb-4">
+              <div className="relative w-20 h-20">
+                <div className="absolute inset-0 bg-green-100 rounded-full animate-ping opacity-25" />
+                <div className="relative w-full h-full bg-green-500 rounded-full flex items-center justify-center shadow-xl shadow-green-500/30">
+                  <CheckCircle2 className="h-10 w-10 text-white" />
+                </div>
+              </div>
+            </div>
+            <CardTitle className="text-2xl font-black tracking-tight">Payment Confirmed!</CardTitle>
+            <CardDescription className="font-medium mt-1">
+              Your {paymentLabel} has been confirmed and recorded.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="px-8 pb-2">
+            <div className="bg-slate-50 rounded-2xl p-5 space-y-3 text-sm">
+              {receiptNo && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500 font-medium">Receipt No.</span>
+                  <span className="font-mono font-bold text-slate-800">{receiptNo}</span>
+                </div>
+              )}
+              {paidAmount !== null && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500 font-medium">Amount Paid</span>
+                  <span className="font-bold text-slate-800">
+                    ₦{Number(paidAmount).toLocaleString("en-NG", { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Payment Type</span>
+                <span className="font-bold text-slate-800">{paymentLabel}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Status</span>
+                <span className="font-bold text-green-600">Successful</span>
+              </div>
+            </div>
           </CardContent>
+          <CardFooter className="flex-col gap-3 px-8 pb-10 pt-4">
+            {receiptNo && (
+              <Button
+                variant="outline"
+                className="w-full h-12 font-bold"
+                onClick={async () => {
+                  try {
+                    const blob = await ApiClient.downloadPaymentReceipt(receiptNo!);
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `receipt_${receiptNo}.pdf`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  } catch (e) {
+                    console.error("Receipt download failed", e);
+                  }
+                }}
+              >
+                Download Receipt
+              </Button>
+            )}
+            <Button
+              className="w-full h-12 font-bold bg-green-600 hover:bg-green-700"
+              onClick={() => router.push("/applicant/dashboard")}
+            >
+              Go to Dashboard
+            </Button>
+            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-300 text-center mt-2">
+              Powered by <span className="text-slate-400 italic">Interswitch</span>
+            </p>
+          </CardFooter>
         </Card>
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">
-      {/* Navigation */}
-      <nav className="bg-background border-b border-border sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Image
-              src="/images/logo new.png"
-              alt="PCU Logo"
-              width={28}
-              height={28}
-              className="object-contain"
-            />
-            <span className="font-bold text-lg">Admission Portal</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-sm">
-              <p className="text-muted-foreground">Welcome back</p>
-              <p className="font-medium text-foreground">{user?.name}</p>
+  // ── Failed screen ─────────────────────────────────────────────────────────
+  if (payState === "failed") {
+    return (
+      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-4">
+        <Card className="max-w-md w-full border-0 shadow-2xl rounded-[40px] overflow-hidden">
+          <div className="h-2 bg-gradient-to-r from-red-400 to-rose-500" />
+          <CardHeader className="text-center pt-10 pb-2">
+            <div className="flex justify-center mb-4">
+              <div className="w-20 h-20 bg-red-500 rounded-full flex items-center justify-center shadow-xl shadow-red-500/30">
+                <XCircle className="h-10 w-10 text-white" />
+              </div>
             </div>
+            <CardTitle className="text-2xl font-black tracking-tight">Payment Not Successful</CardTitle>
+            <CardDescription className="font-medium mt-1">
+              {error || "The payment was not completed. No funds were debited."}
+            </CardDescription>
+          </CardHeader>
+          <CardFooter className="flex-col gap-3 px-8 pb-10 pt-4">
             <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleLogout}
-              className="gap-2"
+              className="w-full h-12 font-bold"
+              onClick={() => { setPayState("idle"); setError(null); }}
             >
-              <LogOut className="h-4 w-4" />
-              Log Out
+              Try Again
             </Button>
-          </div>
-        </div>
-      </nav>
-
-      {/* Main Content */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <Button
-            variant="outline"
-            className="mb-4 bg-transparent"
-            onClick={() => router.back()}
-          >
-            ← Back
-          </Button>
-          <h1 className="text-3xl font-bold text-foreground mb-2">Payment</h1>
-          <p className="text-muted-foreground">
-            Complete your payment to finalize your admission
-          </p>
-        </div>
-
-        {/* Admission Status */}
-        <Card className="mb-8 border-green-500/50 bg-green-50">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-green-800 font-medium">
-                  Admission Status
-                </p>
-                <p className="text-lg font-semibold text-green-900">
-                  Congratulations! You have been admitted.
-                </p>
-              </div>
-              <Badge className="bg-green-600">Admitted</Badge>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Payment Order Info */}
-        <Card className="mb-8 border-blue-500/50 bg-blue-50">
-          <CardContent className="pt-6">
-            <p className="text-sm text-blue-800">
-              <strong>Payment Order:</strong> You must pay the acceptance fee first before you can proceed with tuition payment.
+            <Button
+              variant="outline"
+              className="w-full h-12 font-bold"
+              onClick={() => router.push("/applicant/dashboard")}
+            >
+              Return to Dashboard
+            </Button>
+            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-300 text-center mt-2">
+              Powered by <span className="text-slate-400 italic">Interswitch</span>
             </p>
-          </CardContent>
+          </CardFooter>
         </Card>
+      </div>
+    );
+  }
 
-        {/* Payment Summary */}
-        <div className="grid md:grid-cols-2 gap-6 mb-8">
-          {/* Acceptance Fee */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <DollarSign className="h-5 w-5" />
-                Acceptance Fee
-              </CardTitle>
-              <CardDescription>
-                Required to confirm your admission
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <p className="text-sm text-muted-foreground mb-1">Amount</p>
-                <p className="text-3xl font-bold">
-                  ₦{paymentInfo.acceptance_fee.toLocaleString()}
-                </p>
-              </div>
+  // ── Main checkout UI ──────────────────────────────────────────────────────
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <main className="max-w-5xl mx-auto px-4 py-12">
+        <div className="grid md:grid-cols-5 gap-8">
 
-              <div className="pt-4 border-t border-border">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-medium">Status:</span>
-                  {paymentInfo.has_paid_acceptance_fee ? (
-                    <Badge className="bg-green-600 flex items-center gap-1">
-                      <CheckCircle className="h-3 w-3" />
-                      Paid
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline">Pending</Badge>
-                  )}
-                </div>
-                <Button
-                  onClick={() => openPaymentModal("acceptance")}
-                  disabled={paymentInfo.has_paid_acceptance_fee}
-                  className="w-full gap-2"
-                  variant={
-                    paymentInfo.has_paid_acceptance_fee ? "outline" : "default"
-                  }
-                >
-                  <DollarSign className="h-4 w-4" />
-                  {paymentInfo.has_paid_acceptance_fee
-                    ? "Payment Completed"
-                    : "Pay via Remita"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Tuition Fee */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <DollarSign className="h-5 w-5" />
-                Tuition Fee
-              </CardTitle>
-              <CardDescription>For your first year of study</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <p className="text-sm text-muted-foreground mb-1">Amount</p>
-                <p className="text-3xl font-bold">
-                  ₦{paymentInfo.tuition_fee.toLocaleString()}
-                </p>
-              </div>
-
-              <div className="pt-4 border-t border-border">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-medium">Status:</span>
-                  {paymentInfo.has_paid_tuition ? (
-                    <Badge className="bg-green-600 flex items-center gap-1">
-                      <CheckCircle className="h-3 w-3" />
-                      Paid
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline">
-                      {paymentInfo.has_paid_acceptance_fee
-                        ? "Pending"
-                        : "Locked"}
-                    </Badge>
-                  )}
-                </div>
-                <Button
-                  onClick={() => openPaymentModal("tuition")}
-                  disabled={
-                    paymentInfo.has_paid_tuition ||
-                    !paymentInfo.has_paid_acceptance_fee
-                  }
-                  className="w-full gap-2"
-                  variant={paymentInfo.has_paid_tuition ? "outline" : "default"}
-                >
-                  <DollarSign className="h-4 w-4" />
-                  {paymentInfo.has_paid_tuition
-                    ? "Payment Completed"
-                    : !paymentInfo.has_paid_acceptance_fee
-                    ? "Pay Acceptance Fee First"
-                    : "Pay via Remita"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Total Summary */}
-        <Card className="bg-primary/5 border-primary/20 mb-8">
-          <CardContent className="pt-6">
+          {/* Left — selection + method */}
+          <div className="md:col-span-3 space-y-8">
             <div className="space-y-2">
-              <div className="flex justify-between items-center text-sm">
-                <span>Acceptance Fee:</span>
-                <span>₦{paymentInfo.acceptance_fee.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <span>Tuition Fee:</span>
-                <span>₦{paymentInfo.tuition_fee.toLocaleString()}</span>
-              </div>
-              <div className="border-t border-primary/20 pt-2 mt-2 flex justify-between items-center font-bold">
-                <span>Total Amount:</span>
-                <span className="text-lg">
-                  ₦
-                  {(
-                    paymentInfo.acceptance_fee + paymentInfo.tuition_fee
-                  ).toLocaleString()}
-                </span>
+              <h1 className="text-4xl font-extrabold tracking-tight">Secure Checkout</h1>
+              <p className="text-lg text-muted-foreground">
+                Finalize your admission by completing the required payments.
+              </p>
+            </div>
+
+            {/* Payment item selection */}
+            <div className="space-y-6">
+              <h3 className="text-xl font-bold flex items-center gap-2 border-b-2 border-primary/20 pb-2">
+                <DollarSign className="h-6 w-6 text-primary" />
+                Select Payment Item
+              </h3>
+              <div className="grid gap-4">
+
+                {/* Acceptance Fee */}
+                <button
+                  onClick={() => setSelectedType("acceptance_fee")}
+                  disabled={!!status?.has_paid_acceptance_fee}
+                  className={`group relative flex items-center justify-between p-6 rounded-2xl border-2 transition-all duration-300
+                    ${selectedType === "acceptance_fee"
+                      ? "border-primary bg-primary/[0.03] ring-2 ring-primary/20 shadow-lg translate-x-1"
+                      : "border-border hover:border-primary/40 hover:bg-primary/[0.01]"}
+                    ${status?.has_paid_acceptance_fee ? "opacity-60 cursor-not-allowed bg-muted/30" : ""}`}
+                >
+                  <div className="flex items-center gap-5 text-left">
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors
+                      ${selectedType === "acceptance_fee"
+                        ? "bg-primary text-white"
+                        : "bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"}`}>
+                      <Building className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-lg">Acceptance Fee</p>
+                      <p className="text-sm text-muted-foreground">Secure your spot in the university</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    {status?.has_paid_acceptance_fee ? (
+                      <Badge variant="secondary" className="bg-green-100 text-green-800 border-green-200">
+                        <CheckCircle2 className="h-3 w-3 mr-1" /> Paid
+                      </Badge>
+                    ) : (
+                      <p className="font-black text-xl text-primary">
+                        {status?.program_id === 4 ? "₦30,000" : status?.program_id === 2 ? "₦25,000" : "₦20,000"}
+                      </p>
+                    )}
+                  </div>
+                </button>
+
+                {/* Tuition Fee */}
+                <button
+                  onClick={() => setSelectedType("tuition")}
+                  disabled={!!status?.has_paid_tuition || !status?.has_paid_acceptance_fee}
+                  className={`group relative flex items-center justify-between p-6 rounded-2xl border-2 transition-all duration-300
+                    ${selectedType === "tuition"
+                      ? "border-primary bg-primary/[0.03] ring-2 ring-primary/20 shadow-lg translate-x-1"
+                      : "border-border hover:border-primary/40 hover:bg-primary/[0.01]"}
+                    ${status?.has_paid_tuition || !status?.has_paid_acceptance_fee ? "opacity-60 cursor-not-allowed bg-muted/30" : ""}`}
+                >
+                  <div className="flex items-center gap-5 text-left">
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors
+                      ${selectedType === "tuition"
+                        ? "bg-primary text-white"
+                        : "bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"}`}>
+                      <CreditCard className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-lg">Tuition Fee</p>
+                      <p className="text-sm text-muted-foreground">Academic session tuition payment</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    {status?.has_paid_tuition ? (
+                      <Badge variant="secondary" className="bg-green-100 text-green-800 border-green-200">
+                        <CheckCircle2 className="h-3 w-3 mr-1" /> Paid
+                      </Badge>
+                    ) : !status?.has_paid_acceptance_fee ? (
+                      <p className="text-sm italic flex items-center gap-1 bg-yellow-50 px-2 py-1 rounded text-yellow-700">
+                        <AlertCircle className="h-3 w-3" /> Pay acceptance first
+                      </p>
+                    ) : (
+                      <p className="font-black text-xl text-primary">
+                        {status?.program_id === 2 ? "₦250,000" : "₦177,000"}
+                      </p>
+                    )}
+                  </div>
+                </button>
+
               </div>
             </div>
-          </CardContent>
-        </Card>
 
-        {/* Navigation */}
-        <div className="mt-8 flex gap-4 justify-between">
-          <Button
-            variant="outline"
-            onClick={() => router.push("/applicant/dashboard")}
-          >
-            Back to Dashboard
-          </Button>
-        </div>
-      </div>
-
-      {/* Remita Payment Modal */}
-      {paymentModal.isOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-md">
-            {paymentModal.step === "confirm" && (
-              <>
-                <CardHeader>
-                  <CardTitle>Confirm Payment</CardTitle>
-                  <CardDescription>
-                    Processing via Remita Gateway
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-1">
-                      Payment Type
-                    </p>
-                    <p className="font-semibold text-foreground capitalize">
-                      {paymentModal.type === "acceptance"
-                        ? "Acceptance Fee"
-                        : "Tuition Fee"}
-                    </p>
+            {/* Payment method badge */}
+            <div className="pt-8 border-t border-border">
+              <h3 className="text-xl font-bold flex items-center gap-2 mb-6">
+                <CreditCard className="h-6 w-6 text-primary" />
+                Payment Method
+              </h3>
+              <div className="p-6 rounded-2xl border-2 border-primary bg-primary/5 flex items-center justify-between shadow-sm">
+                <div className="flex items-center gap-5">
+                  <div className="bg-[#00425F] p-3 rounded-xl shadow-md">
+                    <ShieldCheck className="h-6 w-6 text-white" />
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground mb-1">Amount</p>
-                    <p className="text-2xl font-bold">
-                      ₦
-                      {(paymentModal.type === "acceptance"
-                        ? paymentInfo.acceptance_fee
-                        : paymentInfo.tuition_fee
-                      ).toLocaleString()}
+                    <p className="font-bold text-lg">Interswitch Inline Checkout</p>
+                    <p className="text-sm text-muted-foreground font-medium">
+                      Cards, Bank Transfer, USSD &amp; more
                     </p>
                   </div>
-                  <div className="bg-gray-100 p-3 rounded text-sm">
-                    <p className="text-xs text-muted-foreground mb-2">
-                      Gateway: Remita
-                    </p>
-                    <p className="text-xs">
-                      You will be redirected to Remita to complete your payment
-                      securely.
-                    </p>
-                  </div>
-                </CardContent>
-                <div className="border-t px-6 py-4 flex gap-3">
-                  <Button
-                    variant="outline"
-                    onClick={closePaymentModal}
-                    className="flex-1"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={simulateRemittaPayment}
-                    className="flex-1"
-                    disabled={processingPayment}
-                  >
-                    {processingPayment ? "Processing..." : "Proceed to Pay"}
-                  </Button>
                 </div>
-              </>
-            )}
+                <div className="bg-[#00425F] text-white text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full shadow-lg">
+                  Recommended
+                </div>
+              </div>
+            </div>
+          </div>
 
-            {paymentModal.step === "processing" && (
-              <CardContent className="py-12 text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
-                <p className="text-foreground font-semibold">
-                  Processing Payment
-                </p>
-                <p className="text-sm text-muted-foreground mt-2">
-                  Redirecting to Remita...
-                </p>
-              </CardContent>
-            )}
+          {/* Right — order summary */}
+          <div className="md:col-span-2">
+            <Card className="sticky top-24 shadow-2xl border-primary/10 overflow-hidden bg-card">
+              <div className="h-2 bg-gradient-to-r from-primary to-primary/40" />
+              <CardHeader className="bg-muted/30">
+                <CardTitle className="text-xl">Checkout Summary</CardTitle>
+                <CardDescription>Verify your details</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6 pt-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-black">Applicant</p>
+                    <p className="text-sm font-bold truncate">{user?.name}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-black">Program</p>
+                    <p className="text-sm font-bold truncate">{status?.program_name}</p>
+                  </div>
+                </div>
 
-            {paymentModal.step === "success" && (
-              <>
-                <CardContent className="py-12 text-center">
-                  <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4" />
-                  <p className="text-foreground font-semibold mb-2">
-                    Payment Successful
-                  </p>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    {paymentModal.type === "acceptance"
-                      ? "Acceptance fee has been processed"
-                      : "Tuition fee has been processed"}
-                  </p>
-                  {paymentModal.transactionId && (
-                    <p className="text-xs text-muted-foreground bg-gray-100 rounded p-2 mb-4">
-                      Transaction ID: {paymentModal.transactionId}
-                    </p>
-                  )}
-                </CardContent>
-                {paymentModal.transactionId && (
-                  <div className="border-t px-6 py-4">
-                    <Button
-                      onClick={() => downloadReceipt()}
-                      className="w-full gap-2"
-                      variant="outline"
-                    >
-                      Download Receipt
-                    </Button>
+                <div className="pt-6 border-t border-border space-y-4">
+                  <div className="flex justify-between items-center bg-muted/20 p-3 rounded-lg border border-border/50">
+                    <span className="text-sm font-medium">
+                      {selectedType ? selectedType.replace("_", " ").toUpperCase() : "NO SELECTION"}
+                    </span>
+                    <span className="font-black text-lg">
+                      {selectedType === "acceptance_fee"
+                        ? status?.program_id === 4 ? "₦30,000" : status?.program_id === 2 ? "₦25,000" : "₦20,000"
+                        : selectedType === "tuition"
+                          ? status?.program_id === 2 ? "₦250,000" : "₦177,000"
+                          : "₦0.00"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs px-1">
+                    <div className="flex items-center gap-1 text-muted-foreground">
+                      <span>Processing Fee</span>
+                      <div className="bg-green-100 text-green-700 text-[8px] font-bold px-1 rounded">FREE</div>
+                    </div>
+                    <span className="font-bold">₦0.00</span>
+                  </div>
+                  <div className="flex justify-between items-center text-2xl font-black pt-4 border-t-2 border-dashed border-border px-1">
+                    <span>Total</span>
+                    <span className="text-primary">
+                      {selectedType === "acceptance_fee"
+                        ? status?.program_id === 4 ? "₦30,000" : status?.program_id === 2 ? "₦25,000" : "₦20,000"
+                        : selectedType === "tuition"
+                          ? status?.program_id === 2 ? "₦250,000" : "₦177,000"
+                          : "₦0.00"}
+                    </span>
+                  </div>
+                </div>
+
+                {error && (
+                  <div className="p-4 rounded-xl bg-red-50 text-red-800 text-xs flex gap-3 border border-red-100 animate-in fade-in slide-in-from-top-2">
+                    <AlertCircle className="h-5 w-5 shrink-0 text-red-500" />
+                    <span className="leading-relaxed font-semibold">{error}</span>
                   </div>
                 )}
-              </>
-            )}
-          </Card>
+              </CardContent>
+              <CardFooter className="flex-col gap-4 pb-8">
+                <Button
+                  className="w-full h-14 text-lg font-black gap-3 shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98] disabled:hover:scale-100"
+                  disabled={!selectedType || processing || !scriptReady}
+                  onClick={handlePayment}
+                >
+                  {processing ? (
+                    <>
+                      <Loader2 className="h-6 w-6 animate-spin" />
+                      OPENING PAYMENT...
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck className="h-6 w-6" />
+                      {scriptReady ? "PAY SECURELY" : "LOADING..."}
+                    </>
+                  )}
+                </Button>
+                <div className="flex items-center justify-center gap-4 opacity-40">
+                  <ShieldCheck className="h-6 w-6" />
+                  <div className="h-4 w-[1px] bg-foreground" />
+                  <p className="text-[8px] max-w-[120px] leading-tight font-medium uppercase tracking-tighter">
+                    256-bit SSL encrypted &amp; PCI DSS compliant
+                  </p>
+                </div>
+              </CardFooter>
+            </Card>
+          </div>
+
         </div>
-      )}
+      </main>
     </div>
+  );
+}
+
+export default function PaymentPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-background">
+          <div className="text-center">
+            <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
+            <p className="text-muted-foreground">Loading payment portal...</p>
+          </div>
+        </div>
+      }
+    >
+      <PaymentContent />
+    </Suspense>
   );
 }

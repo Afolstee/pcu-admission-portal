@@ -51,7 +51,9 @@ import {
   CreditCard,
   ChevronRight,
   Loader2,
+  GraduationCap,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import RecommendationCard from "@/components/RecommendationCard";
 import { Recommendation } from "@/lib/api";
 import ApplicationFormComponent from "@/components/ApplicationForm";
@@ -283,103 +285,133 @@ export default function ApplicantDashboard() {
     return (
       <div className="mt-20 space-y-6">
         <div className="flex items-center gap-3">
-           <div className="h-8 w-2 bg-[#6b357d] rounded-full"></div>
-           <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">My Applications</h2>
+           <div className="h-8 w-2 bg-[#6b357d] rounded-full shadow-md shadow-purple-500/30"></div>
+           <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">My Active Applications</h2>
         </div>
-        <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm bg-white">
-          <table className="w-full text-left border-collapse min-w-[1000px]">
-            <thead>
-              <tr className="bg-[#6b357d] text-white">
-                <th className="p-4 font-bold text-sm">Name</th>
-                <th className="p-4 font-bold text-sm">Form No.</th>
-                <th className="p-4 font-bold text-sm">Matric. No</th>
-                <th className="p-4 font-bold text-sm">Programme</th>
-                <th className="p-4 font-bold text-sm">Registration Status</th>
-                <th className="p-4 font-bold text-sm">Admission Year</th>
-                <th className="p-4 font-bold text-sm">Admission Status</th>
-                <th className="p-4 font-bold text-sm text-center">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {apps.map((app) => (
-                <tr key={app.id} className="border-t border-slate-100 hover:bg-slate-50 transition-colors">
-                  <td className="p-4 text-sm text-slate-600 capitalize">{app.user_name}</td>
-                  <td className="p-4 text-sm text-slate-600 font-mono">{app.form_no || '-'}</td>
-                  <td className="p-4 text-sm text-slate-600">-</td>
-                  <td className="p-4 text-sm text-slate-600 uppercase font-bold">{app.program_name}</td>
-                  <td className="p-4 text-sm">
-                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${['submitted', 'screening', 'admitted', 'accepted', 'rejected'].includes(app.application_status) ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                        {['submitted', 'screening', 'admitted', 'accepted', 'rejected'].includes(app.application_status) ? 'complete' : 'pending'}
-                     </span>
-                  </td>
-                  <td className="p-4 text-sm text-slate-600">{app.program_session}</td>
-                  <td className="p-4 text-sm text-slate-600 capitalize font-medium">{app.admission_status.replace('_', ' ')}</td>
-                  <td className="p-4 text-center">
-                    <Button
-                      size="sm"
-                      className="bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold h-8 px-6"
-                      onClick={async () => {
-                         setViewingFormId(app.id);
-
-                         const cachedTemplate = preloadedTemplates[app.program_type_id];
-                         const cachedForm     = preloadedForms[app.id];
-
-                         if (cachedTemplate) setFormTemplate(cachedTemplate);
-                         if (cachedForm) {
-                           setSubmittedFormData(cachedForm.form);
-                           setSubmittedDocuments(cachedForm.documents);
-                         }
-
-                         const fullyReady = !!cachedTemplate && !!cachedForm;
-                         if (!fullyReady) setProfileLoading(true);
-
-                         try {
-                           const [templateResult, formResult] = await Promise.all([
-                             cachedTemplate
-                               ? Promise.resolve(cachedTemplate)
-                               : ApiClient.getFormTemplate(app.program_type_id),
-                             cachedForm
-                               ? Promise.resolve(cachedForm)
-                               : ApiClient.getForm(app.id)
-                                   .then(r => ({ form: r.form ?? r, documents: r.documents ?? [] }))
-                                   .catch(() => ({ form: null, documents: [] })),
-                           ]);
-
-                           if (!cachedTemplate) setFormTemplate(templateResult);
-                           if (!cachedForm) {
-                             setSubmittedFormData((formResult as any).form);
-                             setSubmittedDocuments((formResult as any).documents ?? []);
-                           }
-
-                           if (['admitted', 'accepted'].includes(app.application_status)) {
-                             try {
-                               const feeData = await ApiClient.getAcceptanceFee();
-                               setAcceptanceFeeData({
-                                 amount: feeData.acceptance_fee,
-                                 feeName: feeData.fee_name,
-                                 paid: app.has_paid_acceptance_fee,
-                               });
-                             } catch (e) {
-                               console.error('Failed to load acceptance fee', e);
-                             }
-                           } else {
-                             setAcceptanceFeeData(null);
-                           }
-                         } catch (e) {
-                           console.error('Failed to load form data', e);
-                         } finally {
-                           setProfileLoading(false);
-                         }
-                       }}
-                    >
-                      {['submitted', 'admitted', 'accepted'].includes(app.application_status) ? 'Profile' : 'Apply'}
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        
+        {apps.length === 0 ? (
+          <div className="bg-white/70 backdrop-blur-sm border border-slate-200/60 rounded-2xl p-12 text-center shadow-sm">
+            <FileText className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+            <p className="text-slate-500 font-bold">No active applications found.</p>
+            <p className="text-slate-400 text-sm mt-1">Select a program above and pay the application fee to begin.</p>
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-2xl border border-slate-200/60 shadow-lg shadow-slate-100 bg-white/80 backdrop-blur-md">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[1000px]">
+                <thead>
+                  <tr className="bg-slate-50/75 border-b border-slate-200/60 text-slate-500 font-bold uppercase tracking-wider text-xs">
+                    <th className="p-5 font-bold">Name</th>
+                    <th className="p-5 font-bold">Form No.</th>
+                    <th className="p-5 font-bold">Matric. No</th>
+                    <th className="p-5 font-bold">Programme</th>
+                    <th className="p-5 font-bold">Reg. Status</th>
+                    <th className="p-5 font-bold">Session</th>
+                    <th className="p-5 font-bold">Admission Status</th>
+                    <th className="p-5 font-bold text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {apps.map((app) => {
+                    const isComplete = ['submitted', 'screening', 'admitted', 'accepted', 'rejected'].includes(app.application_status);
+                    return (
+                      <tr key={app.id} className="hover:bg-slate-50/50 transition-colors duration-200">
+                        <td className="p-5 text-sm text-slate-700 capitalize font-medium">{app.user_name}</td>
+                        <td className="p-5 text-sm text-slate-500 font-mono font-medium">{app.form_no || '-'}</td>
+                        <td className="p-5 text-sm text-slate-400">-</td>
+                        <td className="p-5 text-sm text-slate-800 uppercase font-black tracking-tight">{app.program_name}</td>
+                        <td className="p-5 text-sm">
+                           <span className={cn(
+                             "px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border shadow-sm",
+                             isComplete 
+                               ? "bg-emerald-50 text-emerald-700 border-emerald-100 shadow-emerald-500/5" 
+                               : "bg-amber-50 text-amber-700 border-amber-100 shadow-amber-500/5"
+                           )}>
+                              {isComplete ? 'complete' : 'pending'}
+                           </span>
+                        </td>
+                        <td className="p-5 text-sm text-slate-600 font-medium">{app.program_session}</td>
+                        <td className="p-5 text-sm">
+                          <span className={cn(
+                            "px-2.5 py-1 rounded-full text-[11px] font-bold capitalize border",
+                            app.admission_status === 'admitted' || app.admission_status === 'accepted'
+                              ? "bg-purple-50 text-purple-700 border-purple-100"
+                              : app.admission_status === 'rejected'
+                                ? "bg-red-50 text-red-700 border-red-100"
+                                : "bg-slate-50 text-slate-600 border-slate-100"
+                          )}>
+                            {app.admission_status.replace('_', ' ')}
+                          </span>
+                        </td>
+                        <td className="p-5 text-center">
+                          <Button
+                            size="sm"
+                            className="bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold h-9 px-6 rounded-lg transition-all duration-300 shadow-md shadow-purple-500/10 hover:shadow-purple-500/20"
+                            onClick={async () => {
+                               setViewingFormId(app.id);
+      
+                               const cachedTemplate = preloadedTemplates[app.program_type_id];
+                               const cachedForm     = preloadedForms[app.id];
+      
+                               if (cachedTemplate) setFormTemplate(cachedTemplate);
+                               if (cachedForm) {
+                                 setSubmittedFormData(cachedForm.form);
+                                 setSubmittedDocuments(cachedForm.documents);
+                               }
+      
+                               const fullyReady = !!cachedTemplate && !!cachedForm;
+                               if (!fullyReady) setProfileLoading(true);
+      
+                               try {
+                                 const [templateResult, formResult] = await Promise.all([
+                                   cachedTemplate
+                                     ? Promise.resolve(cachedTemplate)
+                                     : ApiClient.getFormTemplate(app.program_type_id),
+                                   cachedForm
+                                     ? Promise.resolve(cachedForm)
+                                     : ApiClient.getForm(app.id)
+                                         .then(r => ({ form: r.form ?? r, documents: r.documents ?? [] }))
+                                         .catch(() => ({ form: null, documents: [] })),
+                                 ]);
+      
+                                 if (!cachedTemplate) setFormTemplate(templateResult);
+                                 if (!cachedForm) {
+                                   setSubmittedFormData((formResult as any).form);
+                                   setSubmittedDocuments((formResult as any).documents ?? []);
+                                 }
+      
+                                 if (['admitted', 'accepted'].includes(app.application_status)) {
+                                   try {
+                                     const feeData = await ApiClient.getAcceptanceFee();
+                                     setAcceptanceFeeData({
+                                       amount: feeData.acceptance_fee,
+                                       feeName: feeData.fee_name,
+                                       paid: app.has_paid_acceptance_fee,
+                                     });
+                                   } catch (e) {
+                                     console.error('Failed to load acceptance fee', e);
+                                   }
+                                 } else {
+                                   setAcceptanceFeeData(null);
+                                 }
+                               } catch (e) {
+                                 console.error('Failed to load form data', e);
+                               } finally {
+                                 setProfileLoading(false);
+                               }
+                             }}
+                          >
+                            {['submitted', 'admitted', 'accepted'].includes(app.application_status) ? 'Profile' : 'Apply'}
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -500,115 +532,186 @@ export default function ApplicantDashboard() {
     <div className="min-h-screen bg-[#f8fafc]">
       <div className="max-w-6xl mx-auto px-4 py-12">
 
-        {/* ── Program selection ── */}
+        {/* ── Welcome Hero / Header ── */}
+        {paymentStep === 'selection' && (
+          <div className="bg-gradient-to-r from-purple-900 via-indigo-900 to-slate-900 rounded-2xl p-6 md:p-8 text-white shadow-xl relative overflow-hidden mb-8 animate-in fade-in slide-in-from-top-4 duration-500">
+            {/* Background design elements */}
+            <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl -ml-10 -mb-10 pointer-events-none" />
+            
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-100 to-purple-200 bg-clip-text text-transparent">
+                  Welcome back, <span className="capitalize font-black text-white">{user?.username || "Applicant"}</span>! 👋
+                </h1>
+                <p className="text-slate-300 text-xs md:text-sm font-medium mt-1">
+                  Access your PCU e-portal account and manage your entry registrations.
+                </p>
+              </div>
+              <span className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-bold bg-white/10 text-purple-200 border border-white/10 uppercase tracking-widest self-start md:self-auto">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Active Session
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* ── Program selection & Applications ── */}
         {paymentStep === 'selection' && (
           <>
-            <div className="text-center mb-16 space-y-4">
-              <h1 className="text-4xl font-black tracking-tight text-slate-900 sm:text-6xl uppercase italic">
-                Admission Gateway
-              </h1>
-              <p className="text-slate-500 text-xl font-medium max-w-2xl mx-auto italic">
-                Select your preferred entry program and begin your academic journey with us.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-16">
-              {programTypes.map((form) => (
-                <Card
-                  key={form.typeId}
-                  className={`group relative overflow-hidden bg-white hover:shadow-2xl transition-all duration-500 rounded-[32px] border-2 ${form.border} flex flex-col`}
-                >
-                  <div className={`absolute inset-0 bg-gradient-to-br ${form.color} opacity-50 group-hover:opacity-100 transition-opacity`}></div>
-                  <CardHeader className="relative z-10 p-8">
-                    <CardTitle className="text-3xl font-black text-slate-800 uppercase tracking-tight italic">
-                      {form.name}
-                    </CardTitle>
-                    {form.fee !== undefined && (
-                      <CardDescription className="text-slate-500 font-bold uppercase tracking-widest text-xs pt-1">
-                        ₦{form.fee.toLocaleString()}
-                      </CardDescription>
-                    )}
-                  </CardHeader>
-                  <CardContent className="relative z-10 flex-1 p-8 pt-0" />
-                  <CardContent className="relative z-10 p-8 pt-0">
-                    <Button
-                      onClick={() => {
-                        if (form.fee === undefined) return;
-                        setSelectedForm(form);
-                        setPaymentStep('confirmation');
-                      }}
-                      disabled={form.fee === undefined}
-                      className="w-full h-14 text-lg font-black uppercase tracking-wider shadow-lg shadow-black/5 flex items-center justify-center gap-2 group/btn"
-                    >
-                      {form.fee === undefined ? 'Coming Soon' : 'Get Started'}
-                      {form.fee !== undefined && <ChevronRight className="h-5 w-5 group-hover/btn:translate-x-1 transition-transform" />}
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-
+            {/* Active Applications table on top */}
             <ApplicationsTable apps={applicants} />
+
+            {/* Available Programs cards list below */}
+            <div className="mt-16 space-y-6">
+              <div className="flex items-center gap-3">
+                 <div className="h-8 w-2 bg-[#6b357d] rounded-full shadow-md shadow-purple-500/30"></div>
+                 <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Available Programs</h2>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {programTypes.map((form) => (
+                  <Card
+                    key={form.typeId}
+                    className="group relative overflow-hidden bg-white/85 backdrop-blur-md hover:shadow-2xl hover:shadow-purple-500/5 hover:-translate-y-1.5 transition-all duration-500 rounded-[24px] border border-slate-200/60 flex flex-col justify-between"
+                  >
+                    {/* Decorative background gradient overlay */}
+                    <div className={`absolute inset-0 bg-gradient-to-br ${form.color} opacity-20 group-hover:opacity-35 transition-opacity duration-500`}></div>
+                    
+                    {/* Glowing background bubble */}
+                    <div className="absolute -right-16 -top-16 w-32 h-32 bg-purple-500/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-500 pointer-events-none" />
+
+                    <CardHeader className="relative z-10 p-8 pb-6">
+                      <div className="flex justify-between items-start gap-4 mb-4">
+                        <span className="p-3 bg-purple-50 rounded-xl text-[#6b357d] border border-purple-100 group-hover:bg-purple-100 transition-colors duration-300 shadow-sm">
+                          <GraduationCap className="w-5 h-5" />
+                        </span>
+                        {form.fee !== undefined ? (
+                          <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded-full border border-emerald-100 uppercase tracking-wider">
+                            Active
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-1 bg-slate-50 text-slate-400 text-[10px] font-bold rounded-full border border-slate-100 uppercase tracking-wider">
+                            Closed
+                          </span>
+                        )}
+                      </div>
+                      <CardTitle className="text-xl md:text-2xl font-black text-slate-800 tracking-tight leading-tight group-hover:text-[#6b357d] transition-colors duration-300 uppercase">
+                        {form.name}
+                      </CardTitle>
+                      {form.fee !== undefined ? (
+                        <div className="mt-3 flex items-baseline gap-1">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Price:</span>
+                          <span className="text-xl font-black text-[#6b357d]">₦{form.fee.toLocaleString()}</span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400 font-medium italic mt-3 block">Temporarily unavailable</span>
+                      )}
+                    </CardHeader>
+                    
+                    <CardContent className="relative z-10 p-8 pt-0">
+                      <Button
+                        onClick={() => {
+                          if (form.fee === undefined) return;
+                          setSelectedForm(form);
+                          setPaymentStep('confirmation');
+                        }}
+                        disabled={form.fee === undefined}
+                        className={cn(
+                          "w-full h-12 text-xs font-bold uppercase tracking-widest shadow-md flex items-center justify-center gap-2 group/btn rounded-xl transition-all duration-300",
+                          form.fee !== undefined
+                            ? "bg-[#6b357d] hover:bg-[#5a2d69] text-white hover:shadow-lg hover:shadow-purple-500/20"
+                            : "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
+                        )}
+                      >
+                        {form.fee === undefined ? 'Coming Soon' : 'Apply Now'}
+                        {form.fee !== undefined && <ChevronRight className="h-4 w-4 group-hover/btn:translate-x-1 transition-transform duration-300" />}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
           </>
         )}
 
         {/* ── Payment confirmation ── */}
         {paymentStep === 'confirmation' && selectedForm && (
           <div className="max-w-md mx-auto animate-in fade-in zoom-in duration-300">
-             <Button variant="ghost" onClick={() => { setPaymentStep('selection'); setIsRedirecting(false); }} className="mb-4 text-slate-500 font-bold italic">← Back to selection</Button>
-             <Card className="border-0 shadow-2xl overflow-hidden bg-white rounded-[40px]">
+             <Button 
+               variant="ghost" 
+               onClick={() => { setPaymentStep('selection'); }} 
+               className="mb-6 text-slate-500 hover:text-slate-800 font-bold flex items-center gap-2 group/back text-sm"
+             >
+               <span className="group-hover/back:-translate-x-1 transition-transform">←</span> Back to selection
+             </Button>
+             
+             <Card className="border border-slate-100 shadow-2xl overflow-hidden bg-white/95 backdrop-blur-md rounded-[32px]">
                 <CardHeader className="text-center space-y-2 pb-0 p-8">
-                  <div className="pt-6">
-                    <p className="text-slate-500 font-bold text-xs uppercase tracking-widest">Programme:</p>
-                    <p className="text-2xl font-black text-[#433878] uppercase leading-tight italic">
+                  <div className="w-16 h-16 bg-purple-50 border border-purple-100 text-[#6b357d] rounded-full flex items-center justify-center mx-auto shadow-sm">
+                    <CreditCard className="w-7 h-7" />
+                  </div>
+                  <div className="pt-4">
+                    <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest">Selected Programme</p>
+                    <p className="text-xl md:text-2xl font-black text-[#6b357d] uppercase tracking-tight mt-1 leading-tight">
                       {selectedForm.name}
                     </p>
                   </div>
                 </CardHeader>
 
-                <CardContent className="p-10 pt-6 space-y-8 text-center">
-                  <div className="bg-slate-50 rounded-[32px] p-8 space-y-4">
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-slate-500 font-bold italic">Application Fee</span>
-                      <span className="font-black text-slate-700">₦{selectedForm.fee.toLocaleString()}</span>
+                <CardContent className="p-8 pt-6 space-y-8 text-center">
+                  <div className="bg-slate-50 border border-slate-100/60 rounded-2xl p-6 space-y-4">
+                    <div className="flex justify-between items-center text-sm font-medium">
+                      <span className="text-slate-500">Application Fee</span>
+                      <span className="font-extrabold text-slate-800">₦{selectedForm.fee.toLocaleString()}</span>
                     </div>
-                    <div className="h-px bg-slate-200 my-2"></div>
+                    <div className="h-px bg-slate-200/60 my-2"></div>
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-900 font-black uppercase text-xs tracking-widest">Total Payable</span>
-                      <span className="text-3xl font-black text-[#433878]">₦{selectedForm.fee.toLocaleString()}</span>
+                      <span className="text-slate-800 font-black uppercase text-xs tracking-wider">Total Payable</span>
+                      <span className="text-2xl font-black text-[#6b357d]">₦{selectedForm.fee.toLocaleString()}</span>
                     </div>
                   </div>
 
                   {payError && (
-                    <div className="bg-red-50 border border-red-100 rounded-2xl p-4 text-red-700 text-sm font-medium text-left">
-                      {payError}
+                    <div className="bg-red-50 border border-red-100 rounded-2xl p-4 text-red-700 text-sm font-medium text-left flex items-start gap-2.5">
+                      <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                      <span>{payError}</span>
                     </div>
                   )}
 
                   {payResult === 'success' && (
-                    <div className="bg-green-50 border border-green-100 rounded-2xl p-4 text-green-700 text-sm font-bold text-center">
-                      ✓ Payment confirmed! Your application has been started.
+                    <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 text-emerald-700 text-sm font-bold text-center flex items-center justify-center gap-2">
+                      <CheckCircle2 className="w-5 h-5" />
+                      <span>Payment confirmed! Your application has been started.</span>
                     </div>
                   )}
 
                   <Button
-                    className="w-full h-20 bg-[#433878] hover:bg-[#2E236C] text-white font-black text-2xl uppercase tracking-widest rounded-[24px] shadow-2xl shadow-[#433878]/30 disabled:opacity-70"
+                    className="w-full h-14 bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold text-lg uppercase tracking-wider rounded-xl shadow-lg shadow-purple-500/10 hover:shadow-purple-500/20 transition-all duration-300 disabled:opacity-70 flex items-center justify-center gap-2"
                     onClick={handlePayNow}
                     disabled={isProcessing || !scriptReady}
                   >
                     {isProcessing ? (
-                      <span className="flex items-center gap-3">
-                        <Loader2 className="h-6 w-6 animate-spin" />
-                        Opening payment...
-                      </span>
+                      <>
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                        Opening secure checkout...
+                      </>
                     ) : (
-                      scriptReady ? 'Pay Now' : 'Loading...'
+                      scriptReady ? (
+                        <>
+                          Pay Now
+                          <ChevronRight className="w-5 h-5" />
+                        </>
+                      ) : (
+                        'Loading payment gateway...'
+                      )
                     )}
                   </Button>
 
-                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-300">
-                    Secured by <span className="text-slate-500 italic">Interswitch</span>
-                  </p>
+                  <div className="flex items-center justify-center gap-2 mt-4 text-[10px] font-bold uppercase tracking-widest text-slate-300">
+                    <span>Secured by</span>
+                    <span className="text-slate-400 italic">Interswitch</span>
+                  </div>
                 </CardContent>
              </Card>
           </div>
@@ -616,22 +719,25 @@ export default function ApplicantDashboard() {
 
         {/* ── Admission modal ── */}
         {showAdmissionModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-             <div className="bg-white rounded-3xl p-8 max-w-md w-full mx-4 shadow-2xl text-center space-y-6 animate-in zoom-in-95 duration-200">
-                <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner">
-                  <CheckCircle2 className="w-10 h-10 text-green-600" />
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
+             <div className="bg-white/95 backdrop-blur-md rounded-[32px] p-8 max-w-md w-full mx-4 border border-slate-100 shadow-2xl text-center space-y-6 animate-in zoom-in-95 duration-200">
+                <div className="w-24 h-24 bg-purple-50 border border-purple-100 text-[#6b357d] rounded-full flex items-center justify-center mx-auto mb-4 shadow-md shadow-purple-500/5 animate-bounce">
+                  <GraduationCap className="w-12 h-12" />
                 </div>
                 <div className="space-y-3">
+                  <span className="px-3 py-1 bg-purple-50 text-purple-700 text-xs font-bold rounded-full border border-purple-100 uppercase tracking-widest">
+                    Offer Issued 🎉
+                  </span>
                   <h3 className="text-3xl font-black text-slate-900 tracking-tight">Congratulations!</h3>
-                  <p className="text-slate-600 font-medium text-lg leading-snug px-2">
-                    You have been offered admission. Please proceed to pay your acceptance fee to secure your spot.
+                  <p className="text-slate-500 font-medium text-base leading-relaxed px-2">
+                    Precious Cornerstone University has offered you admission! Please proceed to complete your registration and pay the acceptance fee to secure your spot.
                   </p>
                 </div>
                 <Button
                   onClick={() => setShowAdmissionModal(false)}
-                  className="w-full h-14 bg-green-600 hover:bg-green-700 text-white font-bold text-lg rounded-xl shadow-lg shadow-green-600/30"
+                  className="w-full h-14 bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold text-lg rounded-xl shadow-lg shadow-purple-500/10 hover:shadow-purple-500/20 transition-all duration-300"
                 >
-                  View Details & Pay
+                  View Details & Secure Spot
                 </Button>
              </div>
           </div>

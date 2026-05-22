@@ -198,6 +198,15 @@ export function GlobalNav() {
         className="fixed top-0 right-0 h-16 bg-slate-50/90 backdrop-blur-md border-b border-slate-200 z-[90] transition-all duration-300 ease-in-out flex items-center px-8"
         style={{ left: "var(--sidebar-width)" }}
       >
+        {/* Mobile Menu Toggle - visible only on mobile */}
+        <button
+          onClick={toggle}
+          className="lg:hidden p-2 text-slate-600 hover:text-purple-600 hover:bg-slate-100 rounded-xl transition-colors mr-4 focus:outline-none"
+          aria-label="Toggle Sidebar"
+        >
+          <Menu size={20} />
+        </button>
+
         {/* Left Spacer - keeps balance */}
         <div className="flex-1" />
 
@@ -257,11 +266,23 @@ export function GlobalNav() {
         </div>
       </header>
 
+      {/* Mobile Backdrop Overlay */}
+      {isOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[95] lg:hidden animate-in fade-in duration-300"
+          onClick={toggle}
+        />
+      )}
+
       {/* Sidebar */}
       <aside 
         className={cn(
           "fixed left-0 top-0 h-full bg-slate-100 border-r border-slate-200 z-[100] transition-all duration-300 ease-in-out shadow-2xl flex flex-col justify-between",
-          isOpen ? "w-[280px]" : "w-[80px]"
+          "w-[280px] lg:w-auto",
+          isOpen 
+            ? "translate-x-0" 
+            : "-translate-x-full lg:translate-x-0",
+          isOpen ? "lg:w-[280px]" : "lg:w-[80px]"
         )}
       >
         <div>
@@ -287,7 +308,7 @@ export function GlobalNav() {
               onClick={toggle}
               className={cn(
                 "absolute top-1/2 -translate-y-1/2 bg-white border border-slate-100 shadow-lg rounded-xl p-1.5 text-slate-500 hover:text-purple-600 hover:border-purple-100 transition-all z-[110]",
-                isOpen ? "right-4" : "-right-4"
+                isOpen ? "right-4" : "-right-4 hidden lg:block"
               )}
             >
               {isOpen ? <X size={16} /> : <Menu size={16} />}

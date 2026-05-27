@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import time
 import uuid
+import urllib.parse
 import requests
 from config import Config
 
@@ -60,6 +61,67 @@ class InterswitchClient:
         return base64.b64encode(
             hmac.new(secret.encode(), sign_str.encode(), hashlib.sha512).digest()
         ).decode()
+
+    @classmethod
+    def _redirect_base(cls) -> str:
+        base_url = Config.INTERSWITCH_BASE_URL.rstrip("/")
+        # If the base URL is set to the live API domain, use the live Webpay redirect URL instead
+        if "api.interswitchng.com" in base_url or "api.interswitch.com" in base_url:
+            return "https://newwebpay.interswitchng.com"
+        return base_url
+
+    @classmethod
+    def _redirect_hash(cls,
+                       pay_item_id: str,
+                       reference_no: str,
+                       amount_kobo: int,
+                       site_redirect_url: str) -> str:
+        product_id = Config.INTERSWITCH_MERCHANT_CODE
+        secret = Config.INTERSWITCH_CLIENT_SECRET
+        currency = "566"
+
+        hash_string = (
+            f"{product_id}{pay_item_id}{reference_no}{amount_kobo}"
+            f"{currency}{site_redirect_url}{secret}"
+        )
+        return hashlib.sha512(hash_string.encode()).hexdigest()
+
+    @classmethod
+    def build_redirect_url(cls,
+                           pay_item_id: str,
+                           reference_no: str,
+                           amount_kobo: int,
+                           customer_name: str,
+                           customer_email: str,
+                           site_redirect_url: str,
+                           customer_id: str) -> str:
+        base_url = cls._redirect_base()
+        product_id = Config.INTERSWITCH_MERCHANT_CODE
+        currency = "566"
+        hash_value = cls._redirect_hash(
+            pay_item_id,
+            reference_no,
+            amount_kobo,
+            site_redirect_url,
+        )
+
+        is_live = "api.interswitchng.com" in Config.INTERSWITCH_BASE_URL or "api.interswitch.com" in Config.INTERSWITCH_BASE_URL
+
+        params = {
+            "product_id": product_id,
+            "merchant_code": product_id,  # Aligns with live redirect parameter expected by newwebpay
+            "pay_item_id": pay_item_id,
+            "amount": amount_kobo,
+            "currency": currency,
+            "txn_ref": reference_no,
+            "site_redirect_url": site_redirect_url,
+            "cust_name": customer_name,
+            "cust_email": customer_email,
+            "cust_id": customer_id,
+            "hash": hash_value,
+            "mode": "LIVE" if is_live else "TEST",
+        }
+        return f"{base_url}/pay?{urllib.parse.urlencode(params)}"
 
     # ── Pay-item resolution ───────────────────────────────────────────────────
     @classmethod

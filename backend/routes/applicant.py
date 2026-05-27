@@ -973,6 +973,16 @@ def initiate_payment(payload):
 
     pay_item_id   = InterswitchClient._pay_item_id(payment_type)
     merchant_code = Config.INTERSWITCH_MERCHANT_CODE
+    site_redirect_url = f"{Config.FRONTEND_BASE_URL.rstrip('/')}/e-portal/applicant/payment/callback"
+    redirect_url = InterswitchClient.build_redirect_url(
+        pay_item_id,
+        reference_no,
+        amount_kobo,
+        customer_name,
+        customer_email,
+        site_redirect_url,
+        str(user_id),
+    )
 
     return jsonify({
         'reference_no':   reference_no,
@@ -983,6 +993,7 @@ def initiate_payment(payload):
         'merchant_code':  merchant_code,
         'customer_name':  customer_name,
         'customer_email': customer_email,
+        'redirect_url':   redirect_url,
     }), 200
 
 

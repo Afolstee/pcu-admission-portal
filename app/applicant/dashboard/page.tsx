@@ -4,25 +4,6 @@ import React, { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 
-// ── Interswitch inline checkout types ────────────────────────────────────────
-declare global {
-  interface Window {
-    // Interswitch inline checkout v2 SDK
-    webpayCheckout: (config: {
-      merchant_code: string;
-      pay_item_id: string;
-      txn_ref: string;
-      amount: number;
-      currency: string; // "566" = NGN
-      site_redirect_url: string;
-      mode: "TEST" | "LIVE";
-      onComplete: (response: { resp: string; [key: string]: any }) => void;
-    }) => void;
-  }
-}
-
-// Interswitch inline checkout — use LIVE script URL with mode:"TEST" for sandbox
-const ISW_SCRIPT_URL = "https://newwebpay.interswitchng.com/inline-checkout.js";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
@@ -146,7 +127,6 @@ function ApplicantDashboardInner() {
     "selection" | "confirmation" | "processing"
   >("selection");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [scriptReady, setScriptReady] = useState(false);
   const [payResult, setPayResult] = useState<"success" | "failed" | null>(null);
   const [payError, setPayError] = useState<string | null>(null);
   const [processingFee, setProcessingFee] = useState<number>(300);
@@ -272,28 +252,12 @@ function ApplicantDashboardInner() {
     loadStatus();
   }, [isAuthenticated]);
 
-  // Load Interswitch inline checkout script once
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (document.getElementById("isw-inline-checkout")) {
-      setScriptReady(true);
-      return;
-    }
-    const script = document.createElement("script");
-    script.id = "isw-inline-checkout";
-    script.src = ISW_SCRIPT_URL;
-    script.onload = () => setScriptReady(true);
-    script.onerror = () =>
-      setPayError("Failed to load payment gateway. Please refresh.");
-    document.head.appendChild(script);
-  }, []);
-
   /**
-   * Initiates an Interswitch inline checkout for the application fee.
-   * Opens the payment modal in-page — no redirect.
+   * Initiates a redirect-based payment for the application fee.
+   * The user is sent to Quickteller Webpay and returns to the callback page.
    */
   const handlePayNow = async () => {
-    if (!selectedForm || isProcessing || !scriptReady) return;
+    if (!selectedForm || isProcessing) return;
     setIsProcessing(true);
     setPayError(null);
     try {
@@ -304,86 +268,24 @@ function ApplicantDashboardInner() {
       if (typeof init.processing_fee === "number") {
         setProcessingFee(init.processing_fee);
       }
-      const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/e-portal/applicant/payment/callback`;
+      
+      const url = new URL(init.redirect_url);
+      const params = Object.fromEntries(url.searchParams.entries());
 
-      if (typeof window.webpayCheckout !== "function") {
-        throw new Error("Payment gateway not ready. Please refresh the page.");
-      }
+      const form = document.createElement("form");
+      form.method = "POST";
+      form.action = `${url.origin}/collections/w/pay`;
 
-      window.webpayCheckout({
-        merchant_code: init.merchant_code,
-        pay_item_id: init.pay_item_id,
-        txn_ref: init.reference_no,
-        amount: init.amount_kobo,
-        currency: 566,
-        site_redirect_url: callbackUrl,
-        mode: "TEST",
-        onComplete: async (response: any) => {
-          // If the user cancelled or the widget returned a non-success/non-pending code
-          if (
-            response &&
-            response.resp &&
-            response.resp !== "00" &&
-            response.resp !== "Z0" &&
-            response.resp !== "T0"
-          ) {
-            try {
-              await ApiClient.cancelPayment(init.reference_no);
-            } catch (e) {}
-            setPayResult(null);
-            setPayError(
-              "Payment was cancelled by user. Returning to dashboard...",
-            );
-            setIsProcessing(false);
-            setTimeout(() => {
-              setPayError(null);
-              setPaymentStep("selection");
-            }, 5000);
-            return;
-          }
-
-          // Always verify server-side
-          try {
-            const verification = await ApiClient.verifyPayment(
-              init.reference_no,
-            );
-            if (verification.is_successful) {
-              ApiClient.clearCache();
-              setPayResult("success");
-              setPaymentStep("selection");
-              await loadStatus();
-            } else if (verification.tran_status === "pending") {
-              // Gateway returned Z0/T0 — payment is still processing (network delay).
-              // Don't show an error; inform the user and auto-refresh after 10s.
-              setPayResult(null);
-              setPayError(null);
-              setPaymentStep("selection");
-              setPayError(
-                "Your payment is still being processed. We'll update your status automatically — please wait a moment.",
-              );
-              // Background worker will confirm within minutes; quietly reload status
-              setTimeout(async () => {
-                ApiClient.clearCache();
-                await loadStatus();
-                setPayError(null);
-              }, 10_000);
-            } else {
-              setPayResult("failed");
-              setPayError(
-                verification.response_desc || "Payment was not completed.",
-              );
-            }
-          } catch (err: any) {
-            setPayResult("failed");
-            setPayError(
-              err.message ||
-                "Verification failed. Contact support if funds were debited.",
-            );
-          } finally {
-            setIsProcessing(false);
-          }
-        },
+      Object.entries(params).forEach(([key, value]) => {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = key;
+        input.value = value;
+        form.appendChild(input);
       });
+
+      document.body.appendChild(form);
+      form.submit();
     } catch (err: any) {
       console.error("Error initiating payment:", err);
       setPayError(err.message || "Failed to start payment. Please try again.");
@@ -1002,20 +904,18 @@ function ApplicantDashboardInner() {
                 <Button
                   className="w-full h-14 bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold text-lg uppercase tracking-wider rounded-xl shadow-lg shadow-purple-500/10 hover:shadow-purple-500/20 transition-all duration-300 disabled:opacity-70 flex items-center justify-center gap-2"
                   onClick={handlePayNow}
-                  disabled={isProcessing || !scriptReady}
+                  disabled={isProcessing}
                 >
                   {isProcessing ? (
                     <>
                       <Loader2 className="h-5 w-5 animate-spin" />
-                      Loading
+                      Opening Payment...
                     </>
-                  ) : scriptReady ? (
+                  ) : (
                     <>
                       Pay Now
                       <ChevronRight className="w-5 h-5" />
                     </>
-                  ) : (
-                    "Loading payment gateway..."
                   )}
                 </Button>
               </CardContent>

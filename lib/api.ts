@@ -596,9 +596,9 @@ export class ApiClient {
   // Payment endpoints
 
   /**
-   * Step 1 — Initiate an Interswitch inline checkout payment.
-   * Returns the params the client-side SDK (InterswitchPay.configure) needs.
-   * Server-side verification is always done via verifyPayment() after onComplete fires.
+   * Step 1 — Initiate an Interswitch redirect payment.
+   * Returns the redirect URL that sends the user to Quickteller Webpay.
+   * Server-side verification is always done via verifyPayment() after redirect.
    */
   static async initiatePayment(
     payment_type: "application_fee" | "acceptance_fee" | "tuition",
@@ -614,6 +614,7 @@ export class ApiClient {
     merchant_code: string;
     customer_name: string;
     customer_email: string;
+    redirect_url: string;
   }> {
     const { data } = await this.fetch<{
       reference_no: string;
@@ -624,6 +625,7 @@ export class ApiClient {
       merchant_code: string;
       customer_name: string;
       customer_email: string;
+      redirect_url: string;
     }>("/applicant/initiate-payment", {
       method: "POST",
       body: JSON.stringify({
@@ -1014,7 +1016,6 @@ export class ApiClient {
     const { data } = await this.fetch<CourseRegistrationResponse>(url);
     return data;
   }
-
 
   static async registerCourses(
     course_ids: number[],

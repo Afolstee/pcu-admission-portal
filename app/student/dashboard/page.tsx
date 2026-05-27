@@ -1,22 +1,5 @@
 "use client";
 
-// ── Interswitch inline checkout types ────────────────────────────────────────
-declare global {
-  interface Window {
-    webpayCheckout: (config: {
-      merchant_code: string;
-      pay_item_id: string;
-      txn_ref: string;
-      amount: number;
-      currency: string;
-      site_redirect_url: string;
-      mode: "TEST" | "LIVE";
-      onComplete: (response: { resp: string; [key: string]: any }) => void;
-    }) => void;
-  }
-}
-const ISW_SCRIPT_URL = "https://newwebpay.interswitchng.com/inline-checkout.js";
-
 import React, { useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -72,7 +55,6 @@ export default function StudentDashboard() {
   const [isPaymentsOpen, setIsPaymentsOpen] = useState(false);
 
   // ── Tuition payment states (Interswitch) ────────────────────────────────────
-  const [scriptReady, setScriptReady] = useState(false);
   const [isPayingTuition, setIsPayingTuition] = useState(false);
   const [tuitionPayError, setTuitionPayError] = useState<string | null>(null);
   const [tuitionPaySuccess, setTuitionPaySuccess] = useState(false);
@@ -100,7 +82,10 @@ export default function StudentDashboard() {
   const isFullyPaid = (() => {
     // 1. Did they make a successful full tuition payment (installment_plan_id is null/undefined)?
     const hasFullPayment = (paymentHistory || []).some(
-      (p) => p.payment_type === "tuition" && p.is_successful && !p.installment_plan_id
+      (p) =>
+        p.payment_type === "tuition" &&
+        p.is_successful &&
+        !p.installment_plan_id,
     );
     if (hasFullPayment) return true;
 
@@ -108,10 +93,17 @@ export default function StudentDashboard() {
     if (installmentPlans && installmentPlans.length > 0) {
       const paidPlanIds = new Set(
         (paymentHistory || [])
-          .filter((p) => p.payment_type === "tuition" && p.is_successful && p.installment_plan_id)
-          .map((p) => p.installment_plan_id)
+          .filter(
+            (p) =>
+              p.payment_type === "tuition" &&
+              p.is_successful &&
+              p.installment_plan_id,
+          )
+          .map((p) => p.installment_plan_id),
       );
-      const allPaid = installmentPlans.every((plan) => paidPlanIds.has(plan.id));
+      const allPaid = installmentPlans.every((plan) =>
+        paidPlanIds.has(plan.id),
+      );
       return allPaid;
     }
 
@@ -163,22 +155,6 @@ export default function StudentDashboard() {
     }
   }, [isLoading, isAuthenticated, student]);
 
-  // Load Interswitch inline checkout script once (needed for admitted users paying tuition)
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (document.getElementById("isw-inline-checkout")) {
-      setScriptReady(true);
-      return;
-    }
-    const script = document.createElement("script");
-    script.id = "isw-inline-checkout";
-    script.src = ISW_SCRIPT_URL;
-    script.onload = () => setScriptReady(true);
-    script.onerror = () =>
-      setTuitionPayError("Failed to load payment gateway. Please refresh.");
-    document.head.appendChild(script);
-  }, []);
-
   const handlePayTuition = async () => {
     // Step 1 — open the fee breakdown modal before touching Interswitch
     setTuitionPayError(null);
@@ -192,7 +168,11 @@ export default function StudentDashboard() {
       ]);
       setFeeComponents(breakdown.components);
       setFeeTotal(breakdown.total);
-      setProcessingFee(typeof breakdown.processing_fee === "number" ? breakdown.processing_fee : 300);
+      setProcessingFee(
+        typeof breakdown.processing_fee === "number"
+          ? breakdown.processing_fee
+          : 300,
+      );
       setInstallmentPlans(plansRes.installment_plans || []);
       // Determine next unpaid installment based on paymentHistory
       const plans = plansRes.installment_plans || [];
@@ -232,8 +212,7 @@ export default function StudentDashboard() {
   };
 
   const confirmAndPay = async () => {
-    // Step 2 — user confirmed the breakdown, now launch Interswitch
-    if (isPayingTuition || !scriptReady) return;
+    if (isPayingTuition) return;
     setIsPayingTuition(true);
     setTuitionPayError(null);
     try {
@@ -241,67 +220,39 @@ export default function StudentDashboard() {
         "tuition",
         undefined,
         undefined,
-        paymentMode === "installment" ? (selectedInstallmentPlanId ?? undefined) : undefined,
+        paymentMode === "installment"
+          ? (selectedInstallmentPlanId ?? undefined)
+          : undefined,
       );
-      const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/e-portal/applicant/payment/callback`;
 
-      if (typeof window.webpayCheckout !== "function") {
-        throw new Error("Payment gateway not ready. Please refresh the page.");
-      }
-
-      // Close the breakdown modal before the ISW overlay opens
       setShowBreakdownModal(false);
 
-      window.webpayCheckout({
-        merchant_code: init.merchant_code,
-        pay_item_id: init.pay_item_id,
-        txn_ref: init.reference_no,
-        amount: init.amount_kobo,
-        currency: "566",
-        site_redirect_url: callbackUrl,
-        mode: "LIVE",
-        onComplete: async (response: any) => {
-          if (
-            response?.resp &&
-            response.resp !== "00" &&
-            response.resp !== "Z0" &&
-            response.resp !== "T0"
-          ) {
-            try {
-              await ApiClient.cancelPayment(init.reference_no);
-            } catch {}
-            setTuitionPayError("Payment was cancelled. Please try again.");
-            setIsPayingTuition(false);
-            return;
-          }
-          try {
-            const verification = await ApiClient.verifyPayment(
-              init.reference_no,
-            );
-            if (verification.is_successful) {
-              ApiClient.clearCache();
-              setTuitionPaySuccess(true);
-              // Role upgrade happens server-side — reload so the new 'student' token takes effect
-              setTimeout(() => window.location.reload(), 2000);
-            } else if (verification.tran_status === "pending") {
-              setTuitionPayError(
-                "Payment is still processing. Your status will update automatically — please wait a moment.",
-              );
-            } else {
-              setTuitionPayError(
-                verification.response_desc || "Payment was not completed.",
-              );
-            }
-          } catch (err: any) {
-            setTuitionPayError(
-              err.message ||
-                "Verification failed. Contact support if funds were debited.",
-            );
-          } finally {
-            setIsPayingTuition(false);
-          }
-        },
+      const url = new URL(init.redirect_url);
+      const params = Object.fromEntries(url.searchParams.entries());
+
+      const form = document.createElement("form");
+      form.method = "POST";
+      form.action = `${url.origin}/collections/w/pay`;
+
+      Object.entries(params).forEach(([key, value]) => {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = key;
+        input.value = value;
+        form.appendChild(input);
       });
+
+      // Maintain legacy pay_item_name parameter just in case
+      if (!params["pay_item_name"]) {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = "pay_item_name";
+        input.value = "School Fees";
+        form.appendChild(input);
+      }
+
+      document.body.appendChild(form);
+      form.submit();
     } catch (err: any) {
       setTuitionPayError(
         err.message || "Failed to start payment. Please try again.",
@@ -418,9 +369,9 @@ export default function StudentDashboard() {
   };
 
   const handleLogout = async () => {
-  router.replace("/"); 
-  await logout();       
-};
+    router.replace("/");
+    await logout();
+  };
 
   if (isLoading) {
     return (
@@ -477,12 +428,22 @@ export default function StudentDashboard() {
                   {student?.session}
                 </Badge>
               </div>
-              
+
               {/* Mobile String representation */}
               <div className="md:hidden mt-2.5 text-xs font-semibold text-white/90 bg-white/10 border border-white/15 backdrop-blur-md rounded-lg p-2.5 inline-flex items-center gap-1 shadow-inner">
-                <span>Level: <span className="font-bold text-white">{student?.current_level}</span></span>
+                <span>
+                  Level:{" "}
+                  <span className="font-bold text-white">
+                    {student?.current_level}
+                  </span>
+                </span>
                 <span className="mx-1 text-white/30">&bull;</span>
-                <span>Session: <span className="font-bold text-white">{student?.session}</span></span>
+                <span>
+                  Session:{" "}
+                  <span className="font-bold text-white">
+                    {student?.session}
+                  </span>
+                </span>
               </div>
             </CardContent>
           </Card>
@@ -494,7 +455,9 @@ export default function StudentDashboard() {
             <p className="text-xs font-semibold uppercase tracking-wider text-[#6b21a8]/70">
               Current Level
             </p>
-            <p className="text-2xl font-bold text-[#6b21a8]">{student?.current_level}</p>
+            <p className="text-2xl font-bold text-[#6b21a8]">
+              {student?.current_level}
+            </p>
           </Card>
 
           <Card className="hidden md:flex shadow-md border-[#881337]/10 bg-[#881337]/5 flex-col justify-center items-center text-center p-6 space-y-2 hover:scale-[1.01] transition-transform duration-200">
@@ -504,7 +467,9 @@ export default function StudentDashboard() {
             <p className="text-xs font-semibold uppercase tracking-wider text-[#881337]/70">
               Session
             </p>
-            <p className="text-2xl font-bold text-[#881337]">{student?.session}</p>
+            <p className="text-2xl font-bold text-[#881337]">
+              {student?.session}
+            </p>
           </Card>
         </div>
 
@@ -519,7 +484,9 @@ export default function StudentDashboard() {
                   <div className="bg-[#6b21a8]/10 p-2 rounded-xl group-hover:bg-[#6b21a8]/20 transition-colors duration-300 text-[#6b21a8]">
                     <BookOpen className="w-6 h-6" />
                   </div>
-                  <CardTitle className="text-lg font-bold text-slate-800">Course Registration</CardTitle>
+                  <CardTitle className="text-lg font-bold text-slate-800">
+                    Course Registration
+                  </CardTitle>
                 </div>
                 <CardDescription className="text-slate-500 mt-1">
                   Register your courses for the current semester. Ensure you
@@ -560,7 +527,9 @@ export default function StudentDashboard() {
                 <div className="bg-amber-500/10 p-2 rounded-xl group-hover:bg-amber-500/20 transition-colors duration-300 text-amber-600">
                   <CreditCard className="w-6 h-6" />
                 </div>
-                <CardTitle className="text-lg font-bold text-slate-800">Pay School Fees</CardTitle>
+                <CardTitle className="text-lg font-bold text-slate-800">
+                  Pay School Fees
+                </CardTitle>
               </div>
               <CardDescription className="text-slate-500 mt-1">
                 {isAdmitted
@@ -589,18 +558,19 @@ export default function StudentDashboard() {
                 <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-xl border border-emerald-100">
                   <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                   <p className="text-sm text-emerald-700 font-bold">
-                    Payment confirmed! {isAdmitted ? "Upgrading your account..." : ""}
+                    Payment confirmed!{" "}
+                    {isAdmitted ? "Upgrading your account..." : ""}
                   </p>
                 </div>
               ) : (
                 <Button
                   className={`w-full gap-2 font-bold py-6 text-base shadow-lg transition-all duration-200 ${
-                    isFullyPaid 
-                      ? "bg-emerald-600/10 text-emerald-700 hover:bg-emerald-600/10 shadow-none border border-emerald-600/20" 
+                    isFullyPaid
+                      ? "bg-emerald-600/10 text-emerald-700 hover:bg-emerald-600/10 shadow-none border border-emerald-600/20"
                       : "bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/15 hover:shadow-amber-500/25 hover:scale-[1.01]"
                   }`}
                   onClick={handlePayTuition}
-                  disabled={isPayingTuition || !scriptReady || isFullyPaid}
+                  disabled={isPayingTuition || isFullyPaid}
                 >
                   {isPayingTuition ? (
                     <>
@@ -613,7 +583,7 @@ export default function StudentDashboard() {
                       Fees Fully Paid
                     </>
                   ) : (
-                    <>{scriptReady ? "Proceed to Pay Fees" : "Loading..."}</>
+                    <>Proceed to Pay Fees</>
                   )}
                 </Button>
               )}
@@ -628,7 +598,9 @@ export default function StudentDashboard() {
                 <div className="bg-[#881337]/10 p-2 rounded-xl group-hover:bg-[#881337]/20 transition-colors duration-300 text-[#881337]">
                   <User className="w-6 h-6" />
                 </div>
-                <CardTitle className="text-lg font-bold text-slate-800">Profile Information</CardTitle>
+                <CardTitle className="text-lg font-bold text-slate-800">
+                  Profile Information
+                </CardTitle>
               </div>
               <CardDescription className="text-slate-500 mt-1">
                 View your student profile details and account status.
@@ -640,7 +612,9 @@ export default function StudentDashboard() {
                   <span className="text-sm font-semibold text-slate-500">
                     Full Name
                   </span>
-                  <span className="text-sm font-bold text-slate-800">{user?.name}</span>
+                  <span className="text-sm font-bold text-slate-800">
+                    {user?.name}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 transition-colors border border-slate-100/50 bg-white">
                   <span className="text-sm font-semibold text-slate-500">
@@ -654,7 +628,9 @@ export default function StudentDashboard() {
                   <span className="text-sm font-semibold text-slate-500">
                     Email Address
                   </span>
-                  <span className="text-sm font-bold text-slate-800">{user?.email}</span>
+                  <span className="text-sm font-bold text-slate-800">
+                    {user?.email}
+                  </span>
                 </div>
               </div>
             </CardContent>
@@ -674,11 +650,17 @@ export default function StudentDashboard() {
                   <FileText className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-800 text-sm">Official Admission Documents</h3>
-                  <p className="text-[10px] text-slate-500 font-medium">Admission Letter, Medical Form, & Notices</p>
+                  <h3 className="font-bold text-slate-800 text-sm">
+                    Official Admission Documents
+                  </h3>
+                  <p className="text-[10px] text-slate-500 font-medium">
+                    Admission Letter, Medical Form, & Notices
+                  </p>
                 </div>
               </div>
-              <ChevronDown className={`w-5 h-5 text-slate-600 transition-transform duration-300 ${isDocumentsOpen ? "rotate-180" : ""}`} />
+              <ChevronDown
+                className={`w-5 h-5 text-slate-600 transition-transform duration-300 ${isDocumentsOpen ? "rotate-180" : ""}`}
+              />
             </button>
 
             {isDocumentsOpen && (
@@ -738,7 +720,9 @@ export default function StudentDashboard() {
 
                 {/* Additional Forms */}
                 <div className="bg-white border border-slate-100 rounded-xl p-4 shadow-sm">
-                  <h4 className="font-bold text-sm text-slate-800 mb-1">Resumption Notice & Affidavit</h4>
+                  <h4 className="font-bold text-sm text-slate-800 mb-1">
+                    Resumption Notice & Affidavit
+                  </h4>
                   <p className="text-[11px] text-slate-500 mb-3 leading-relaxed">
                     Official resumption notice and good conduct affidavit.
                   </p>
@@ -751,7 +735,9 @@ export default function StudentDashboard() {
                       className="w-full gap-1.5 border-[#6b21a8]/25 text-[#6b21a8] hover:bg-[#6b21a8]/5 text-xs font-semibold py-3 h-auto justify-center"
                     >
                       <Download className="h-3.5 w-3.5" />
-                      {downloading === "admission_notice" ? "..." : "Admission Notice"}
+                      {downloading === "admission_notice"
+                        ? "..."
+                        : "Admission Notice"}
                     </Button>
                     <Button
                       onClick={handleDownloadAffidavit}
@@ -761,7 +747,9 @@ export default function StudentDashboard() {
                       className="w-full gap-1.5 border-[#881337]/25 text-[#881337] hover:bg-[#881337]/5 text-xs font-semibold py-3 h-auto justify-center"
                     >
                       <Download className="h-3.5 w-3.5" />
-                      {downloading === "affidavit" ? "..." : "Conduct Affidavit"}
+                      {downloading === "affidavit"
+                        ? "..."
+                        : "Conduct Affidavit"}
                     </Button>
                   </div>
                 </div>
@@ -775,7 +763,9 @@ export default function StudentDashboard() {
                       ) : (
                         <div className="text-center py-6">
                           <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#6b21a8] mx-auto mb-2" />
-                          <p className="text-slate-500 text-xs">Loading letter details...</p>
+                          <p className="text-slate-500 text-xs">
+                            Loading letter details...
+                          </p>
                         </div>
                       )}
                     </div>
@@ -796,38 +786,47 @@ export default function StudentDashboard() {
                   <DollarSign className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-800 text-sm">Payment Transactions</h3>
-                  <p className="text-[10px] text-slate-500 font-medium">Download payment receipts</p>
+                  <h3 className="font-bold text-slate-800 text-sm">
+                    Payment Transactions
+                  </h3>
+                  <p className="text-[10px] text-slate-500 font-medium">
+                    Download payment receipts
+                  </p>
                 </div>
               </div>
-              <ChevronDown className={`w-5 h-5 text-slate-600 transition-transform duration-300 ${isPaymentsOpen ? "rotate-180" : ""}`} />
+              <ChevronDown
+                className={`w-5 h-5 text-slate-600 transition-transform duration-300 ${isPaymentsOpen ? "rotate-180" : ""}`}
+              />
             </button>
 
             {isPaymentsOpen && (
               <div className="p-4 border-t border-slate-50 bg-slate-50/30 space-y-2">
-                {paymentHistory.filter(pt => pt.is_successful).map((pt) => (
-                  <div
-                    key={pt.transaction_id}
-                    className="flex items-center justify-between p-3 bg-white hover:bg-slate-50 rounded-xl border border-slate-100 text-xs transition-colors duration-200"
-                  >
-                    <span className="capitalize font-bold text-slate-700">
-                      {pt.payment_type.replace("_", " ")}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 text-[#6b21a8] hover:text-[#581c87] hover:bg-[#6b21a8]/5 font-bold"
-                      onClick={() =>
-                        handleDownloadReceipt(pt.receipt_no, pt.payment_type)
-                      }
-                      disabled={downloading === `receipt_${pt.receipt_no}`}
+                {paymentHistory
+                  .filter((pt) => pt.is_successful)
+                  .map((pt) => (
+                    <div
+                      key={pt.transaction_id}
+                      className="flex items-center justify-between p-3 bg-white hover:bg-slate-50 rounded-xl border border-slate-100 text-xs transition-colors duration-200"
                     >
-                      <Download className="h-3.5 w-3.5 mr-1" />
-                      PDF
-                    </Button>
-                  </div>
-                ))}
-                {paymentHistory.filter(pt => pt.is_successful).length === 0 && (
+                      <span className="capitalize font-bold text-slate-700">
+                        {pt.payment_type.replace("_", " ")}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 text-[#6b21a8] hover:text-[#581c87] hover:bg-[#6b21a8]/5 font-bold"
+                        onClick={() =>
+                          handleDownloadReceipt(pt.receipt_no, pt.payment_type)
+                        }
+                        disabled={downloading === `receipt_${pt.receipt_no}`}
+                      >
+                        <Download className="h-3.5 w-3.5 mr-1" />
+                        PDF
+                      </Button>
+                    </div>
+                  ))}
+                {paymentHistory.filter((pt) => pt.is_successful).length ===
+                  0 && (
                   <p className="text-xs text-center text-slate-400 py-4 italic bg-white rounded-xl border border-dashed">
                     No payment records found.
                   </p>
@@ -927,7 +926,9 @@ export default function StudentDashboard() {
                   <div className="bg-purple-100/60 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 text-[#6b21a8]">
                     <Settings className="h-6 w-6" />
                   </div>
-                  <h4 className="font-bold text-base text-slate-800 mb-1">Notice & Affidavit</h4>
+                  <h4 className="font-bold text-base text-slate-800 mb-1">
+                    Notice & Affidavit
+                  </h4>
                   <p className="text-xs text-slate-500 mb-4 leading-relaxed">
                     Official resumption notice and good conduct affidavit.
                   </p>
@@ -964,35 +965,43 @@ export default function StudentDashboard() {
                   <div className="bg-rose-100/60 w-12 h-12 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 text-[#881337]">
                     <DollarSign className="h-6 w-6" />
                   </div>
-                  <h4 className="font-bold text-base text-slate-800 mb-1">Payment Receipts</h4>
+                  <h4 className="font-bold text-base text-slate-800 mb-1">
+                    Payment Receipts
+                  </h4>
                   <p className="text-xs text-slate-500 mb-4 leading-relaxed">
                     Download official receipts for your completed payments.
                   </p>
                 </div>
                 <div className="space-y-2">
-                  {paymentHistory.filter(pt => pt.is_successful).map((pt) => (
-                    <div
-                      key={pt.transaction_id}
-                      className="flex items-center justify-between p-2 bg-white hover:bg-slate-50 rounded-lg border border-slate-100 text-xs transition-colors duration-200"
-                    >
-                      <span className="capitalize font-semibold text-slate-600">
-                        {pt.payment_type.replace("_", " ")}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 text-[#6b21a8] hover:text-[#581c87] hover:bg-[#6b21a8]/5 font-bold"
-                        onClick={() =>
-                          handleDownloadReceipt(pt.receipt_no, pt.payment_type)
-                        }
-                        disabled={downloading === `receipt_${pt.receipt_no}`}
+                  {paymentHistory
+                    .filter((pt) => pt.is_successful)
+                    .map((pt) => (
+                      <div
+                        key={pt.transaction_id}
+                        className="flex items-center justify-between p-2 bg-white hover:bg-slate-50 rounded-lg border border-slate-100 text-xs transition-colors duration-200"
                       >
-                        <Download className="h-3.5 w-3.5 mr-1" />
-                        PDF
-                      </Button>
-                    </div>
-                  ))}
-                  {paymentHistory.filter(pt => pt.is_successful).length === 0 && (
+                        <span className="capitalize font-semibold text-slate-600">
+                          {pt.payment_type.replace("_", " ")}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-[#6b21a8] hover:text-[#581c87] hover:bg-[#6b21a8]/5 font-bold"
+                          onClick={() =>
+                            handleDownloadReceipt(
+                              pt.receipt_no,
+                              pt.payment_type,
+                            )
+                          }
+                          disabled={downloading === `receipt_${pt.receipt_no}`}
+                        >
+                          <Download className="h-3.5 w-3.5 mr-1" />
+                          PDF
+                        </Button>
+                      </div>
+                    ))}
+                  {paymentHistory.filter((pt) => pt.is_successful).length ===
+                    0 && (
                     <p className="text-xs text-center text-slate-400 py-2 italic bg-slate-50 rounded-lg border border-dashed">
                       No payment records found.
                     </p>
@@ -1137,7 +1146,10 @@ export default function StudentDashboard() {
                         Processing Fee
                       </span>
                       <span className="text-sm font-bold text-slate-700 tabular-nums">
-                        ₦{processingFee.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
+                        ₦
+                        {processingFee.toLocaleString("en-NG", {
+                          minimumFractionDigits: 2,
+                        })}
                       </span>
                     </div>
 
@@ -1163,9 +1175,12 @@ export default function StudentDashboard() {
                           </span>
                           <span className="text-lg font-black text-amber-600 tabular-nums">
                             ₦
-                            {(installmentAmount + processingFee).toLocaleString("en-NG", {
-                              minimumFractionDigits: 2,
-                            })}
+                            {(installmentAmount + processingFee).toLocaleString(
+                              "en-NG",
+                              {
+                                minimumFractionDigits: 2,
+                              },
+                            )}
                           </span>
                         </div>
                       )}
@@ -1207,7 +1222,6 @@ export default function StudentDashboard() {
                     onClick={confirmAndPay}
                     disabled={
                       isPayingTuition ||
-                      !scriptReady ||
                       loadingBreakdown ||
                       !!breakdownError ||
                       feeComponents.length === 0 ||
@@ -1221,9 +1235,7 @@ export default function StudentDashboard() {
                         Opening Payment...
                       </>
                     ) : (
-                      <>
-                        {scriptReady ? "Confirm & Pay" : "Loading gateway..."}
-                      </>
+                      <>Confirm & Pay</>
                     )}
                   </Button>
                 )}

@@ -26,33 +26,6 @@ import {
   ArrowLeft,
 } from "lucide-react";
 
-// ── Interswitch inline checkout types ────────────────────────────────────────
-interface InterswitchPayConfig {
-  merchant_code: string;
-  pay_item_id: string;
-  txn_ref: string;
-  amount: number; // in kobo
-  currency: string; // "566" = NGN
-  site_redirect_url: string;
-  mode: "TEST" | "LIVE";
-  onComplete: (response: InterswitchPayResponse) => void;
-}
-
-interface InterswitchPayResponse {
-  resp: string; // "00" = customer completed the flow
-  [key: string]: any;
-}
-
-declare global {
-  interface Window {
-    // Interswitch inline checkout v2 SDK
-    webpayCheckout: (config: InterswitchPayConfig) => void;
-  }
-}
-
-// Interswitch inline checkout — use LIVE script URL with mode:"TEST" for sandbox
-const ISW_SCRIPT_URL = "https://newwebpay.interswitchng.com/inline-checkout.js";
-
 // ── Main component ────────────────────────────────────────────────────────────
 function PaymentContent() {
   const router = useRouter();
@@ -67,7 +40,6 @@ function PaymentContent() {
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [scriptReady, setScriptReady] = useState(false);
 
   const [selectedType, setSelectedType] = useState<
     "acceptance_fee" | "tuition" | null
@@ -84,29 +56,6 @@ function PaymentContent() {
     null,
   );
   const [processingFee, setProcessingFee] = useState<number>(300);
-
-  // Timeout guard — fires if ThreatMetrix (h.online-metrix.net) is blocked by an
-  // ad blocker and the Interswitch modal never fires onComplete.
-  const modalTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-  const onCompleteCalledRef = React.useRef(false);
-
-  // ── Load Interswitch inline checkout script once ──────────────────────────
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (document.getElementById("isw-inline-checkout")) {
-      setScriptReady(true);
-      return;
-    }
-    const script = document.createElement("script");
-    script.id = "isw-inline-checkout";
-    script.src = ISW_SCRIPT_URL;
-    script.onload = () => setScriptReady(true);
-    script.onerror = () =>
-      setError("Failed to load payment gateway. Please refresh the page.");
-    document.head.appendChild(script);
-  }, []);
 
   // ── Load applicant status ─────────────────────────────────────────────────
   useEffect(() => {
@@ -146,102 +95,33 @@ function PaymentContent() {
 
   // ── Trigger inline checkout ───────────────────────────────────────────────
   const handlePayment = async () => {
-    if (!selectedType || !status || !scriptReady) return;
+    if (!selectedType || !status) return;
 
     setProcessing(true);
     setError(null);
-    onCompleteCalledRef.current = false;
-
-    // Clear any previous timeout
-    if (modalTimeoutRef.current) clearTimeout(modalTimeoutRef.current);
 
     try {
       const init = await ApiClient.initiatePayment(selectedType);
+      
+      const url = new URL(init.redirect_url);
+      const params = Object.fromEntries(url.searchParams.entries());
 
-      const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/e-portal/applicant/payment/callback`;
+      const form = document.createElement("form");
+      form.method = "POST";
+      form.action = `${url.origin}/collections/w/pay`;
 
-      if (typeof window.webpayCheckout !== "function") {
-        throw new Error("Please refresh the page.");
-      }
-
-      modalTimeoutRef.current = setTimeout(() => {
-        if (!onCompleteCalledRef.current) {
-          setProcessing(false);
-          setError("Payment request timed out. Please try again.");
-        }
-      }, 90_000);
-
-      window.webpayCheckout({
-        merchant_code: init.merchant_code,
-        pay_item_id: init.pay_item_id,
-        txn_ref: init.reference_no,
-        amount: init.amount_kobo,
-        currency: 566,
-        site_redirect_url: callbackUrl,
-        mode: (process.env.NEXT_PUBLIC_ISW_MODE as "TEST" | "LIVE") ?? "LIVE",
-        onComplete: async (response: InterswitchPayResponse) => {
-          onCompleteCalledRef.current = true;
-          if (modalTimeoutRef.current) clearTimeout(modalTimeoutRef.current);
-
-          // If the user cancelled or the widget returned a non-success/non-pending code
-          if (
-            response &&
-            response.resp &&
-            response.resp !== "00" &&
-            response.resp !== "Z0" &&
-            response.resp !== "T0"
-          ) {
-            try {
-              await ApiClient.cancelPayment(init.reference_no);
-            } catch (e) {}
-            setPayState("idle");
-            setError(
-              "Payment was cancelled. Redirecting to dashboard",
-            );
-            setProcessing(false);
-            setTimeout(() => {
-              router.push("/applicant/dashboard");
-            }, 5000);
-            return;
-          }
-
-          // Always verify server-side — never trust client resp alone
-          try {
-            const verification = await ApiClient.verifyPayment(
-              init.reference_no,
-            );
-            if (verification.is_successful) {
-              setReceiptNo(verification.receipt_no);
-              setPaidAmount(verification.amount);
-              setPaidType(verification.payment_type);
-              ApiClient.clearCache();
-              setPayState("success");
-            } else if (verification.tran_status === "pending") {
-              // Gateway returned Z0/T0 — still processing, do not mark failed
-              setPayState("pending" as any);
-              setError(
-                "Your payment is being processed. This can take a few minutes — " +
-                  "we will update your status automatically. You can safely close this page.",
-              );
-            } else {
-              setPayState("failed");
-              setError(
-                verification.response_desc || "Payment was not completed.",
-              );
-            }
-          } catch (err: any) {
-            setPayState("failed");
-            setError(
-              err.message ||
-                "Verification failed. Contact support if funds were debited.",
-            );
-          } finally {
-            setProcessing(false);
-          }
-        },
+      Object.entries(params).forEach(([key, value]) => {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = key;
+        input.value = value;
+        form.appendChild(input);
       });
+
+      document.body.appendChild(form);
+      form.submit();
+      return;
     } catch (err: any) {
-      if (modalTimeoutRef.current) clearTimeout(modalTimeoutRef.current);
       setError(err.message || "Failed to start payment. Please try again.");
       setProcessing(false);
     }
@@ -558,7 +438,8 @@ function PaymentContent() {
                         Processing Fee
                       </span>
                       <span>
-                        ₦{processingFee.toLocaleString("en-NG", {
+                        ₦
+                        {processingFee.toLocaleString("en-NG", {
                           minimumFractionDigits: 2,
                         })}
                       </span>
@@ -588,7 +469,7 @@ function PaymentContent() {
 
                   <Button
                     className="w-full h-14 bg-[#6b357d] hover:bg-[#5a2d69] text-white font-bold text-base uppercase tracking-wider rounded-2xl shadow-lg shadow-purple-500/10 hover:shadow-purple-500/20 transition-all duration-300 disabled:opacity-70 flex items-center justify-center gap-2"
-                    disabled={!selectedType || processing || !scriptReady}
+                    disabled={!selectedType || processing}
                     onClick={handlePayment}
                   >
                     {processing ? (

@@ -96,14 +96,14 @@ export default function StudentLoginPage() {
   const displayError = localError || error;
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-[#f8fafc] p-4">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background p-4">
       {/* Toast Error Notification */}
       {showError && displayError && (
         <div className="fixed top-6 right-6 max-w-sm animate-in slide-in-from-top-2 fade-in duration-300 z-50">
-          <div className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg shadow-lg overflow-hidden border border-red-400/20">
+          <div className="bg-destructive/95 text-destructive-foreground rounded-lg shadow-lg overflow-hidden border border-destructive/20">
             <div className="flex items-start gap-3 p-4">
               <div className="flex-shrink-0 mt-0.5">
-                <div className="flex items-center justify-center h-6 w-6 rounded-full bg-white/20">
+                <div className="flex items-center justify-center h-6 w-6 rounded-full bg-foreground/10">
                   <AlertCircle className="h-4 w-4" />
                 </div>
               </div>
@@ -113,13 +113,13 @@ export default function StudentLoginPage() {
               </div>
               <button
                 onClick={() => setShowError(false)}
-                className="flex-shrink-0 text-white/70 hover:text-white transition-colors"
+                className="flex-shrink-0 text-destructive-foreground/75 hover:text-destructive-foreground transition-colors"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
             <div
-              className="h-1 bg-white/30"
+              className="h-1 bg-destructive-foreground/30"
               style={{
                 animation: "shrink 5s linear forwards",
                 transformOrigin: "left",
@@ -152,7 +152,7 @@ export default function StudentLoginPage() {
           </Link>
 
           <div className="text-center space-y-2">
-            <h1 className="text-3xl font-bold tracking-tight text-[#3d2b3d]">
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">
               Student Portal
             </h1>
             <p className="text-muted-foreground italic">
@@ -161,8 +161,8 @@ export default function StudentLoginPage() {
           </div>
         </div>
 
-        <Card className="border-none shadow-2xl bg-white/80 backdrop-blur-sm overflow-hidden">
-          <div className="h-2 w-full bg-gradient-to-r from-[#3d2b3d] via-[#6b4f6b] to-[#4a3050]" />
+        <Card className="border-none shadow-2xl bg-card/80 backdrop-blur-sm overflow-hidden">
+          <div className="h-2 w-full bg-gradient-to-r from-primary/80 via-secondary/75 to-accent/80" />
           <CardHeader className="space-y-1">
             <div className="flex items-center gap-2 mb-2"></div>
             <CardTitle className="text-xl">Welcome back</CardTitle>
@@ -181,7 +181,7 @@ export default function StudentLoginPage() {
                   name="email"
                   type="email"
                   placeholder="Your registered email address"
-                  className="h-11 border-slate-200 focus:border-[#3d2b3d] focus:ring-[#3d2b3d]/20 transition-all font-medium"
+                  className="h-11 border-border focus:border-primary focus:ring-primary/20 transition-all font-medium"
                   value={formData.email}
                   onChange={handleChange}
                   disabled={isLoading}
@@ -197,7 +197,7 @@ export default function StudentLoginPage() {
                   {/*
                   <Link 
                     href="/auth/forgot-password" 
-                    className="text-xs text-[#3d2b3d] hover:underline font-medium"
+                    className="text-xs text-foreground hover:underline font-medium"
                   >
                     Forgot password?
                   </Link>
@@ -208,7 +208,7 @@ export default function StudentLoginPage() {
                   name="password"
                   type="password"
                   placeholder="First time? Try your Surname (in lowercase)"
-                  className="h-11 border-slate-200 focus:border-[#3d2b3d] focus:ring-[#3d2b3d]/20 transition-all font-medium"
+                  className="h-11 border-border focus:border-primary focus:ring-primary/20 transition-all font-medium"
                   value={formData.password}
                   onChange={handleChange}
                   disabled={isLoading}
@@ -218,12 +218,8 @@ export default function StudentLoginPage() {
 
               <Button
                 type="submit"
-                className="w-full h-11 text-base font-semibold shadow-lg shadow-[#3d2b3d]/20 hover:shadow-xl transition-all active:scale-[0.98]"
+                className="w-full h-11 text-base font-semibold shadow-lg shadow-primary/20 hover:shadow-xl transition-all active:scale-[0.98] bg-gradient-to-r from-primary/80 via-secondary/75 to-accent/80 text-primary-foreground"
                 disabled={isLoading}
-                style={{
-                  background:
-                    "linear-gradient(90deg, #3d2b3d 0%, #5a3f5a 100%)",
-                }}
               >
                 {isLoading ? (
                   <div className="flex items-center gap-2">

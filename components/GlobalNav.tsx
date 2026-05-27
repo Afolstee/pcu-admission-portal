@@ -188,6 +188,15 @@ export function GlobalNav() {
         className="fixed top-0 right-0 h-16 bg-slate-50/90 backdrop-blur-md border-b border-slate-200 z-[90] transition-all duration-300 ease-in-out flex items-center px-8"
         style={{ left: "var(--sidebar-width)" }}
       >
+        {/* Mobile Hamburger Toggle */}
+        <button
+          onClick={toggle}
+          className="lg:hidden p-2 -ml-4 mr-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors shrink-0"
+          aria-label="Toggle Sidebar"
+        >
+          <Menu size={24} />
+        </button>
+
         {/* Left Spacer - keeps balance */}
         <div className="flex-grow flex-1" />
 

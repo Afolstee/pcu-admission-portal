@@ -301,13 +301,13 @@ export default function CourseRegistration() {
         className={`flex items-center gap-2 py-1 px-1 rounded group ${
           isLocked
             ? "opacity-60 cursor-not-allowed"
-            : "cursor-pointer hover:bg-slate-50"
+            : "cursor-pointer hover:bg-muted"
         }`}
       >
         {/* Checkbox */}
         <div
           className={`w-3.5 h-3.5 rounded border shrink-0 flex items-center justify-center transition-colors ${
-            isSelected ? "bg-primary border-primary" : "border-slate-300"
+            isSelected ? "bg-primary border-primary" : "border-border"
           }`}
         >
           {isSelected && (
@@ -331,11 +331,11 @@ export default function CourseRegistration() {
           {course.course_code}
         </span>
         {/* Title */}
-        <span className="text-xs text-slate-700 flex-1 truncate leading-tight">
+        <span className="text-xs text-foreground flex-1 truncate leading-tight">
           {course.course_title}
         </span>
         {/* Units */}
-        <span className="text-[10px] font-bold text-slate-400 shrink-0">
+        <span className="text-[10px] font-bold text-muted-foreground shrink-0">
           {course.credit_units}u
         </span>
       </div>
@@ -343,7 +343,7 @@ export default function CourseRegistration() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/50 pb-20">
+    <div className="min-h-screen bg-background pb-20">
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
         {error && (
           <div className="bg-destructive/10 text-destructive text-sm p-4 rounded-xl border border-destructive/20 flex items-center gap-3">
@@ -368,7 +368,7 @@ export default function CourseRegistration() {
 
         {/* Search Bar */}
         <div className="relative z-20">
-          <div className="relative border border-slate-200 rounded-2xl shadow-sm bg-white hover:border-primary/50 transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
+          <div className="relative border border-border rounded-2xl shadow-sm bg-card hover:border-primary/50 transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
             <Input
               type="text"
@@ -387,12 +387,12 @@ export default function CourseRegistration() {
 
           {/* Search Dropdown Popover */}
           {!isGlobalLocked && searchQuery.length >= 2 && !isSearching && (
-            <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl border p-4 max-h-[400px] overflow-y-auto">
-              <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider mb-4 border-b pb-2">
+            <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-2xl shadow-xl border border-border p-4 max-h-[400px] overflow-y-auto">
+              <h3 className="text-sm font-black text-muted-foreground uppercase tracking-wider mb-4 border-b pb-2">
                 Database Search Results
               </h3>
               {globalSearchRes.length === 0 ? (
-                <p className="text-center text-sm text-slate-500 py-4">
+                <p className="text-center text-sm text-muted-foreground py-4">
                   No new courses found matching "{searchQuery}"
                 </p>
               ) : (
@@ -400,25 +400,25 @@ export default function CourseRegistration() {
                   {globalSearchRes.map((course) => (
                     <div
                       key={course.id}
-                      className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border-2 border-slate-100 hover:border-primary/20 transition-colors gap-4"
+                      className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border-2 border-border hover:border-primary/20 transition-colors gap-4"
                     >
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-black text-primary bg-primary/10 px-2 py-0.5 rounded-full">
                             {course.course_code}
                           </span>
-                          <h4 className="font-semibold text-slate-800 text-sm">
+                          <h4 className="font-semibold text-foreground text-sm">
                             {course.course_title}
                           </h4>
                         </div>
                         <div className="flex items-center gap-2 pt-1">
-                          <span className="text-xs font-bold text-slate-500">
+                          <span className="text-xs font-bold text-muted-foreground">
                             {course.credit_units} UNITS
                           </span>
-                          <span className="w-1 h-1 rounded-full bg-slate-200" />
+                          <span className="w-1 h-1 rounded-full bg-border" />
                           <Badge
                             variant="secondary"
-                            className="text-[9px] font-black uppercase bg-slate-100 text-slate-600"
+                            className="text-[9px] font-black uppercase bg-muted text-muted-foreground"
                           >
                             {course.category || "Elective"}
                           </Badge>
@@ -461,7 +461,7 @@ export default function CourseRegistration() {
               {/* First Semester Selected */}
               <div>
                 <div className="flex items-center justify-between pb-1.5 border-b mb-2">
-                  <h2 className="text-sm font-black text-slate-700 uppercase tracking-tight">
+                  <h2 className="text-sm font-black text-foreground uppercase tracking-tight">
                     1st Sem — Selected
                   </h2>
                   <Badge variant="outline" className="font-bold text-xs">
@@ -511,7 +511,7 @@ export default function CourseRegistration() {
               {/* Second Semester Selected */}
               <div>
                 <div className="flex items-center justify-between pb-1.5 border-b mb-2">
-                  <h2 className="text-sm font-black text-slate-700 uppercase tracking-tight">
+                  <h2 className="text-sm font-black text-foreground uppercase tracking-tight">
                     2nd Sem — Selected
                   </h2>
                   <Badge variant="outline" className="font-bold text-xs">
@@ -562,17 +562,17 @@ export default function CourseRegistration() {
 
             {/* Available Courses */}
             {!isGlobalLocked && (
-              <div className="bg-white rounded-xl border border-slate-100 p-4">
+              <div className="bg-card rounded-xl border border-border p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <BookOpen className="text-primary w-4 h-4" />
-                  <h3 className="text-sm font-black text-slate-700 uppercase tracking-tight">
+                  <h3 className="text-sm font-black text-foreground uppercase tracking-tight">
                     Available Courses
                   </h3>
                 </div>
                 <div className="grid md:grid-cols-2 gap-6 border-t pt-3">
                   {/* 1st Sem Available */}
                   <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
                       First Semester
                     </p>
                     {[
@@ -618,7 +618,7 @@ export default function CourseRegistration() {
 
                   {/* 2nd Sem Available */}
                   <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
                       Second Semester
                     </p>
                     {[
@@ -672,36 +672,36 @@ export default function CourseRegistration() {
             <div className="sticky top-24">
               <Card className="shadow-2xl border-none overflow-hidden">
                 <div className="h-2 bg-primary" />
-                <CardHeader className="bg-slate-50 px-6 py-4">
-                  <CardTitle className="text-base font-black uppercase text-slate-800 tracking-wider">
+                <CardHeader className="bg-muted px-6 py-4">
+                  <CardTitle className="text-base font-black uppercase text-foreground tracking-wider">
                     Registration Summary
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-6 space-y-4">
                   <div className="space-y-3">
                     <div className="flex justify-between text-sm items-center pb-2 border-b">
-                      <span className="font-medium text-slate-500">
+                      <span className="font-medium text-muted-foreground">
                         First Semester Units
                       </span>
-                      <span className="font-black text-slate-800">
+                      <span className="font-black text-foreground">
                         {calculateFirstCredits()}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm items-center pb-2 border-b">
-                      <span className="font-medium text-slate-500">
+                      <span className="font-medium text-muted-foreground">
                         Second Semester Units
                       </span>
-                      <span className="font-black text-slate-800">
+                      <span className="font-black text-foreground">
                         {calculateSecondCredits()}
                       </span>
                     </div>
                     <div className="flex justify-between text-base items-center pt-2">
-                      <span className="font-bold text-slate-800">
+                      <span className="font-bold text-foreground">
                         Total Valid Credits
                       </span>
                       <span className="font-black text-primary text-xl">
                         {calculateTotalCredits()}{" "}
-                        <span className="text-xs text-slate-400 font-bold">
+                        <span className="text-xs text-muted-foreground font-bold">
                           UNITS
                         </span>
                       </span>
@@ -722,8 +722,8 @@ export default function CourseRegistration() {
                     >
                       {submitting ? (
                         <span className="animate-spin relative flex h-4 w-4">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-4 w-4 bg-white"></span>
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-foreground/20 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-4 w-4 bg-foreground"></span>
                         </span>
                       ) : (
                         <>

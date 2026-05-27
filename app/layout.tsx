@@ -31,7 +31,7 @@ export default function RootLayout({
         <KeepAlive />
         <AuthProvider>
           <SidebarProvider>
-            <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+            <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
               <BackgroundLayout>
                 <NavWrapper>{children}</NavWrapper>
               </BackgroundLayout>

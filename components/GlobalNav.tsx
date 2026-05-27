@@ -106,8 +106,6 @@ const ICT_NAV_ITEMS = [
   { label: "Change Password", href: "/applicant/change-password", icon: Lock },
 ];
 
-
-
 export function GlobalNav() {
   const router = useRouter();
   const pathname = usePathname();
@@ -199,8 +197,7 @@ export function GlobalNav() {
             "hidden lg:flex items-center shrink-0 transition-all duration-300 ease-in-out",
             isOpen ? "gap-4 xl:gap-6" : "gap-6 xl:gap-8",
           )}
-        >
-        </div>
+        ></div>
 
         {/* Right Side - Apply Button or User Profile */}
         <div className="flex-1 flex justify-end items-center gap-4 shrink-0">
@@ -229,7 +226,7 @@ export function GlobalNav() {
 
       {/* Mobile Backdrop Overlay */}
       {isOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[95] lg:hidden animate-in fade-in duration-300"
           onClick={toggle}
         />
@@ -240,10 +237,8 @@ export function GlobalNav() {
         className={cn(
           "fixed left-0 top-0 h-full bg-slate-100 border-r border-slate-200 z-[100] transition-all duration-300 ease-in-out shadow-2xl flex flex-col justify-between",
           "w-[280px] lg:w-auto",
-          isOpen 
-            ? "translate-x-0" 
-            : "-translate-x-full lg:translate-x-0",
-          isOpen ? "lg:w-[280px]" : "lg:w-[80px]"
+          isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
+          isOpen ? "lg:w-[280px]" : "lg:w-[80px]",
         )}
       >
         <div>

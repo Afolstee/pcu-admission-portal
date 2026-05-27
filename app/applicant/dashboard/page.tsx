@@ -129,7 +129,7 @@ function ApplicantDashboardInner() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [payResult, setPayResult] = useState<"success" | "failed" | null>(null);
   const [payError, setPayError] = useState<string | null>(null);
-  const [processingFee, setProcessingFee] = useState<number>(300);
+  const [processingFee, setProcessingFee] = useState<number>(0);
   const [isRedirecting, setIsRedirecting] = useState(false);
 
   const loadStatus = async () => {

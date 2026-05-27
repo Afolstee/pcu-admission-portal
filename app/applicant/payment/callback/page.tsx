@@ -41,6 +41,10 @@ function CallbackContent() {
   } | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
 
+  const [pollCount, setPollCount] = useState(0);
+  const MAX_POLLS = 45;        // 45 × 4s = 3 minutes max
+  const POLL_INTERVAL_MS = 4000;
+
   useEffect(() => {
     if (!txnref) {
       setState("error");
@@ -49,11 +53,11 @@ function CallbackContent() {
     }
 
     let cancelled = false;
+    let attempt = 0;
 
     const verify = async () => {
       try {
         const res = await ApiClient.verifyPayment(txnref);
-
         if (cancelled) return;
 
         if (res.is_successful) {
@@ -65,18 +69,44 @@ function CallbackContent() {
           });
           ApiClient.clearCache();
           try { await refreshStatus?.(); } catch (_) {}
-        } else {
+          return; // done
+        }
+
+        // Definitive failure
+        if (res.tran_status === "failed" || res.tran_status === "cancelled") {
           setState("failed");
           setResult({ response_desc: res.response_desc });
+          return;
+        }
+
+        // Still pending (Z62, Z0, T0 etc.) — retry if we haven't hit the limit
+        attempt += 1;
+        setPollCount(attempt);
+        if (attempt < MAX_POLLS && !cancelled) {
+          setTimeout(verify, POLL_INTERVAL_MS);
+        } else if (!cancelled) {
+          // Timed out — leave in pending/verifying with a message
+          setState("error");
+          setErrorMsg(
+            "Your payment is taking longer than usual to confirm. " +
+            "Please check your dashboard in a few minutes — it will update automatically."
+          );
         }
       } catch (err: any) {
         if (cancelled) return;
-        setState("error");
-        setErrorMsg(err.message || "Verification failed. Please contact support.");
+        attempt += 1;
+        // Network hiccup — retry a few times before giving up
+        if (attempt < 5 && !cancelled) {
+          setTimeout(verify, POLL_INTERVAL_MS);
+        } else {
+          setState("error");
+          setErrorMsg(err.message || "Verification failed. Please contact support.");
+        }
       }
     };
 
-    const timer = setTimeout(verify, 1200);
+    // Initial delay to let Interswitch process before first requery
+    const timer = setTimeout(verify, 1500);
     return () => { cancelled = true; clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [txnref]);
@@ -129,7 +159,11 @@ function CallbackContent() {
             {state === "error"     && "Verification Error"}
           </CardTitle>
           <CardDescription className="font-medium mt-1">
-            {state === "verifying" && "Please wait while we confirm your transaction."}
+            {state === "verifying" && (
+              pollCount > 0
+                ? `Checking payment status... (Attempt ${pollCount}/${MAX_POLLS})`
+                : "Please wait while we confirm your transaction."
+            )}
             {state === "success"   && `Your ${paymentLabel} has been confirmed and recorded.`}
             {state === "failed"    && (result?.response_desc || "The payment was not completed.")}
             {state === "error"     && errorMsg}

@@ -7,11 +7,12 @@ cases = [
     ('00',  0, 'successful'),
     ('Z0',  0, 'pending'),
     ('T0',  0, 'pending'),
+    ('Z62', 0, 'pending'),
+    ('Z25', 0, 'pending'),
+    ('99',  0, 'pending'),
     ('',    0, 'pending'),
-    ('01',  0, 'pending'),   # first non-success non-pending
-    ('01',  1, 'pending'),   # second attempt
-    ('01',  2, 'failed'),    # third attempt => fail
-    ('X9',  2, 'failed'),
+    ('01',  0, 'failed'),    # non-success non-pending fails immediately
+    ('X9',  0, 'failed'),
     ('Z0',  5, 'pending'),   # Z0 always stays pending regardless of count
 ]
 

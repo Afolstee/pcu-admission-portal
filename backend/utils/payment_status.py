@@ -6,11 +6,11 @@ from datetime import datetime
 
 # ── Tunable constants ─────────────────────────────────────────────────────────
 
-# Codes that mean "not processed yet – try again later"
-PENDING_CODES = {'Z0', 'T0', ''}
+# Codes that mean "not processed yet or transient status – try again later"
+PENDING_CODES = {'Z0', 'T0', 'Z62', 'Z25', '99', '96', ''}
 
 # Only flip status to 'failed' after this many confirmed non-success requeries.
-# The first N-1 non-success responses keep the transaction 'pending'.
+# Note: Codes in PENDING_CODES are never marked failed by count.
 FAIL_AFTER_REQUERIES = 3
 
 # Minutes after creation before a still-pending transaction is considered stale
@@ -47,10 +47,8 @@ def classify_response(response_code: str, current_requery_count: int) -> str:
     if code in PENDING_CODES:
         return 'pending'
 
-    if current_requery_count + 1 >= FAIL_AFTER_REQUERIES:
-        return 'failed'
-
-    return 'pending'
+    # Any other response code (e.g. insufficient funds, card declined) is a definitive failure
+    return 'failed'
 
 
 # ── Application row creation (post-payment) ──────────────────────────────────

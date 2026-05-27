@@ -79,25 +79,17 @@ def requery_all_pending(dry_run: bool = False) -> dict:
         payment_type  = txn['tran_type']
         user_id       = txn['user_id']
 
-        # ── Stale alert ───────────────────────────────────────────────────────
+        # ── Stale/Expired Check (after STALE_THRESHOLD_MINUTES) ────────────────
         if age_minutes > STALE_THRESHOLD_MINUTES:
             logger.warning(
-                f'[requery_worker] STALE: {ref} | type={payment_type} | '
-                f'age={age_minutes:.0f}m | requery_count={requery_count}'
-            )
-            summary['stale_alerts'] += 1
-
-        # ── Already exhausted retries? Mark failed without requerying ─────────
-        if requery_count >= FAIL_AFTER_REQUERIES:
-            logger.warning(
-                f'[requery_worker] GIVING UP: {ref} reached requery_count={requery_count}. '
-                f'Marking failed.'
+                f'[requery_worker] EXPIRED: {ref} | type={payment_type} | '
+                f'age={age_minutes:.0f}m | requery_count={requery_count}. Marking failed.'
             )
             if not dry_run:
                 Database.execute_update(
                     """UPDATE payment_transactions
                        SET tran_status = 'failed',
-                           response_description = 'Exhausted retry limit — marked failed by background worker',
+                           response_description = 'Transaction expired (stale pending)',
                            updated_at = NOW()
                        WHERE reference_no = %s""",
                     (ref,)

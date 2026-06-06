@@ -17,7 +17,6 @@ import {
   ArrowRight,
   FileText,
   GraduationCap,
-  Loader2,
 } from "lucide-react";
 import {
   Select,
@@ -85,8 +84,8 @@ function ApplicantInfoTab({
             <Badge className="bg-[#6b357d] hover:bg-[#6b357d] text-white font-bold rounded-lg px-3 py-1 text-xs">
               {isPG
                 ? (form?.proposed_course_name
-                    ? `${form?.degree_code || ""} ${form.proposed_course_name}`.trim()
-                    : (form?.degree_name || applicant?.program_name))
+                  ? `${form?.degree_code || ""} ${form.proposed_course_name}`.trim()
+                  : (form?.degree_name || applicant?.program_name))
                 : (form?.first_choice_program_name || applicant?.program_name)}
             </Badge>
           </div>
@@ -404,7 +403,7 @@ function PgEvaluationPanel({ evaluation }: { evaluation: any }) {
         <CardContent className="pt-5 pb-5 flex items-center gap-3">
           <GraduationCap className="h-5 w-5 text-amber-500 flex-shrink-0" />
           <p className="text-sm text-amber-700 font-semibold">
-            The PG Dean has not yet completed their Section B evaluation for this application.
+            The PG Admin has not yet completed their Section B evaluation for this application.
           </p>
         </CardContent>
       </Card>
@@ -413,11 +412,11 @@ function PgEvaluationPanel({ evaluation }: { evaluation: any }) {
 
   const fields = [
     { label: "Transcript Received", value: evaluation.transcript_received },
-    { label: "Transcript Comment",  value: evaluation.transcript_comment || "—" },
+    { label: "Transcript Comment", value: evaluation.transcript_comment || "—" },
     { label: "Reference Letters Received", value: String(evaluation.ref_letters_count ?? 0) },
-    { label: "Recommendation",      value: evaluation.recommendation || "—" },
+    { label: "Recommendation", value: evaluation.recommendation || "—" },
     { label: "Proposed Supervisor", value: evaluation.supervisor_name || "—" },
-    { label: "Evaluated By (Dean)", value: evaluation.dean_name || "—" },
+    { label: "Evaluated By (PG Admin)", value: evaluation.dean_name || "—" },
     {
       label: "Evaluation Date",
       value: evaluation.updated_at
@@ -431,10 +430,10 @@ function PgEvaluationPanel({ evaluation }: { evaluation: any }) {
       <CardHeader className="border-b border-purple-50 pb-4">
         <CardTitle className="text-base font-bold text-slate-800 flex items-center gap-2">
           <GraduationCap className="h-5 w-5 text-[#6b357d]" />
-          PG Dean — Section B Evaluation
+          PG Admin Evaluation
         </CardTitle>
         <p className="text-xs text-slate-500 font-medium mt-1">
-          Review completed by the Postgraduate School Dean
+          Review completed by the Postgraduate School Admin
         </p>
       </CardHeader>
       <CardContent className="pt-5 space-y-3">
@@ -476,7 +475,6 @@ function ReviewsTab({
   // admin.py returns prog_type (the program_types.id FK)
   const programTypeId: number | null =
     application.applicant.prog_type ?? application.applicant.program_id ?? null;
-  const isPgApplication = programTypeId === 2;
 
   // Fetch all available programs for this applicant's program type
   useEffect(() => {
@@ -516,18 +514,16 @@ function ReviewsTab({
         reject: "Rejected",
         recommend: "Recommended",
       };
-
-      // Await the callback to ensure data is refreshed before closing loading state
-      await Promise.resolve(onReviewSuccess());
-      // Add a small delay to ensure state updates propagate
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
       setReviewSuccess(
         `Application ${labels[decision] || "reviewed"} successfully.`,
       );
       setApprovedCourse("");
       setDecision("accept");
       window.dispatchEvent(new Event("application-reviewed"));
+      // Await the callback to ensure data is refreshed before closing
+      await Promise.resolve(onReviewSuccess());
+      // Add a small delay to ensure state updates propagate
+      await new Promise((resolve) => setTimeout(resolve, 500));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit review");
     } finally {
@@ -548,18 +544,6 @@ function ReviewsTab({
   const canReview =
     application.applicant.application_status === "submitted" ||
     application.applicant.application_status === "screening";
-
-  if (reviewing) {
-    return (
-      <Card className="border-slate-100 shadow-xl bg-white rounded-3xl overflow-hidden p-12 text-center animate-in fade-in duration-300">
-        <CardContent className="flex flex-col items-center justify-center space-y-4 py-8">
-          <Loader2 className="h-10 w-10 animate-spin text-[#6b357d]" />
-          <h3 className="text-lg font-bold text-slate-800">Processing Decision...</h3>
-          <p className="text-xs text-slate-500 font-semibold">Updating application status and reloading details.</p>
-        </CardContent>
-      </Card>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -668,18 +652,12 @@ function ReviewsTab({
                     disabled={reviewing}
                     onClick={() => {
                       setDecision(opt.value);
-                      if (opt.value === "accept" && isPgApplication && application.form?.proposed_course_name) {
-                        const pgCourse = `${application.form.degree_code || ''} ${application.form.proposed_course_name}`.trim();
-                        setApprovedCourse(pgCourse);
-                      } else {
-                        setApprovedCourse("");
-                      }
+                      setApprovedCourse("");
                     }}
-                    className={`flex flex-col items-center justify-center gap-2 p-5 rounded-2xl border-2 font-bold text-xs uppercase tracking-wider transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] ${
-                      decision === opt.value
-                        ? `${opt.cls} ring-2 ring-offset-2 shadow-md`
-                        : "border-slate-100 bg-slate-50/40 text-slate-500 hover:border-slate-200 hover:text-slate-800"
-                    }`}
+                    className={`flex flex-col items-center justify-center gap-2 p-5 rounded-2xl border-2 font-bold text-xs uppercase tracking-wider transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] ${decision === opt.value
+                      ? `${opt.cls} ring-2 ring-offset-2 shadow-md`
+                      : "border-slate-100 bg-slate-50/40 text-slate-500 hover:border-slate-200 hover:text-slate-800"
+                      }`}
                   >
                     <span className="p-2 rounded-xl bg-white border shadow-sm">
                       <Icon className="w-5 h-5" />
@@ -690,7 +668,7 @@ function ReviewsTab({
               })}
             </div>
 
-            {/* Accept — choose from applicant's 1st / 2nd choice (UG) or Proposed Course (PG) */}
+            {/* Accept — choose from applicant's 1st / 2nd choice */}
             {decision === "accept" && (
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
@@ -702,55 +680,33 @@ function ReviewsTab({
                   disabled={reviewing}
                 >
                   <SelectTrigger className="h-11 bg-white border-slate-200/80 shadow-sm rounded-xl font-bold">
-                    <SelectValue placeholder={isPgApplication ? "Select course" : "Select applicant's 1st or 2nd choice"} />
+                    <SelectValue placeholder="Select applicant's 1st or 2nd choice" />
                   </SelectTrigger>
                   <SelectContent className="bg-white/95 backdrop-blur-md rounded-xl border-slate-100 shadow-xl">
-                    {isPgApplication ? (
-                      application.form?.proposed_course_name ? (
-                        (() => {
-                          const pgCourse = `${application.form.degree_code || ''} ${application.form.proposed_course_name}`.trim();
-                          return (
-                            <SelectItem
-                              value={pgCourse}
-                              className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer"
-                            >
-                              {pgCourse}
-                            </SelectItem>
-                          );
-                        })()
-                      ) : (
-                        <SelectItem value="__none__" disabled>
-                          No proposed course on record
-                        </SelectItem>
-                      )
-                    ) : (
-                      <>
-                        {application.form?.first_choice_program_name && (
-                          <SelectItem
-                            value={application.form.first_choice_program_name}
-                            className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer"
-                          >
-                            1st Choice —{" "}
-                            {application.form.first_choice_program_name}
-                          </SelectItem>
-                        )}
-                        {application.form?.second_choice_program_name && (
-                          <SelectItem
-                            value={application.form.second_choice_program_name}
-                            className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer"
-                          >
-                            2nd Choice —{" "}
-                            {application.form.second_choice_program_name}
-                          </SelectItem>
-                        )}
-                        {!application.form?.first_choice_program_name &&
-                          !application.form?.second_choice_program_name && (
-                            <SelectItem value="__none__" disabled>
-                              No choices on record
-                            </SelectItem>
-                          )}
-                      </>
+                    {application.form?.first_choice_program_name && (
+                      <SelectItem
+                        value={application.form.first_choice_program_name}
+                        className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer"
+                      >
+                        1st Choice —{" "}
+                        {application.form.first_choice_program_name}
+                      </SelectItem>
                     )}
+                    {application.form?.second_choice_program_name && (
+                      <SelectItem
+                        value={application.form.second_choice_program_name}
+                        className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer"
+                      >
+                        2nd Choice —{" "}
+                        {application.form.second_choice_program_name}
+                      </SelectItem>
+                    )}
+                    {!application.form?.first_choice_program_name &&
+                      !application.form?.second_choice_program_name && (
+                        <SelectItem value="__none__" disabled>
+                          No choices on record
+                        </SelectItem>
+                      )}
                   </SelectContent>
                 </Select>
               </div>
@@ -782,7 +738,7 @@ function ReviewsTab({
                         className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer"
                       >
                         {p.program}
-                        {!isPgApplication && p.department ? (
+                        {p.department ? (
                           <span className="text-[10px] text-slate-400 font-medium ml-1">
                             ({p.department})
                           </span>
@@ -810,13 +766,12 @@ function ReviewsTab({
               <Button
                 onClick={handleReview}
                 disabled={reviewing || (needsCourse && !approvedCourse)}
-                className={`gap-2 min-w-[200px] h-12 text-sm font-bold uppercase tracking-wider rounded-xl shadow-lg transition-all duration-300 ${
-                  decision === "accept"
-                    ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/10 hover:shadow-emerald-500/20"
-                    : decision === "reject"
-                      ? "bg-rose-600 hover:bg-rose-700 shadow-rose-500/10 hover:shadow-rose-500/20"
-                      : "bg-blue-600 hover:bg-blue-700 shadow-blue-500/10 hover:shadow-blue-500/20"
-                }`}
+                className={`gap-2 min-w-[200px] h-12 text-sm font-bold uppercase tracking-wider rounded-xl shadow-lg transition-all duration-300 ${decision === "accept"
+                  ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/10 hover:shadow-emerald-500/20"
+                  : decision === "reject"
+                    ? "bg-rose-600 hover:bg-rose-700 shadow-rose-500/10 hover:shadow-rose-500/20"
+                    : "bg-blue-600 hover:bg-blue-700 shadow-blue-500/10 hover:shadow-blue-500/20"
+                  }`}
               >
                 {reviewing ? (
                   <>
@@ -1090,7 +1045,7 @@ export default function ApplicationDetailPage() {
               <TabsTrigger value="info">Information</TabsTrigger>
               <TabsTrigger value="documents">Documents</TabsTrigger>
               {isPgApplication && (
-                <TabsTrigger value="pg_evaluation">Dean&apos;s Review</TabsTrigger>
+                <TabsTrigger value="pg_evaluation">PG Admin&apos;s Review</TabsTrigger>
               )}
               <TabsTrigger value="reviews">Reviews</TabsTrigger>
             </TabsList>
@@ -1120,7 +1075,7 @@ export default function ApplicationDetailPage() {
                   <CardContent className="pt-4 pb-4 flex items-center gap-3">
                     <GraduationCap className="h-5 w-5 text-amber-500 flex-shrink-0" />
                     <p className="text-sm text-amber-700 font-semibold">
-                      Note: The PG Dean has not yet completed their Section B evaluation. You may still make a decision, but it is recommended to wait for the Dean&apos;s review.
+                      Note: The PG Admin has not yet completed their Section B evaluation. You may still make a decision, but it is recommended to wait for the PG Admin&apos;s review.
                     </p>
                   </CardContent>
                 </Card>

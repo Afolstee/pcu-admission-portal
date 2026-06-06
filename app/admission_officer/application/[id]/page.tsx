@@ -16,6 +16,7 @@ import {
   User,
   ArrowRight,
   FileText,
+  GraduationCap,
 } from "lucide-react";
 import {
   Select,
@@ -395,6 +396,58 @@ function DocumentsTab({ documents }: { documents: any[] }) {
   );
 }
 
+function PgEvaluationPanel({ evaluation }: { evaluation: any }) {
+  if (!evaluation) {
+    return (
+      <Card className="border-amber-100 bg-amber-50/40 rounded-2xl">
+        <CardContent className="pt-5 pb-5 flex items-center gap-3">
+          <GraduationCap className="h-5 w-5 text-amber-500 flex-shrink-0" />
+          <p className="text-sm text-amber-700 font-semibold">
+            The PG Dean has not yet completed their Section B evaluation for this application.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const fields = [
+    { label: "Transcript Received", value: evaluation.transcript_received },
+    { label: "Transcript Comment",  value: evaluation.transcript_comment || "—" },
+    { label: "Reference Letters Received", value: String(evaluation.ref_letters_count ?? 0) },
+    { label: "Recommendation",      value: evaluation.recommendation || "—" },
+    { label: "Proposed Supervisor", value: evaluation.supervisor_name || "—" },
+    { label: "Evaluated By (Dean)", value: evaluation.dean_name || "—" },
+    {
+      label: "Evaluation Date",
+      value: evaluation.updated_at
+        ? new Date(evaluation.updated_at).toLocaleString()
+        : "—",
+    },
+  ];
+
+  return (
+    <Card className="border-purple-100 bg-white rounded-2xl shadow-md overflow-hidden">
+      <CardHeader className="border-b border-purple-50 pb-4">
+        <CardTitle className="text-base font-bold text-slate-800 flex items-center gap-2">
+          <GraduationCap className="h-5 w-5 text-[#6b357d]" />
+          PG Dean — Section B Evaluation
+        </CardTitle>
+        <p className="text-xs text-slate-500 font-medium mt-1">
+          Review completed by the Postgraduate School Dean
+        </p>
+      </CardHeader>
+      <CardContent className="pt-5 space-y-3">
+        {fields.map((f, i) => (
+          <div key={i} className="flex justify-between items-start text-sm border-b border-slate-50 pb-2 last:border-0 last:pb-0">
+            <span className="text-slate-400 font-semibold shrink-0 mr-4">{f.label}</span>
+            <span className="font-bold text-slate-800 text-right">{f.value}</span>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ReviewsTab({
   application,
   onReviewSuccess,
@@ -753,6 +806,7 @@ interface ApplicationDetail {
   form: any;
   documents: any[];
   reviews: any[];
+  pg_evaluation?: any;
 }
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
@@ -785,6 +839,7 @@ export default function ApplicationDetailPage() {
   const [sendingLetter, setSendingLetter] = useState(false);
   const [letterSent, setLetterSent] = useState(false);
   const [passportUrl, setPassportUrl] = useState<string | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== "admissionofficer") {
@@ -872,6 +927,27 @@ export default function ApplicationDetailPage() {
     }
   };
 
+  const handleDownloadPgPdf = async () => {
+    setDownloadingPdf(true);
+    try {
+      const blob = await ApiClient.downloadPgApplicationPdf(applicantId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `pg_application_${application?.applicant?.form_no || applicantId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to download application PDF");
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
+  const isPgApplication = application?.applicant?.program_id === 2 || application?.applicant?.prog_type === 2;
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -927,14 +1003,32 @@ export default function ApplicationDetailPage() {
                 {application.applicant.email}
               </p>
             </div>
-            <Badge
-              className={
-                statusColors[application.applicant.application_status] ||
-                "bg-slate-100 text-slate-700"
-              }
-            >
-              {application.applicant.application_status.replace(/_/g, " ")}
-            </Badge>
+            <div className="flex items-center gap-3">
+              {isPgApplication && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDownloadPgPdf}
+                  disabled={downloadingPdf}
+                  className="gap-2 border-[#6b357d] text-[#6b357d] hover:bg-[#6b357d]/5 font-bold rounded-xl shadow-sm"
+                >
+                  {downloadingPdf ? (
+                    <span className="animate-spin">⟳</span>
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                  Download Application
+                </Button>
+              )}
+              <Badge
+                className={
+                  statusColors[application.applicant.application_status] ||
+                  "bg-slate-100 text-slate-700"
+                }
+              >
+                {application.applicant.application_status.replace(/_/g, " ")}
+              </Badge>
+            </div>
           </div>
 
           {/* Global error */}
@@ -949,9 +1043,12 @@ export default function ApplicationDetailPage() {
 
           {/* Tabs */}
           <Tabs defaultValue="info" className="mb-8">
-            <TabsList className="grid w-full max-w-md grid-cols-3">
+            <TabsList className={`grid w-full ${isPgApplication ? 'max-w-lg grid-cols-4' : 'max-w-md grid-cols-3'}`}>
               <TabsTrigger value="info">Information</TabsTrigger>
               <TabsTrigger value="documents">Documents</TabsTrigger>
+              {isPgApplication && (
+                <TabsTrigger value="pg_evaluation">Dean&apos;s Review</TabsTrigger>
+              )}
               <TabsTrigger value="reviews">Reviews</TabsTrigger>
             </TabsList>
 
@@ -968,7 +1065,23 @@ export default function ApplicationDetailPage() {
               <DocumentsTab documents={application.documents} />
             </TabsContent>
 
+            {isPgApplication && (
+              <TabsContent value="pg_evaluation" className="space-y-6">
+                <PgEvaluationPanel evaluation={application.pg_evaluation} />
+              </TabsContent>
+            )}
+
             <TabsContent value="reviews">
+              {isPgApplication && !application.pg_evaluation && (
+                <Card className="mb-4 border-amber-100 bg-amber-50/40 rounded-2xl">
+                  <CardContent className="pt-4 pb-4 flex items-center gap-3">
+                    <GraduationCap className="h-5 w-5 text-amber-500 flex-shrink-0" />
+                    <p className="text-sm text-amber-700 font-semibold">
+                      Note: The PG Dean has not yet completed their Section B evaluation. You may still make a decision, but it is recommended to wait for the Dean&apos;s review.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
               <ReviewsTab
                 application={application}
                 onReviewSuccess={loadApplicationDetail}

@@ -971,6 +971,73 @@ export class ApiClient {
     return data;
   }
 
+  // =================== PG Dean Endpoints ===================
+
+  static async getPgDeanDashboard(activityLimit = 10): Promise<{
+    statistics: {
+      total_applications: number;
+      total_admitted: number;
+      pending_submission: number;
+      new_applications: number;
+      under_review: number;
+      total_rejected: number;
+      by_status: Array<{ application_status: string; count: number }>;
+      by_program: Array<{ name: string; count: number }>;
+    };
+    recent_activity: Array<{ type: string; label: string; event_time: string | null }>;
+  }> {
+    const { data } = await this.fetch<any>(`/pgdean/dashboard?limit=${activityLimit}`);
+    return data;
+  }
+
+  static async getPgApplications(
+    status?: string,
+    page?: number,
+    per_page?: number,
+    search?: string,
+  ): Promise<{ applications: any[]; count: number; page: number; per_page: number; total_pages: number }> {
+    const params = new URLSearchParams();
+    if (status)   params.append("status", status);
+    if (page)     params.append("page", page.toString());
+    if (per_page) params.append("per_page", per_page.toString());
+    if (search)   params.append("search", search);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    const { data } = await this.fetch<any>(`/pgdean/applications${qs}`);
+    return data;
+  }
+
+  static async getPgApplicationDetails(applicationId: string | number): Promise<any> {
+    const { data } = await this.fetch<any>(`/pgdean/application/${applicationId}`);
+    return data;
+  }
+
+  static async getPgEvaluation(applicationId: string | number): Promise<any> {
+    const { data } = await this.fetch<any>(`/pgdean/evaluation/${applicationId}`);
+    return data;
+  }
+
+  static async savePgEvaluation(
+    applicationId: string | number,
+    evaluation: {
+      transcript_received: string;
+      transcript_comment?: string;
+      ref_letters_count: number;
+      recommendation?: string;
+      supervisor_name?: string;
+    },
+  ): Promise<any> {
+    const { data } = await this.fetch<any>(`/pgdean/evaluate/${applicationId}`, {
+      method: "POST",
+      body: JSON.stringify(evaluation),
+    });
+    return data;
+  }
+
+  static getPgApplicationPrintUrl(applicationId: string | number): string {
+    const token = this.getToken();
+    return `${API_BASE_URL}/pgdean/print-application/${applicationId}?token=${token || ""}`;
+  }
+
   static async getRecentActivity(limit = 15): Promise<{
     activities: Array<{
       type: string;
@@ -1453,5 +1520,74 @@ export class ApiClient {
       },
     );
     return data;
+  }
+
+  // ─── PG Dean endpoints ────────────────────────────────────────────────────
+
+  static async getPgDeanDashboard(): Promise<any> {
+    const { data } = await this.fetch<any>("/pgdean/dashboard");
+    return data;
+  }
+
+  static async getPgDeanApplications(
+    status = "submitted",
+    page = 1,
+    perPage = 10,
+    search?: string,
+  ): Promise<any> {
+    const params = new URLSearchParams({
+      status,
+      page: String(page),
+      per_page: String(perPage),
+    });
+    if (search) params.append("search", search);
+    const { data } = await this.fetch<any>(`/pgdean/applications?${params}`);
+    return data;
+  }
+
+  static async getPgDeanApplicationDetail(applicationId: string): Promise<any> {
+    const { data } = await this.fetch<any>(
+      `/pgdean/application/${applicationId}`,
+    );
+    return data;
+  }
+
+  static async getPgEvaluation(applicationId: string): Promise<any> {
+    const { data } = await this.fetch<any>(
+      `/pgdean/evaluation/${applicationId}`,
+    );
+    return data;
+  }
+
+  static async savePgEvaluation(
+    applicationId: string,
+    payload: {
+      transcript_received: string;
+      transcript_comment: string;
+      ref_letters_count: number;
+      recommendation: string;
+      supervisor_name: string;
+    },
+  ): Promise<any> {
+    const { data } = await this.fetch<any>(
+      `/pgdean/evaluate/${applicationId}`,
+      { method: "POST", body: JSON.stringify(payload) },
+    );
+    return data;
+  }
+
+  /** Download the printable PG application PDF.
+   *  Works for both pgdean and admissionofficer roles. */
+  static async downloadPgApplicationPdf(applicationId: string): Promise<Blob> {
+    const token = this.getToken();
+    const res = await fetch(
+      `${API_BASE_URL}/pgdean/print-application/${applicationId}`,
+      {
+        method: "GET",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      },
+    );
+    if (!res.ok) throw new Error("Failed to download PG application PDF");
+    return res.blob();
   }
 }

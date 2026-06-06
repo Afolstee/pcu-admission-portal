@@ -15,6 +15,7 @@ type StaffRole =
   | "deo"
   | "hod"
   | "dean"
+  | "pgdean"
   | "registrar"
   | "admissionofficer"
   | "ictdirector"
@@ -37,6 +38,7 @@ export const STAFF_ROLES: string[] = [
   "deo",
   "hod",
   "dean",
+  "pgdean",
   "registrar",
   "freshapplicant",
   "admissionofficer",
@@ -360,6 +362,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         const isStaffPath = [
           "/admission_officer",
           "/dean",
+          "/pgdean",
           "/deo",
           "/hod",
           "/ict",

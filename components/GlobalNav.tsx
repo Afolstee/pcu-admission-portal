@@ -95,6 +95,12 @@ const REGISTRAR_NAV_ITEMS = [
   { label: "Change Password", href: "/staff/change-password", icon: Lock },
 ];
 
+const PGDEAN_NAV_ITEMS = [
+  { label: "Dashboard", href: "/pgdean/dashboard", icon: LayoutDashboard },
+  { label: "Applications", href: "/pgdean/applications", icon: FileText },
+  { label: "Change Password", href: "/staff/change-password", icon: Lock },
+];
+
 const LECTURER_NAV_ITEMS = [
   { label: "Dashboard", href: "/lecturer/dashboard", icon: LayoutDashboard },
   { label: "Change Password", href: "/staff/change-password", icon: Lock },
@@ -136,6 +142,7 @@ export function GlobalNav() {
   const isRegistrarPortal = isAuthenticated && user?.role === "registrar";
   const isLecturerPortal = isAuthenticated && user?.role === "lecturer";
   const isIctPortal = isAuthenticated && user?.role === "ictdirector";
+  const isPgDeanPortal = isAuthenticated && user?.role === "pgdean";
   const isManagementPortal =
     isAuthenticated && ["hod", "dean"].includes(user?.role || "");
 
@@ -187,6 +194,7 @@ export function GlobalNav() {
     if (isRegistrarPortal) return REGISTRAR_NAV_ITEMS;
     if (isLecturerPortal) return LECTURER_NAV_ITEMS;
     if (isIctPortal) return ICT_NAV_ITEMS;
+    if (isPgDeanPortal) return PGDEAN_NAV_ITEMS;
     if (isManagementPortal)
       return [
         {
@@ -209,6 +217,8 @@ export function GlobalNav() {
         return "/lecturer/dashboard";
       case "ictdirector":
         return "/ict/dashboard";
+      case "pgdean":
+        return "/pgdean/dashboard";
       default:
         return "/";
     }

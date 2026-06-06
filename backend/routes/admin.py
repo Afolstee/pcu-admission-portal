@@ -13,6 +13,28 @@ admin_bp = Blueprint('admin', __name__)
 USER_NAME_EXPR = "u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname"
 
 
+def _get_pg_evaluation(application_id):
+    """Retrieve the PG Dean Section B evaluation for a given application."""
+    from routes.pgdean import _ensure_evaluation_table
+    _ensure_evaluation_table()
+    rows = Database.execute_query(
+        '''SELECT pde.*,
+                  u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname AS dean_name
+           FROM pg_dean_evaluation pde
+           LEFT JOIN users u ON u.id = pde.dean_user_id
+           WHERE pde.application_id = %s''',
+        (str(application_id),)
+    )
+    if rows:
+        r = dict(rows[0])
+        if r.get('evaluated_at'):
+            r['evaluated_at'] = r['evaluated_at'].isoformat()
+        if r.get('updated_at'):
+            r['updated_at'] = r['updated_at'].isoformat()
+        return r
+    return None
+
+
 def get_admission_ref(applicant_id):
     res = Database.execute_query(
         '''SELECT asess.name AS session_name
@@ -71,6 +93,10 @@ def get_applications(payload):
         # Show both admitted (awaiting fee), accepted (fee paid), and enrolled (tuition paid)
         where_clause = " WHERE app.applicant_stage IN ('admitted', 'accepted', 'enrolled')"
         params = []
+    elif status == 'submitted':
+        # Exclude PG applications from AO submitted inbox — they must go through the Dean first
+        where_clause = " WHERE app.applicant_stage = %s AND (app.prog_type != 2 OR app.prog_type IS NULL)"
+        params = [status]
     else:
         where_clause = " WHERE app.applicant_stage = %s"
         params = [status]
@@ -357,7 +383,8 @@ def get_application_details(payload, applicant_id):
         'applicant':  applicant[0],
         'form':       form_data if form_data else None,
         'documents':  documents or [],
-        'reviews':    []
+        'reviews':    [],
+        'pg_evaluation': _get_pg_evaluation(applicant_id) if program_id == 2 else None,
     }), 200
 
 
@@ -813,7 +840,7 @@ def get_dashboard(payload):
                COUNT(*)                                                          AS total_applications,
                COUNT(*) FILTER (WHERE applicant_stage IN ('admitted','accepted','enrolled')) AS total_admitted,
                COUNT(*) FILTER (WHERE applicant_stage IN ('started', 'in_progress'))           AS pending_submission,
-               COUNT(*) FILTER (WHERE applicant_stage = 'submitted')             AS review_applications,
+               COUNT(*) FILTER (WHERE applicant_stage = 'submitted' AND (prog_type != 2 OR prog_type IS NULL)) AS review_applications,
                COUNT(*) FILTER (WHERE applicant_stage = 'screening')             AS under_review
            FROM applications'''
     )

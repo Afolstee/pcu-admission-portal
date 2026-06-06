@@ -30,7 +30,6 @@ def update_setting(payload):
 
     key = data['key']
     raw_value = str(data['value'])
-    # Preserve case for session and semester names; lowercase everything else
     value = raw_value if key in ('current_academic_session', 'current_semester') else raw_value.lower()
 
     if key == 'current_academic_session':
@@ -41,24 +40,20 @@ def update_setting(payload):
         else:
             Database.execute_update("INSERT INTO academic_sessions (name, is_active, isapplicantactive, created_at, updated_at) VALUES (%s, TRUE, FALSE, NOW(), NOW())", (value,))
 
-        # Re-link all semester rows to the new active session
         Database.execute_update(
             """UPDATE semesters
                SET session_id   = (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1),
                    updated_at = NOW()"""
         )
 
-        # Update all program fees to link to the new active session
         Database.execute_update(
             """UPDATE program_fees
                SET academic_session_id = (SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1)"""
         )
 
     if key == 'current_semester':
-        # Extract the core semester name (e.g. "First Semester" → "First")
         semester_name = value.replace(' Semester', '').replace(' semester', '').strip()
 
-        # Get the current active academic session
         session_res = Database.execute_query(
             "SELECT id FROM academic_sessions WHERE is_active = TRUE LIMIT 1"
         )
@@ -70,7 +65,6 @@ def update_setting(payload):
         )
 
         if active_session_id:
-            # Activate the matching semester and link it to the active session
             Database.execute_update(
                 """UPDATE semesters
                    SET is_active   = TRUE,
@@ -80,7 +74,6 @@ def update_setting(payload):
                 (active_session_id, semester_name)
             )
 
-            # Also re-link all other semesters to the active session
             Database.execute_update(
                 """UPDATE semesters
                    SET session_id = %s,
@@ -89,7 +82,6 @@ def update_setting(payload):
                 (active_session_id, active_session_id)
             )
 
-    # Upsert: create the key if it doesn't exist yet (e.g. current_semester)
     success = Database.execute_update(
         '''INSERT INTO system_settings (key, value, updated_at)
            VALUES (%s, %s, NOW())
@@ -123,15 +115,6 @@ def get_active_semester():
 @AuthHandler.token_required
 @AuthHandler.admin_required
 def activate_semester(payload):
-    """
-    Activate a semester for the current active academic session.
-
-    Body: { "semester_id": <int> }
-
-    Side-effects:
-      1. Links ALL semester rows to the active academic_session.
-      2. Sets is_active = TRUE only for the chosen semester.
-    """
     data = request.get_json() or {}
     semester_id = data.get('semester_id')
     if not semester_id:

@@ -12,6 +12,7 @@ const ROLE_REDIRECTS: Record<string, string> = {
   hod: "/e-portal/hod/dashboard",
   dean: "/e-portal/dean/dashboard",
   registrar: "/e-portal/registrar/dashboard",
+  pgdean: "/e-portal/pgdean/dashboard",
 };
 
 // Roles that must NOT use this portal

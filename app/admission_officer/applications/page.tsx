@@ -15,7 +15,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { LogOut, ChevronRight, FileText, Search, ChevronLeft } from "lucide-react";
+import { LogOut, ChevronRight, FileText, Search, ChevronLeft, Download } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -62,6 +62,28 @@ export default function ApplicationsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const handleDownloadPgPdf = async (e: React.MouseEvent, appId: string, formNo?: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDownloadingId(appId);
+    try {
+      const blob = await ApiClient.downloadPgApplicationPdf(appId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `pg_application_${formNo || appId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("PDF download failed", err);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   // Debounce search input
   useEffect(() => {
@@ -262,7 +284,21 @@ export default function ApplicationsPage() {
                         </div>
                       </div>
                       
-                      <div className="p-2 bg-slate-50 border border-slate-100 text-slate-400 rounded-xl group-hover:bg-purple-50 group-hover:text-[#6b357d] group-hover:border-purple-100 transition-all duration-300 ml-4">
+                      <div className="p-2 bg-slate-50 border border-slate-100 text-slate-400 rounded-xl group-hover:bg-purple-50 group-hover:text-[#6b357d] group-hover:border-purple-100 transition-all duration-300 ml-4 flex items-center gap-2">
+                        {app.program_id === 2 && (
+                          <button
+                            onClick={(e) => handleDownloadPgPdf(e, String(app.id), app.form_no)}
+                            disabled={downloadingId === String(app.id)}
+                            title="Download Application PDF"
+                            className="p-1.5 rounded-lg hover:bg-[#6b357d]/10 text-[#6b357d] transition-colors disabled:opacity-50"
+                          >
+                            {downloadingId === String(app.id) ? (
+                              <span className="animate-spin text-xs">⟳</span>
+                            ) : (
+                              <Download className="h-4 w-4" />
+                            )}
+                          </button>
+                        )}
                         <ChevronRight className="h-5 w-5 transform group-hover:translate-x-0.5 transition-transform" />
                       </div>
                     </div>

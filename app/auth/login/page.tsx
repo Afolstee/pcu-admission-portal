@@ -81,6 +81,7 @@ export default function LoginPage() {
       "hod",
       "dean",
       "registrar",
+      "pgdean",
     ];
     if (staffRoles.includes(role)) {
       setAccessDenied(true);

@@ -1044,7 +1044,7 @@ def download_document(payload, document_id):
         '''SELECT d.file_url AS file_path, d.file_type AS mime_type, d.file_name AS original_filename
            FROM documents d
            JOIN applications a ON d.application_id = a.id
-           WHERE d.id = %s AND (a.user_id = %s OR %s IN ('admin','ict_director','admissionofficer'))''',
+           WHERE d.id = %s AND (a.user_id = %s OR %s IN ('admin','ict_director','admissionofficer','pgdean'))''',
         (document_id, user_id, role)
     )
     if not doc:

@@ -57,8 +57,8 @@ const menuGroups = [
     items: [
       { label: "Deposit", icon: WalletCards, color: "bg-[#93008c]" },
       { label: "Make Payment", icon: WalletCards, color: "bg-[#93008c]" },
-      { label: "History", icon: History, color: "bg-[#93008c]" },
-    ],
+      { label: "History", icon: History, color: "bg-[#93008c]" }
+    ]
   },
 ];
 

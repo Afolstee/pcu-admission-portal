@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -739,9 +739,16 @@ const statusColors: Record<string, string> = {
 export default function ApplicationDetailPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
 
   // Keep applicantId as a string — it's a UUID, not an integer
   const applicantId = (params?.id as string) || "";
+  const returnStatus = searchParams.get("status");
+  const applicationsHref =
+    returnStatus &&
+    ["submitted", "screening", "admitted", "rejected"].includes(returnStatus)
+      ? `/admission_officer/applications?status=${returnStatus}`
+      : "/admission_officer/applications";
 
   const { user, isAuthenticated, logout } = useAuth();
 
@@ -753,6 +760,7 @@ export default function ApplicationDetailPage() {
   const [sendingLetter, setSendingLetter] = useState(false);
   const [letterSent, setLetterSent] = useState(false);
   const [passportUrl, setPassportUrl] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"info" | "documents" | "reviews">("info");
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== "admissionofficer") {
@@ -864,7 +872,7 @@ export default function ApplicationDetailPage() {
               {error ||
                 "The application you're looking for could not be found."}
             </p>
-            <Link href="/admission_officer/applications">
+            <Link href={applicationsHref}>
               <Button>Go Back</Button>
             </Link>
           </CardContent>
@@ -878,7 +886,7 @@ export default function ApplicationDetailPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Back link */}
         <Link
-          href="/admission_officer/applications"
+          href={applicationsHref}
           className="text-primary hover:underline text-sm mb-4 block"
         >
           ← Back to Applications
@@ -896,9 +904,12 @@ export default function ApplicationDetailPage() {
               </p>
             </div>
             <Badge
+              data-status={application.applicant.application_status}
               className={
-                statusColors[application.applicant.application_status] ||
-                "bg-slate-100 text-slate-700"
+                `admission-status-badge ${
+                  statusColors[application.applicant.application_status] ||
+                  "bg-slate-100 text-slate-700"
+                }`
               }
             >
               {application.applicant.application_status.replace(/_/g, " ")}
@@ -916,12 +927,51 @@ export default function ApplicationDetailPage() {
           )}
 
           {/* Tabs */}
-          <Tabs defaultValue="info" className="mb-8">
-            <TabsList className="grid w-full max-w-md grid-cols-3">
-              <TabsTrigger value="info">Information</TabsTrigger>
-              <TabsTrigger value="documents">Documents</TabsTrigger>
-              <TabsTrigger value="reviews">Reviews</TabsTrigger>
-            </TabsList>
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) =>
+              setActiveTab(value as "info" | "documents" | "reviews")
+            }
+            className="mb-8"
+          >
+            <div className="mb-6 max-w-xl">
+              <div className="relative overflow-hidden rounded-2xl border border-[#e5d8c6] bg-[#fffefa] p-1.5 shadow-sm">
+                <div className="pointer-events-none absolute inset-y-1.5 left-1.5 w-6 bg-gradient-to-r from-[#fffefa] to-transparent sm:hidden" />
+                <div className="pointer-events-none absolute inset-y-1.5 right-1.5 w-6 bg-gradient-to-l from-[#fffefa] to-transparent sm:hidden" />
+                <div className="overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <TabsList className="h-auto min-w-max w-full justify-start gap-1 bg-transparent p-0 text-slate-700 sm:grid sm:grid-cols-3">
+                    <TabsTrigger
+                      value="info"
+                      className="min-w-[124px] rounded-xl px-5 py-2.5 text-sm font-bold text-slate-700 data-[state=active]:bg-[#c99b45] data-[state=active]:text-[#15110a] data-[state=active]:shadow-sm"
+                    >
+                      Information
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="documents"
+                      className="min-w-[124px] rounded-xl px-5 py-2.5 text-sm font-bold text-slate-700 data-[state=active]:bg-[#c99b45] data-[state=active]:text-[#15110a] data-[state=active]:shadow-sm"
+                    >
+                      Documents
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="reviews"
+                      className="min-w-[112px] rounded-xl px-5 py-2.5 text-sm font-bold text-slate-700 data-[state=active]:bg-[#c99b45] data-[state=active]:text-[#15110a] data-[state=active]:shadow-sm"
+                    >
+                      Reviews
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+              </div>
+              <div className="mt-2 flex justify-center gap-1.5 sm:hidden" aria-hidden="true">
+                {(["info", "documents", "reviews"] as const).map((tab) => (
+                  <span
+                    key={tab}
+                    className={`h-1.5 rounded-full transition-all ${
+                      activeTab === tab ? "w-5 bg-[#c99b45]" : "w-1.5 bg-[#d8c9b6]"
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
 
             <TabsContent value="info" className="space-y-6">
               {/* passportUrl lives in parent — never re-fetched on tab switch */}

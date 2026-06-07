@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -50,10 +50,16 @@ const statusColors: Record<string, string> = {
 
 export default function ApplicationsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, isAuthenticated, logout } = useAuth();
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState<string>("submitted");
+  const [status, setStatus] = useState<string>(() => {
+    const urlStatus = searchParams.get("status");
+    return ["submitted", "screening", "admitted", "rejected"].includes(urlStatus || "")
+      ? (urlStatus as string)
+      : "submitted";
+  });
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== "admissionofficer") {
@@ -81,6 +87,13 @@ export default function ApplicationsPage() {
     router.replace("/staff/login");
   };
 
+  const handleStatusChange = (nextStatus: string) => {
+    setStatus(nextStatus);
+    router.replace(`/admission_officer/applications?status=${nextStatus}`, {
+      scroll: false,
+    });
+  };
+
   return (
     <div className="min-h-screen bg-slate-50/50">
 
@@ -102,7 +115,7 @@ export default function ApplicationsPage() {
               Review and manage applicant submissions
             </p>
           </div>
-          <Select value={status} onValueChange={setStatus}>
+          <Select value={status} onValueChange={handleStatusChange}>
             <SelectTrigger className="w-52 h-11 bg-white border-slate-200/80 shadow-sm rounded-xl font-bold">
               <SelectValue />
             </SelectTrigger>
@@ -138,23 +151,27 @@ export default function ApplicationsPage() {
         ) : (
           <div className="space-y-4">
             {applications.map((app) => (
-              <Link key={app.id} href={`/admission_officer/application/${app.id}`} className="block">
-                <Card className="hover:shadow-xl hover:border-purple-200/60 border-slate-100/80 transition-all duration-300 bg-white hover:-translate-y-0.5 rounded-2xl group relative overflow-hidden">
+              <Link key={app.id} href={`/admission_officer/application/${app.id}?status=${status}`} className="block">
+                <Card className="hover:shadow-lg hover:border-[#d8c29a] border-[#e8dfd2] transition-all duration-300 bg-white hover:-translate-y-0.5 rounded-2xl group relative overflow-hidden shadow-sm">
                   {/* Subtle left gradient strip */}
-                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-[#6b357d] to-[#881337] opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                  <CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1 space-y-4">
-                        <div className="flex items-center gap-3">
-                          <h3 className="font-black text-slate-800 text-lg group-hover:text-[#6b357d] transition-colors leading-none capitalize">{app.name}</h3>
+                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#c99b45] opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                  <CardContent className="p-5 sm:p-6">
+                    <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="min-w-0 flex-1 space-y-5">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <h3 className="font-black text-slate-900 text-lg sm:text-xl leading-snug capitalize">{app.name}</h3>
+                          </div>
+                          <div className="flex flex-wrap gap-2 sm:justify-end lg:min-w-[250px]">
                           <Badge
-                            className={`${statusColors[app.application_status] || 'bg-slate-50 text-slate-700 border border-slate-200'} font-bold text-[10px] uppercase tracking-wider py-1 px-3.5 rounded-full`}
+                            data-status={app.application_status}
+                            className={`admission-status-badge ${statusColors[app.application_status] || 'bg-slate-50 text-slate-700 border border-slate-200'} font-bold text-xs py-1.5 px-3.5 rounded-full`}
                           >
                             {app.application_status === 'accepted' ? 'Admitted' : app.application_status.replace('_', ' ')}
                           </Badge>
                           {/* Fee status pill — only shown on admitted tab */}
                           {status === 'admitted' && (
-                            <span className={`text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full border shadow-sm ${
+                            <span className={`text-xs font-black px-3.5 py-1.5 rounded-full border shadow-sm ${
                               app.application_status === 'accepted'
                                 ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
                                 : 'bg-amber-50 text-amber-700 border-amber-100'
@@ -163,29 +180,32 @@ export default function ApplicationsPage() {
                             </span>
                           )}
                         </div>
+                        </div>
                         
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-sm">
-                          <div className="space-y-1">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Form No.</span>
-                            <p className="font-bold text-slate-700 font-mono text-xs">{app.form_no || "N/A"}</p>
+                        <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
+                          <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3">
+                            <span className="text-xs text-slate-500 font-bold">Form No.</span>
+                            <p className="mt-1 font-bold text-slate-800 font-mono text-sm break-words">{app.form_no || "N/A"}</p>
                           </div>
-                          <div className="space-y-1">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Email Address</span>
-                            <p className="font-bold text-slate-700 truncate max-w-[180px]">{app.email}</p>
+                          <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3">
+                            <span className="text-xs text-slate-500 font-bold">Email Address</span>
+                            <p className="mt-1 font-bold text-slate-800 text-sm break-words">{app.email}</p>
                           </div>
-                          <div className="space-y-1 col-span-2 md:col-span-1">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Programme Offered</span>
-                            <p className="font-black text-slate-800 text-xs uppercase tracking-tight truncate max-w-[200px]">{app.program_name}</p>
+                          <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3 sm:col-span-2 xl:col-span-1">
+                            <span className="text-xs text-slate-500 font-bold">Programme Offered</span>
+                            <p className="mt-1 font-black text-slate-900 text-sm break-words">{app.program_name}</p>
                           </div>
-                          <div className="space-y-1">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Session</span>
-                            <p className="font-bold text-slate-700">{app.session || "N/A"}</p>
+                          <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3">
+                            <span className="text-xs text-slate-500 font-bold">Session</span>
+                            <p className="mt-1 font-bold text-slate-800 text-sm">{app.session || "N/A"}</p>
                           </div>
                         </div>
                       </div>
                       
-                      <div className="p-2 bg-slate-50 border border-slate-100 text-slate-400 rounded-xl group-hover:bg-purple-50 group-hover:text-[#6b357d] group-hover:border-purple-100 transition-all duration-300 ml-4">
-                        <ChevronRight className="h-5 w-5 transform group-hover:translate-x-0.5 transition-transform" />
+                      <div className="flex items-center justify-end lg:justify-center">
+                        <div className="p-2.5 bg-[#fbfaf7] border border-[#e8dfd2] text-slate-500 rounded-xl group-hover:bg-[#ead6aa] group-hover:text-[#15110a] group-hover:border-[#d8c29a] transition-all duration-300">
+                          <ChevronRight className="h-5 w-5 transform group-hover:translate-x-0.5 transition-transform" />
+                        </div>
                       </div>
                     </div>
                   </CardContent>

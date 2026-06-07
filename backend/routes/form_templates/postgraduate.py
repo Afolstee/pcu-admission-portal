@@ -52,8 +52,17 @@ template = {
             'title': 'Documents',
             'type': 'documents',
             'documents': [
-                {'type': 'transcript', 'label': 'University Transcript', 'required': True},
-                {'type': 'signature', 'label': 'Scanned Student Signature', 'required': True},
+                # ── Required documents ────────────────────────────────────────
+                {'type': 'transcript',          'label': 'Student Copy Transcript',  'required': True},
+                {'type': 'birth_certificate',   'label': 'Birth Certificate',        'required': True},
+                {'type': 'nysc_certificate',    'label': 'NYSC Certificate',         'required': True},
+                {'type': 'olevel_result',       'label': "O'Level Result",           'required': True},
+                # ── Referee letters (3 required; at least 1 must be academic) ─
+                {'type': 'referee_letter_1',    'label': 'Referee Letter 1',         'required': True},
+                {'type': 'referee_letter_2',    'label': 'Referee Letter 2',         'required': True},
+                {'type': 'referee_letter_3',    'label': 'Referee Letter 3',         'required': True},
+                # ── Other ─────────────────────────────────────────────────────
+                {'type': 'signature',           'label': 'Scanned Student Signature', 'required': True},
             ]
         }
     ]

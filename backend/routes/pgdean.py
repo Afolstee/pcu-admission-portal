@@ -247,13 +247,10 @@ def get_application_detail(payload, application_id):
                   ns.sponsor_name, ns.sponsor_address,
                   ref.name1 AS referee_name1, ref.address1 AS referee_address1,
                   ref.name2 AS referee_name2, ref.address2 AS referee_address2,
-                  ref.name3 AS referee_name3, ref.address3 AS referee_address3,
-                  doc.signature AS document_signature,
-                  doc.transcript AS document_transcript
+                  ref.name3 AS referee_name3, ref.address3 AS referee_address3
            FROM pg_application pg
            LEFT JOIN nextofkin_sponsor ns ON ns.id = pg.nextofkin_sponsor_id
            LEFT JOIN pg_reference ref ON ref.id = pg.pg_reference_id
-           LEFT JOIN pg_document doc ON doc.pg_application_id = pg.uuid
            WHERE pg.uuid = %s''',
         (application_id,)
     )
@@ -261,6 +258,20 @@ def get_application_detail(payload, application_id):
     form_data = {}
     if pg_app:
         row = pg_app[0]
+        
+        # Load signature and transcript dynamically
+        sig_res = Database.execute_query(
+            "SELECT file_url FROM pg_document WHERE pg_application_id = %s AND document_type = 'signature'",
+            (application_id,)
+        )
+        signature_file = sig_res[0]['file_url'] if sig_res else None
+
+        trans_res = Database.execute_query(
+            "SELECT file_url FROM pg_document WHERE pg_application_id = %s AND document_type = 'transcript'",
+            (application_id,)
+        )
+        transcript_file = trans_res[0]['file_url'] if trans_res else None
+
         form_data = {
             'first_name':               row['first_name'],
             'last_name':                row['surname'],
@@ -294,8 +305,8 @@ def get_application_detail(payload, application_id):
             'referee_address2':         row['referee_address2'],
             'referee_name3':            row['referee_name3'],
             'referee_address3':         row['referee_address3'],
-            'document_signature':       row['document_signature'],
-            'document_transcript':      row['document_transcript'],
+            'document_signature':       signature_file,
+            'document_transcript':      transcript_file,
         }
         names = [form_data.get('first_name'), form_data.get('middle_name'), form_data.get('last_name')]
         form_data['full_name'] = ' '.join(filter(None, names))
@@ -322,7 +333,7 @@ def get_application_detail(payload, application_id):
     # Uploaded documents
     documents = Database.execute_query(
         '''SELECT id, document_type, file_type, file_name AS original_filename, file_size
-           FROM documents WHERE application_id = %s''',
+           FROM pg_document WHERE pg_application_id = %s''',
         (application_id,)
     )
 
@@ -485,18 +496,31 @@ def print_application(payload, application_id):
                   ns.sponsor_name, ns.sponsor_address,
                   ref.name1 AS referee_name1, ref.address1 AS referee_address1,
                   ref.name2 AS referee_name2, ref.address2 AS referee_address2,
-                  ref.name3 AS referee_name3, ref.address3 AS referee_address3,
-                  doc.signature AS document_signature,
-                  doc.transcript AS document_transcript
+                  ref.name3 AS referee_name3, ref.address3 AS referee_address3
            FROM pg_application pg
            LEFT JOIN nextofkin_sponsor ns ON ns.id = pg.nextofkin_sponsor_id
            LEFT JOIN pg_reference ref ON ref.id = pg.pg_reference_id
-           LEFT JOIN pg_document doc ON doc.pg_application_id = pg.uuid
            WHERE pg.uuid = %s''',
         (application_id,)
     )
 
     form = dict(pg_app[0]) if pg_app else {}
+
+    # Load signature and transcript dynamically
+    sig_res = Database.execute_query(
+        "SELECT file_url FROM pg_document WHERE pg_application_id = %s AND document_type = 'signature'",
+        (application_id,)
+    )
+    signature_file = sig_res[0]['file_url'] if sig_res else None
+
+    trans_res = Database.execute_query(
+        "SELECT file_url FROM pg_document WHERE pg_application_id = %s AND document_type = 'transcript'",
+        (application_id,)
+    )
+    transcript_file = trans_res[0]['file_url'] if trans_res else None
+
+    form['document_signature'] = signature_file
+    form['document_transcript'] = transcript_file
 
     # Resolve names from FK ids
     course_name = faculty_name = degree_name = degree_code = ''

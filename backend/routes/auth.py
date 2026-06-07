@@ -222,6 +222,9 @@ def login():
 
     token = AuthHandler.generate_token(user['id'], role)
 
+    # ── Silently upgrade SHA-256 → bcrypt on first successful login ───────────
+    AuthHandler.maybe_upgrade_hash(user['id'], data['password'], user['password_hash'])
+
     if role == 'student':
         update_student_auth_on_success(user['id'])
     

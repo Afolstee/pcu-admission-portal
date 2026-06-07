@@ -231,7 +231,8 @@ export default function StudentDashboard() {
 
       const form = document.createElement("form");
       form.method = "POST";
-      form.action = `${url.origin}/collections/w/pay`;
+      // Use the full path the backend constructed — do NOT hardcode /collections/w/pay
+      form.action = `${url.origin}${url.pathname}`;
 
       Object.entries(params).forEach(([key, value]) => {
         const input = document.createElement("input");

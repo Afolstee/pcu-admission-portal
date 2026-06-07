@@ -84,12 +84,17 @@ CREATE TABLE IF NOT EXISTS pg_application (
 -- 5. pg_document — Uploaded documents for a PG application
 -- ────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS pg_document (
-    id                  SERIAL PRIMARY KEY,
-    pg_application_id   UUID REFERENCES pg_application(uuid),
-    signature           VARCHAR(500),
-    transcript          VARCHAR(500),
-    created_date        TIMESTAMP DEFAULT NOW(),
-    updated_date        TIMESTAMP DEFAULT NOW()
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    pg_application_id   UUID REFERENCES pg_application(uuid) ON DELETE CASCADE,
+    document_type       VARCHAR(100) NOT NULL,
+    file_name           VARCHAR(255) NOT NULL,
+    file_url            VARCHAR(500),
+    file_size           INTEGER,
+    file_type           VARCHAR(20),
+    status              VARCHAR(20) DEFAULT 'pending',
+    remark              TEXT,
+    created_at          TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at          TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- ────────────────────────────────────────────────────────────────────────────

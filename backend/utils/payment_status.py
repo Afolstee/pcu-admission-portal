@@ -19,17 +19,25 @@ CANCELLED_CODES = {
 # ── PENDING / REQUERY: transient or processing codes — try again later ────────
 # The background worker will keep requerying these until they resolve.
 # These represent temporary infrastructure issues, NOT permanent declines.
+# IMPORTANT: Bank transfers (NIP/NIBSS) commonly return T0/Z62 at callback
+# time because the bank hasn't confirmed yet. They can take up to 24 hours.
 PENDING_CODES = {
-    'T0',    # Transaction pending / processing
+    'T0',    # Transaction pending / processing (very common for bank transfers)
     'T03',   # Transaction pending at processor
-    'Z62',   # Pending — waiting on processor
+    'Z62',   # Pending — waiting on processor (common for NIP transfers)
     'Z25',   # Transaction pending
     'Z16',   # Transaction pending / incomplete
+    '09',    # Request in progress (bank transfer awaiting NIBSS response)
     '91',    # Issuer or switch inoperative (temporary — bank may come back)
     '92',    # Routing Error (temporary network/routing issue)
+    '94',    # Duplicate transaction — pending verification
     '96',    # System Malfunction (temporary system issue)
     '99',    # General pending / timeout
     '70120', # Beneficiary bank service unavailability (temporary)
+    'SP',    # Settlement pending (NIP interbank transfer)
+    'Z5',    # Transaction under review (bank transfer)
+    'Z52',   # Insufficient balance — may be a timing issue on transfer
+    'PE',    # Pending (used by some ISW integrations for transfers)
 }
 
 # ── DEFINITIVE FAILURE: permanent declines — mark FAILED immediately ──────────
@@ -37,7 +45,7 @@ PENDING_CODES = {
 DEFINITIVE_FAILURE_CODES = {
     '06',   # Error (generic permanent error from issuer)
     '30',   # Format Error (malformed transaction data)
-    '51',   # Insufficient Funds
+    '51',   # Insufficient Funds (confirmed, not a timing issue)
     '55',   # Incorrect PIN
     '57',   # Transaction not permitted to cardholder
     '58',   # Transaction not permitted to terminal
@@ -48,12 +56,14 @@ DEFINITIVE_FAILURE_CODES = {
     'Z28',  # Transaction not permissible
 }
 
-# Only flip status to 'failed' after this many confirmed non-success requeries.
-# Note: Codes in PENDING_CODES are never marked failed by count.
-FAIL_AFTER_REQUERIES = 3
+# Only flip status to 'failed' after this many confirmed non-success requeries
+# for codes that are NOT in PENDING_CODES (those are never failed by count).
+FAIL_AFTER_REQUERIES = 6
 
 # Minutes after creation before a still-pending transaction is considered stale
-STALE_THRESHOLD_MINUTES = 60
+# and force-marked failed. Bank transfers (NIP/NIBSS) can take up to 24 hours
+# to settle — so we must give them the full window before giving up.
+STALE_THRESHOLD_MINUTES = 24 * 60  # 24 hours
 
 
 # ── Core classifier ───────────────────────────────────────────────────────────
@@ -505,11 +515,13 @@ def atomic_settle_payment(reference_no: str, user_id: int, payment_type: str) ->
         True if this process won the settlement race and applied downstream logic
         False if another process already won (abort silently)
     """
-    # ✅ ATOMIC: Only update if status is still 'pending'
-    # If this succeeds with 1 row affected, we own this transaction
+    # ✅ ATOMIC: Only update if status is still 'pending' OR 'requery_error'
+    # (transfer payments may be in 'requery_error' when the background worker
+    # finally gets the '00' confirmation from the bank hours later)
     update_sql = '''UPDATE payment_transactions
                    SET tran_status = 'processing'
-                   WHERE reference_no = %s AND user_id = %s AND tran_status = 'pending' '''
+                   WHERE reference_no = %s AND user_id = %s
+                     AND tran_status IN ('pending', 'requery_error') '''
     
     Database.execute_update(update_sql, (reference_no, user_id))
     

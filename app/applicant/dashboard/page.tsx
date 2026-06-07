@@ -325,6 +325,15 @@ function ApplicantDashboardInner() {
         console.error("Error loading program types:", err);
       }
 
+      try {
+        const pfData = await ApiClient.getProcessingFee();
+        if (typeof pfData.processing_fee === "number") {
+          setProcessingFee(pfData.processing_fee);
+        }
+      } catch (err) {
+        console.error("Error loading processing fee:", err);
+      }
+
       // Form data is loaded lazily when the user opens a specific application
       // (see the "Apply / Profile" onClick handler in ApplicationsTable).
       // We do NOT preload all N forms upfront to avoid N parallel API requests
@@ -382,7 +391,8 @@ function ApplicantDashboardInner() {
 
       const form = document.createElement("form");
       form.method = "POST";
-      form.action = `${url.origin}/collections/w/pay`;
+      // Use the full path the backend constructed — do NOT hardcode /collections/w/pay
+      form.action = `${url.origin}${url.pathname}`;
 
       Object.entries(params).forEach(([key, value]) => {
         const input = document.createElement("input");
@@ -663,7 +673,7 @@ function ApplicantDashboardInner() {
           typeof breakdown.processing_fee === "number"
             ? breakdown.processing_fee
             : 300,
-        sessionId: status?.current_session_id,
+        sessionId: (status as any)?.current_session_id,
       };
       localStorage.setItem(
         "tuition_fee_agreement",
@@ -742,7 +752,7 @@ function ApplicantDashboardInner() {
         installmentPlanId:
           paymentMode === "installment" ? selectedInstallmentPlanId : null,
         reference:
-          init.reference ||
+          init.reference_no ||
           init.redirect_url
             ?.split("&")
             .find((p) => p.includes("ref"))
@@ -759,7 +769,8 @@ function ApplicantDashboardInner() {
       const params = Object.fromEntries(url.searchParams.entries());
       const form = document.createElement("form");
       form.method = "POST";
-      form.action = `${url.origin}/collections/w/pay`;
+      // Use the full path the backend constructed — do NOT hardcode /collections/w/pay
+      form.action = `${url.origin}${url.pathname}`;
       Object.entries(params).forEach(([key, value]) => {
         const input = document.createElement("input");
         input.type = "hidden";

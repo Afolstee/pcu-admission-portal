@@ -287,12 +287,10 @@ def get_application_details(payload, applicant_id):
                       ns.sponsor_name, ns.sponsor_address,
                       ref.name1 AS referee_name1, ref.address1 AS referee_address1,
                       ref.name2 AS referee_name2, ref.address2 AS referee_address2,
-                      ref.name3 AS referee_name3, ref.address3 AS referee_address3,
-                      doc.signature AS document_signature, doc.transcript AS document_transcript
+                      ref.name3 AS referee_name3, ref.address3 AS referee_address3
                FROM pg_application pg
                LEFT JOIN nextofkin_sponsor ns ON ns.id = pg.nextofkin_sponsor_id
                LEFT JOIN pg_reference ref ON ref.id = pg.pg_reference_id
-               LEFT JOIN pg_document doc ON doc.pg_application_id = pg.uuid
                WHERE pg.uuid = %s''',
             (application_id,)
         )
@@ -459,13 +457,22 @@ def get_application_details(payload, applicant_id):
             except (_json.JSONDecodeError, TypeError):
                 pass
 
-    documents = Database.execute_query(
-        '''SELECT id, document_type, file_type, file_name AS original_filename,
-                  file_size, 0 AS compressed_size, false AS is_compressed
-           FROM documents
-           WHERE application_id = %s''',
-        (applicant_id,)
-    )
+    if program_id == 2:
+        documents = Database.execute_query(
+            '''SELECT id, document_type, file_type, file_name AS original_filename,
+                      file_size, 0 AS compressed_size, false AS is_compressed
+               FROM pg_document
+               WHERE pg_application_id = %s''',
+            (applicant_id,)
+        )
+    else:
+        documents = Database.execute_query(
+            '''SELECT id, document_type, file_type, file_name AS original_filename,
+                      file_size, 0 AS compressed_size, false AS is_compressed
+               FROM documents
+               WHERE application_id = %s''',
+            (applicant_id,)
+        )
 
     return jsonify({
         'applicant':  applicant[0],

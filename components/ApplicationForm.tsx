@@ -28,6 +28,8 @@ import {
   Plus,
   X,
   User,
+  FileText,
+  Info,
 } from "lucide-react";
 import {
   Dialog,
@@ -35,6 +37,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+
 
 // --- Memoized year options (static, never changes) ---
 const YEAR_OPTIONS = Array.from({ length: 30 }, (_, i) => 2026 - i);
@@ -427,11 +430,7 @@ export default function ApplicationForm({
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>(
     {},
   );
-  const [docType, setDocType] = useState("");
-  const [docDisplayName, setDocDisplayName] = useState("");
-  const [selectedFiles, setSelectedFiles] = useState<
-    Record<string, File | null>
-  >({});
+  const [uploadingDocType, setUploadingDocType] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [maxStepReached, setMaxStepReached] = useState(0);
 
@@ -1012,20 +1011,25 @@ export default function ApplicationForm({
       return;
     }
 
-    /* 
-    // Validate documents
-    const docStep = steps.find(s => s.type === 'documents');
-    if (docStep && docStep.documents) {
-        const missingDocuments = docStep.documents
-          .filter((doc) => doc.required && !uploadedDocuments[doc.type] && !uploadedDocuments[doc.label])
-          .map((doc) => doc.label);
-
-        if (missingDocuments.length > 0) {
-          setError(`Please upload: ${missingDocuments.join(', ')}`);
-          return;
-        }
+    // ── PG document validation ────────────────────────────────────────────
+    if (hasPgStudy) {
+      const PG_REQUIRED = [
+        { type: 'transcript',        label: 'Student Copy Transcript' },
+        { type: 'birth_certificate', label: 'Birth Certificate' },
+        { type: 'nysc_certificate',  label: 'NYSC Certificate' },
+        { type: 'olevel_result',     label: "O'Level Result" },
+        { type: 'referee_letter_1',  label: 'Referee Letter 1' },
+        { type: 'referee_letter_2',  label: 'Referee Letter 2' },
+        { type: 'referee_letter_3',  label: 'Referee Letter 3' },
+      ];
+      const missing = PG_REQUIRED
+        .filter(d => !uploadedDocuments[d.type])
+        .map(d => d.label);
+      if (missing.length > 0) {
+        setError(`Please upload the following required documents before submitting: ${missing.join(', ')}`);
+        return;
+      }
     }
-    */
 
     setSubmitting(true);
     try {
@@ -1539,228 +1543,267 @@ export default function ApplicationForm({
             </div>
           )}
 
-          {step.type === "documents" && (
-            <div className="space-y-12">
-              {/* 1. Header */}
-              <div className="text-center space-y-2">
-                <h3 className="text-2xl font-medium text-slate-700">
-                  Document Uploading
-                </h3>
-              </div>
+          {step.type === "documents" && (() => {
+            const checklistDocs = step.documents || [];
+            const checklistTypes = new Set(checklistDocs.map((d) => d.type));
+            const additionalDocs = Object.values(uploadedDocuments).filter(
+              (doc: any) => !checklistTypes.has(doc.document_type)
+            );
 
-              {/* 2. Uploaded Documents Table */}
-              {Object.keys(uploadedDocuments).length > 0 && (
-                <div className="space-y-6">
-                  <h4 className="text-xl font-medium text-slate-700 text-center">
-                    Uploaded Certificates
-                  </h4>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="text-slate-500 text-sm font-semibold border-b">
-                          <th className="p-4 w-12">#</th>
-                          <th className="p-4">Name</th>
-                          <th className="p-4">Document</th>
-                          <th className="p-4 text-center">Delete</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.values(uploadedDocuments).map(
-                          (doc: any, index) => (
-                            <tr
-                              key={doc.document_id}
-                              className="border-b bg-slate-50/30 hover:bg-slate-50 transition-colors"
-                            >
-                              <td className="p-4 text-sm text-slate-600">
-                                {index + 1}
-                              </td>
-                              <td className="p-4 text-sm text-slate-800 font-medium">
-                                {doc.display_name || doc.document_type}
-                              </td>
-                              <td className="p-4 text-sm">
-                                <a
-                                  href={`/api/applicant/download-document/${doc.document_id}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-[#6b357d] hover:underline font-medium"
-                                >
-                                  Download
-                                </a>
-                              </td>
-                              <td className="p-4 text-center">
+            // Helper: upload a single file with a given type/name
+            const doUpload = async (file: File, finalType: string, finalName: string) => {
+              const resp = await ApiClient.uploadDocument(file, formId!, finalType, finalName);
+              setUploadedDocuments((prev) => ({
+                ...prev,
+                [finalType]: {
+                  document_id: resp.document_id,
+                  document_type: finalType,
+                  display_name: finalName,
+                  original_filename: file.name,
+                  original_size: resp.original_size,
+                  compressed_size: resp.compressed_size,
+                  is_compressed: resp.is_compressed,
+                },
+              }));
+              return resp;
+            };
+
+            const doDelete = async (docId: string, docType: string) => {
+              if (confirm("Are you sure you want to delete this document?")) {
+                try {
+                  setSaving(true);
+                  await ApiClient.deleteDocument(docId);
+                  setUploadedDocuments((prev) => {
+                    const next = { ...prev };
+                    delete next[docType];
+                    return next;
+                  });
+                } catch (e) {
+                  console.error("Delete failed", e);
+                  alert("Failed to delete document. Please try again.");
+                } finally {
+                  setSaving(false);
+                }
+              }
+            };
+
+            const done = checklistDocs.filter(d => uploadedDocuments[d.type]).length;
+            const total = checklistDocs.length;
+            const allDone = done === total;
+
+            return (
+              <div className="space-y-6">
+                {/* 1. Header */}
+                <div className="text-center space-y-2">
+                  <h3 className="text-2xl font-bold text-slate-800 tracking-tight">
+                    Required Documents Checklist
+                  </h3>
+                  <p className="text-sm text-slate-500">
+                    Upload all documents required for your application.
+                  </p>
+                </div>
+
+                {/* 2. Interactive Checklist Panel */}
+                <div className="rounded-2xl border border-violet-100 bg-white shadow-sm overflow-hidden">
+                  {/* Checklist Rows */}
+                  {checklistDocs.length > 0 ? (
+                    <ul className="divide-y divide-slate-100">
+                      {checklistDocs.map((doc, i) => {
+                        const uploadedDoc = uploadedDocuments[doc.type];
+                        const uploaded = !!uploadedDoc;
+                        const isUploading = uploadingDocType === doc.type;
+                        
+                        // Referee special note if PG
+                        let noteText = "";
+                        if (doc.type === 'referee_letter_1') {
+                          noteText = "At least one must be from an academic";
+                        }
+
+                        return (
+                          <li
+                            key={doc.type}
+                            className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-6 py-4 transition-colors ${
+                              uploaded ? "bg-emerald-50/30" : "hover:bg-slate-50/40"
+                            }`}
+                          >
+                            {/* Left: Indicator & Info */}
+                            <div className="flex items-start gap-4">
+                              <span
+                                className={`mt-0.5 w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-xs font-bold transition-all ${
+                                  uploaded
+                                    ? "bg-emerald-500 text-white shadow-sm shadow-emerald-200"
+                                    : "bg-slate-100 border border-slate-200 text-slate-400"
+                                }`}
+                              >
+                                {uploaded ? "✓" : i + 1}
+                              </span>
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span
+                                    className={`font-semibold ${
+                                      uploaded
+                                        ? "text-emerald-700 line-through decoration-emerald-300"
+                                        : "text-slate-700"
+                                    }`}
+                                  >
+                                    {doc.label}
+                                  </span>
+                                </div>
+                                
+                                {noteText && (
+                                  <p className="text-xs text-amber-600 font-medium flex items-center gap-1">
+                                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                    {noteText}
+                                  </p>
+                                )}
+
+                                {uploaded && (
+                                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                                    <span className="font-medium truncate max-w-[200px] sm:max-w-[300px]">
+                                      {uploadedDoc.original_filename}
+                                    </span>
+                                    {uploadedDoc.compressed_size && (
+                                      <span>
+                                        ({(uploadedDoc.compressed_size / 1024).toFixed(1)} KB)
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Right: Action Buttons */}
+                            <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                              {uploaded ? (
                                 <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="bg-[#6b357d] hover:bg-[#5a2d69] text-white font-medium h-9 px-6"
-                                  onClick={async () => {
-                                    if (
-                                      confirm(
-                                        "Are you sure you want to delete this document?",
-                                      )
-                                    ) {
-                                      try {
-                                        await ApiClient.deleteDocument(
-                                          doc.document_id,
-                                        );
-                                        const newDocs = {
-                                          ...uploadedDocuments,
-                                        };
-                                        delete newDocs[doc.document_type];
-                                        setUploadedDocuments(newDocs);
-                                      } catch (e) {
-                                        console.error("Delete failed", e);
-                                      }
-                                    }
-                                  }}
+                                  disabled={saving}
+                                  variant="outline"
+                                  className="h-9 px-4 rounded-xl border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700 font-bold text-xs"
+                                  onClick={() => doDelete(uploadedDoc.document_id, doc.type)}
                                 >
                                   Delete
                                 </Button>
-                              </td>
-                            </tr>
-                          ),
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
+                              ) : (
+                                <>
+                                  {isUploading ? (
+                                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 px-3 py-1.5 bg-slate-50 rounded-lg">
+                                      <span className="w-3.5 h-3.5 border-2 border-slate-300 border-t-[#6b21a8] rounded-full animate-spin" />
+                                      Uploading...
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <Button
+                                        disabled={saving}
+                                        className="h-9 px-4 rounded-xl bg-[#6b21a8] hover:bg-purple-800 text-white font-bold text-xs transition-colors"
+                                        onClick={() => {
+                                          const inputEl = document.getElementById(`file-input-${doc.type}`);
+                                          if (inputEl) inputEl.click();
+                                        }}
+                                      >
+                                        Upload
+                                      </Button>
+                                      <input
+                                        id={`file-input-${doc.type}`}
+                                        type="file"
+                                        className="hidden"
+                                        accept="image/jpeg,image/jpg,image/png,application/pdf,.doc,.docx"
+                                        onChange={async (e) => {
+                                          const file = e.target.files?.[0];
+                                          if (!file) return;
+                                          if (!formId) {
+                                            alert("Please save your form first.");
+                                            return;
+                                          }
+                                          try {
+                                            setUploadingDocType(doc.type);
+                                            setSaving(true);
+                                            await doUpload(file, doc.type, doc.label);
+                                          } catch (err) {
+                                            console.error("Upload failed", err);
+                                          } finally {
+                                            setUploadingDocType(null);
+                                            setSaving(false);
+                                            e.target.value = "";
+                                          }
+                                        }}
+                                      />
+                                    </>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <div className="p-8 text-center text-sm text-slate-400">
+                      No documents specified for this program template.
+                    </div>
+                  )}
 
-              {/* 3. Upload Form */}
-              <div className="space-y-6">
-                <h4 className="text-xl font-medium text-slate-700 text-center">
-                  Upload Certificates
-                </h4>
-                <div className="flex flex-col md:flex-row gap-6 items-end">
-                  <div className="flex-1 space-y-2 w-full">
-                    <Label className="text-sm font-semibold text-slate-500 block text-center md:text-left">
-                      Document Type
-                    </Label>
-                    {step.documents && step.documents.length > 0 ? (
-                      <Select
-                        value={docType}
-                        onValueChange={(val) => {
-                          setDocType(val);
-                          if (val !== "other") {
-                            const docDef = step.documents?.find(
-                              (d) => d.type === val,
-                            );
-                            if (docDef) setDocDisplayName(docDef.label);
-                          } else {
-                            setDocDisplayName("");
-                          }
-                        }}
+                  {/* Progress footer */}
+                  {checklistDocs.length > 0 && (
+                    <div className={`flex items-center gap-4 px-6 py-4 border-t border-slate-100 ${
+                      allDone ? "bg-emerald-50/30" : "bg-slate-50/30"
+                    }`}>
+                      <div className="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            allDone ? "bg-emerald-500" : "bg-[#6b21a8]"
+                          }`}
+                          style={{ width: `${(done / total) * 100}%` }}
+                        />
+                      </div>
+                      <span
+                        className={`text-xs font-bold shrink-0 ${
+                          allDone ? "text-emerald-700" : "text-[#6b21a8]"
+                        }`}
                       >
-                        <SelectTrigger className="h-12 border-slate-200">
-                          <SelectValue placeholder="--Select Document--" />
-                        </SelectTrigger>
-                        <SelectContent position="popper">
-                          {step.documents.map((d) => (
-                            <SelectItem key={d.type} value={d.type}>
-                              {d.label} {d.required && "*"}
-                            </SelectItem>
-                          ))}
-                          <SelectItem value="other">Other</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <Input
-                        placeholder="e.g. WAEC"
-                        className="h-12 border-slate-200"
-                        value={docDisplayName}
-                        onChange={(e) => {
-                          setDocDisplayName(e.target.value);
-                          setDocType("other");
-                        }}
-                      />
-                    )}
-                    {docType === "other" && (
-                      <Input
-                        placeholder="Enter document name"
-                        className="h-12 border-slate-200 mt-2"
-                        onChange={(e) => setDocDisplayName(e.target.value)}
-                      />
-                    )}
-                  </div>
+                        {done}/{total} {allDone ? "— All documents uploaded! ✓" : "uploaded"}
+                      </span>
+                    </div>
+                  )}
+                </div>
 
-                  <div className="flex-[2] space-y-2 w-full">
-                    <Label className="text-sm font-semibold text-slate-500 block text-center md:text-left">
-                      Upload a document (Allowed: gif, jpg, png, pdf, doc)
-                    </Label>
-                    <div className="relative">
-                      <Input
-                        type="file"
-                        className="h-12 border-slate-200 pr-24 flex items-center pt-2.5"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            setSelectedFiles((prev) => ({
-                              ...prev,
-                              general: file,
-                            }));
-                          }
-                        }}
-                      />
+                {/* 3. Additional Uploaded Documents (Legacy / custom uploads) */}
+                {additionalDocs.length > 0 && (
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">
+                      Additional Uploaded Documents
+                    </h4>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/30 divide-y divide-slate-100">
+                      {additionalDocs.map((doc: any) => (
+                        <div key={doc.document_id} className="flex items-center justify-between px-5 py-3 text-sm">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-semibold text-slate-700 truncate">
+                              {doc.display_name || doc.document_type}
+                            </p>
+                            <p className="text-xs text-slate-400 truncate">
+                              {doc.original_filename}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Button
+                              disabled={saving}
+                              variant="outline"
+                              className="h-8 px-3 rounded-lg border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700 font-bold text-xs"
+                              onClick={() => doDelete(doc.document_id, doc.document_type)}
+                            >
+                              Delete
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-
-                  <Button
-                    onClick={async () => {
-                      const file = selectedFiles["general"];
-                      if (!file) return alert("Please select a file");
-                      if (!docType || (docType === "other" && !docDisplayName))
-                        return alert(
-                          "Please enter or select a name for the document",
-                        );
-
-                      const finalType =
-                        docType === "other" ? docDisplayName : docType;
-                      const finalName = docDisplayName || finalType;
-
-                      try {
-                        setSaving(true);
-                        const resp = await ApiClient.uploadDocument(
-                          file,
-                          formId!,
-                          finalType,
-                          finalName,
-                        );
-                        setUploadedDocuments((prev) => ({
-                          ...prev,
-                          [finalType]: {
-                            document_id: resp.document_id,
-                            document_type: finalType,
-                            display_name: finalName,
-                            original_filename: file.name,
-                            original_size: resp.original_size,
-                            compressed_size: resp.compressed_size,
-                            is_compressed: resp.is_compressed,
-                          },
-                        }));
-                        setDocType("");
-                        setDocDisplayName("");
-                        setSelectedFiles((prev) => ({
-                          ...prev,
-                          general: null,
-                        }));
-                        // Reset file input
-                        const fileInputs =
-                          document.querySelectorAll('input[type="file"]');
-                        fileInputs.forEach((input: any) => (input.value = ""));
-                      } catch (e) {
-                        console.error("Upload failed", e);
-                      } finally {
-                        setSaving(false);
-                      }
-                    }}
-                    disabled={saving || !selectedFiles["general"] || !docType}
-                    className="bg-[#6b21a8] hover:bg-purple-800 text-white font-bold h-12 px-10 shrink-0"
-                  >
-                    {saving ? "Uploading..." : "Upload"}
-                  </Button>
-                </div>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
+
+
+
         </CardContent>
       </Card>
 

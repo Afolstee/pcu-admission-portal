@@ -3,6 +3,7 @@ from database import Database
 from utils.auth import AuthHandler
 from datetime import datetime, timedelta, timezone
 from utils.document_handler import DocumentHandler
+from utils.scanner import scan_document, ScannerError
 from utils.pdf_generator import PDFGenerator
 from utils.payment_receipt_generator import PaymentReceiptGenerator
 from utils.medical_form_generator import MedicalFormGenerator
@@ -420,6 +421,15 @@ def _get_processing_fee() -> float:
         return float(res[0]['value']) if res else 300.0
     except Exception:
         return 300.0
+
+
+@applicant_bp.route('/processing-fee', methods=['GET'])
+def get_processing_fee_endpoint():
+    try:
+        processing_fee = _get_processing_fee()
+        return jsonify({'processing_fee': processing_fee}), 200
+    except Exception as e:
+        return jsonify({'message': str(e)}), 500
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1075,6 +1085,54 @@ def submit_form(payload):
 # Documents
 # ─────────────────────────────────────────────────────────────────────────────
 
+@applicant_bp.route('/scan-document', methods=['POST'])
+@AuthHandler.token_required
+def scan_document_endpoint(payload):
+    """
+    Step 1 of the document upload flow (PG applicants).
+
+    Accepts a raw image, runs the scanner, and returns:
+      - quality assessment (score, issues)
+      - original image as base64
+      - enhanced (scanned) image as base64
+
+    Nothing is written to the database. The user previews both images
+    and chooses to confirm (which calls /upload-document) or cancel.
+    """
+    if 'file' not in request.files:
+        return jsonify({'message': 'No file provided'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'message': 'No file selected'}), 400
+
+    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if ext not in ('jpg', 'jpeg', 'png'):
+        return jsonify({'message': 'Only JPG/PNG images can be scanned. For PDFs or Word docs, upload directly.', 'skip_scan': True}), 200
+
+    image_bytes = file.read()
+    if len(image_bytes) > 15 * 1024 * 1024:
+        return jsonify({'message': 'File exceeds 15 MB limit'}), 400
+
+    try:
+        result = scan_document(image_bytes)
+    except ScannerError as e:
+        return jsonify({'message': str(e)}), 422
+    except Exception as e:
+        return jsonify({'message': f'Scanner error: {e}'}), 500
+
+    quality = result['quality']
+    return jsonify({
+        'quality_score':   quality['score'],
+        'is_acceptable':   quality['is_acceptable'],
+        'issues':          quality['issues'],
+        'sharpness':       quality['sharpness'],
+        'brightness':      quality['brightness'],
+        'original_b64':    result['original_b64'],
+        'preview_b64':     result['preview_b64'],
+    }), 200
+
+
 @applicant_bp.route('/upload-document', methods=['POST'])
 @AuthHandler.token_required
 def upload_document(payload):
@@ -1119,34 +1177,24 @@ def upload_document(payload):
     file_path = os.path.join(upload_folder, stored_filename)
     file_ext  = stored_filename.split('.')[-1] if '.' in stored_filename else ''
 
-    doc_result = Database.execute_query(
-        '''INSERT INTO documents
-               (application_id, document_type, file_name, file_url, file_size, file_type, status)
-           VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
-        (form_id_uuid, document_type, file.filename, file_path, original_size_int, file_ext, 'pending')
-    )
+    if is_pg:
+        doc_result = Database.execute_query(
+            '''INSERT INTO pg_document
+                   (pg_application_id, document_type, file_name, file_url, file_size, file_type, status)
+               VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
+            (form_id_uuid, document_type, file.filename, file_path, original_size_int, file_ext, 'pending')
+        )
+    else:
+        doc_result = Database.execute_query(
+            '''INSERT INTO documents
+                   (application_id, document_type, file_name, file_url, file_size, file_type, status)
+               VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
+            (form_id_uuid, document_type, file.filename, file_path, original_size_int, file_ext, 'pending')
+        )
     doc_id = doc_result[0]['id'] if doc_result else None
     if not doc_id:
         DocumentHandler.delete_document(file_path)
         return jsonify({'message': 'Failed to save document metadata'}), 500
-
-    # If PG application, save to pg_document too
-    try:
-        if is_pg:
-            # Ensure pg_document row exists
-            doc_check = Database.execute_query('SELECT id FROM pg_document WHERE pg_application_id = %s', (form_id_uuid,))
-            if not doc_check:
-                Database.execute_update(
-                    'INSERT INTO pg_document (pg_application_id) VALUES (%s)',
-                    (form_id_uuid,)
-                )
-            if document_type in ('signature', 'transcript'):
-                Database.execute_update(
-                    f'UPDATE pg_document SET {document_type} = %s, updated_date = NOW() WHERE pg_application_id = %s',
-                    (file_path, form_id_uuid)
-                )
-    except Exception as e:
-        print(f"Error saving PG document: {e}")
 
     compression_ratio = (1 - compressed_size / original_size) * 100 if original_size > 0 else 0
     return jsonify({
@@ -1163,14 +1211,25 @@ def upload_document(payload):
 @AuthHandler.token_required
 def delete_document(payload, document_id):
     user_id = payload['user_id']
+    is_pg_doc = False
     doc = Database.execute_query(
         '''SELECT d.id, d.file_url AS file_path 
            FROM documents d
            LEFT JOIN applications a ON d.application_id = a.id
-           LEFT JOIN pg_application pg ON d.application_id = pg.uuid
-           WHERE d.id = %s AND (a.user_id = %s OR pg.user_id = %s)''',
-        (document_id, user_id, user_id)
+           WHERE d.id = %s AND a.user_id = %s''',
+        (document_id, user_id)
     )
+    if not doc:
+        doc = Database.execute_query(
+            '''SELECT d.id, d.file_url AS file_path 
+               FROM pg_document d
+               LEFT JOIN pg_application pg ON d.pg_application_id = pg.uuid
+               WHERE d.id = %s AND pg.user_id = %s''',
+            (document_id, user_id)
+        )
+        if doc:
+            is_pg_doc = True
+
     if not doc:
         return jsonify({'message': 'Document not found'}), 404
 
@@ -1184,7 +1243,11 @@ def delete_document(payload, document_id):
 
     if os.path.exists(file_path):
         os.remove(file_path)
-    Database.execute_update('DELETE FROM documents WHERE id = %s', (document_id,))
+
+    if is_pg_doc:
+        Database.execute_update('DELETE FROM pg_document WHERE id = %s', (document_id,))
+    else:
+        Database.execute_update('DELETE FROM documents WHERE id = %s', (document_id,))
     return jsonify({'message': 'Document deleted successfully'}), 200
 
 
@@ -1197,10 +1260,18 @@ def download_document(payload, document_id):
         '''SELECT d.file_url AS file_path, d.file_type AS mime_type, d.file_name AS original_filename
            FROM documents d
            LEFT JOIN applications a ON d.application_id = a.id
-           LEFT JOIN pg_application pg ON d.application_id = pg.uuid
-           WHERE d.id = %s AND (a.user_id = %s OR pg.user_id = %s OR %s IN ('admin','ict_director','admissionofficer','pgdean'))''',
-        (document_id, user_id, user_id, role)
+           WHERE d.id = %s AND (a.user_id = %s OR %s IN ('admin','ict_director','admissionofficer'))''',
+        (document_id, user_id, role)
     )
+    if not doc:
+        doc = Database.execute_query(
+            '''SELECT d.file_url AS file_path, d.file_type AS mime_type, d.file_name AS original_filename
+               FROM pg_document d
+               LEFT JOIN pg_application pg ON d.pg_application_id = pg.uuid
+               WHERE d.id = %s AND (pg.user_id = %s OR pg.user_id = %s OR %s IN ('admin','ict_director','admissionofficer','pgdean'))''',
+            (document_id, user_id, user_id, role)
+        )
+
     if not doc:
         return jsonify({'message': 'Document not found or access denied'}), 404
     file_path = doc[0]['file_path']
@@ -2394,12 +2465,10 @@ def get_form(payload, applicant_id):
                       ns.sponsor_name, ns.sponsor_address,
                       ref.name1 AS referee_name1, ref.address1 AS referee_address1,
                       ref.name2 AS referee_name2, ref.address2 AS referee_address2,
-                      ref.name3 AS referee_name3, ref.address3 AS referee_address3,
-                      doc.signature AS document_signature, doc.transcript AS document_transcript
+                      ref.name3 AS referee_name3, ref.address3 AS referee_address3
                FROM pg_application pg
                LEFT JOIN nextofkin_sponsor ns ON ns.id = pg.nextofkin_sponsor_id
                LEFT JOIN pg_reference ref ON ref.id = pg.pg_reference_id
-               LEFT JOIN pg_document doc ON doc.pg_application_id = pg.uuid
                WHERE pg.uuid = %s''',
             (application_id,)
         )
@@ -2593,13 +2662,22 @@ def get_form(payload, applicant_id):
                 pass
 
     form_data['id'] = application_id
-    documents = Database.execute_query(
-        '''SELECT d.id AS document_id, d.document_type, d.document_type AS display_name,
-                  d.file_name AS original_filename, d.file_size, d.status
-           FROM documents d
-           WHERE d.application_id = %s''',
-        (application_id,)
-    )
+    if prog_type == 2:
+        documents = Database.execute_query(
+            '''SELECT d.id AS document_id, d.document_type, d.document_type AS display_name,
+                      d.file_name AS original_filename, d.file_size, d.status
+               FROM pg_document d
+               WHERE d.pg_application_id = %s''',
+            (application_id,)
+        )
+    else:
+        documents = Database.execute_query(
+            '''SELECT d.id AS document_id, d.document_type, d.document_type AS display_name,
+                      d.file_name AS original_filename, d.file_size, d.status
+               FROM documents d
+               WHERE d.application_id = %s''',
+            (application_id,)
+        )
     return jsonify({'form': form_data, 'documents': documents or []}), 200
 
 

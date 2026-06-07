@@ -191,7 +191,10 @@ function PaymentContent() {
 
       const form = document.createElement("form");
       form.method = "POST";
-      form.action = `${url.origin}/collections/w/pay`;
+      // Use the full path the backend constructed — do NOT hardcode /collections/w/pay,
+      // which is the old card-only endpoint. The backend returns /pay (the unified
+      // newwebpay endpoint that supports all channels including bank transfer & USSD).
+      form.action = `${url.origin}${url.pathname}`;
 
       Object.entries(params).forEach(([key, value]) => {
         const input = document.createElement("input");

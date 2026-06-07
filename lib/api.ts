@@ -536,6 +536,37 @@ export class ApiClient {
     return data;
   }
 
+  static async scanDocument(file: File): Promise<{
+    quality_score: number;
+    is_acceptable: boolean;
+    issues: string[];
+    sharpness: number;
+    brightness: number;
+    original_b64: string;
+    preview_b64: string;
+    skip_scan?: boolean;
+    message?: string;
+  }> {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const token = this.getToken();
+    const headers: HeadersInit = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    const response = await fetch(`${API_BASE_URL}/applicant/scan-document`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok && !data.skip_scan) {
+      throw new Error(data.message || "Scan failed");
+    }
+    return data;
+  }
+
   static async deleteDocument(document_id: number) {
     const { data } = await this.fetch(
       `/applicant/delete-document/${document_id}`,
@@ -545,6 +576,7 @@ export class ApiClient {
     );
     return data;
   }
+
 
   static async getForm(applicant_id: number) {
     const { data } = await this.fetch(`/applicant/get-form/${applicant_id}`);
@@ -590,6 +622,15 @@ export class ApiClient {
   }> {
     const { data } = await this.fetch<{ installment_plans: InstallmentPlan[] }>(
       "/applicant/installment-plans",
+    );
+    return data;
+  }
+
+  static async getProcessingFee(): Promise<{
+    processing_fee: number;
+  }> {
+    const { data } = await this.fetch<{ processing_fee: number }>(
+      "/applicant/processing-fee",
     );
     return data;
   }
@@ -1523,58 +1564,6 @@ export class ApiClient {
   }
 
   // ─── PG Dean endpoints ────────────────────────────────────────────────────
-
-  static async getPgDeanDashboard(): Promise<any> {
-    const { data } = await this.fetch<any>("/pgdean/dashboard");
-    return data;
-  }
-
-  static async getPgDeanApplications(
-    status = "submitted",
-    page = 1,
-    perPage = 10,
-    search?: string,
-  ): Promise<any> {
-    const params = new URLSearchParams({
-      status,
-      page: String(page),
-      per_page: String(perPage),
-    });
-    if (search) params.append("search", search);
-    const { data } = await this.fetch<any>(`/pgdean/applications?${params}`);
-    return data;
-  }
-
-  static async getPgDeanApplicationDetail(applicationId: string): Promise<any> {
-    const { data } = await this.fetch<any>(
-      `/pgdean/application/${applicationId}`,
-    );
-    return data;
-  }
-
-  static async getPgEvaluation(applicationId: string): Promise<any> {
-    const { data } = await this.fetch<any>(
-      `/pgdean/evaluation/${applicationId}`,
-    );
-    return data;
-  }
-
-  static async savePgEvaluation(
-    applicationId: string,
-    payload: {
-      transcript_received: string;
-      transcript_comment: string;
-      ref_letters_count: number;
-      recommendation: string;
-      supervisor_name: string;
-    },
-  ): Promise<any> {
-    const { data } = await this.fetch<any>(
-      `/pgdean/evaluate/${applicationId}`,
-      { method: "POST", body: JSON.stringify(payload) },
-    );
-    return data;
-  }
 
   /** Download the printable PG application PDF.
    *  Works for both pgdean and admissionofficer roles. */

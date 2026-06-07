@@ -19,8 +19,13 @@ function CallbackContent() {
   const searchParams = useSearchParams();
   const { user, refreshStatus } = useAuth();
 
-  const txnref =
-    searchParams.get("txnref") || searchParams.get("txnRef") || "";
+  // Capture the ref from the URL once, then immediately clean the address bar.
+  // We keep the value in a ref so the polling loop can still use it after the
+  // URL params are gone.
+  const txnrefRef = React.useRef(
+    searchParams.get("txnref") || searchParams.get("txnRef") || ""
+  );
+  const txnref = txnrefRef.current;
 
   const [state, setState] = useState<VerifyState>("verifying");
   const [result, setResult] = useState<{
@@ -36,6 +41,13 @@ function CallbackContent() {
   const POLL_INTERVAL_MS = 4000;
 
   const [showSkeleton, setShowSkeleton] = useState(false);
+
+  // Strip the query string from the address bar as soon as the component mounts.
+  // The txnref is already captured above — this is purely cosmetic.
+  useEffect(() => {
+    router.replace("/applicant/payment/callback", { scroll: false });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (state === "verifying") {

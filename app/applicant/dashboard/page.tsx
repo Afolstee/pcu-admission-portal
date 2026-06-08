@@ -169,6 +169,23 @@ function ApplicantDashboardInner() {
 
   const getAdmissionModalSessionKey = (applicant?: any) =>
     `pcu-admission-offer-modal:${applicant?.id ?? user?.username ?? "applicant"}`;
+  const getApplicantLoginSessionKey = () =>
+    `pcu-applicant-login:${user?.id ?? user?.username ?? user?.email ?? "applicant"}`;
+  const getRecommendationModalSessionKey = (applicant?: any) =>
+    `pcu-course-recommendation-modal:${
+      applicant?.id ?? "application"
+    }:${user?.id ?? user?.username ?? user?.email ?? "applicant"}`;
+  const markRecommendationModalHandled = (applicant?: ApplicantStatus | null) => {
+    if (typeof window === "undefined" || !applicant) return;
+
+    const loginMarker = sessionStorage.getItem(getApplicantLoginSessionKey());
+    if (!loginMarker) return;
+
+    sessionStorage.setItem(
+      getRecommendationModalSessionKey(applicant),
+      loginMarker,
+    );
+  };
   const profileStatuses = [
     "submitted",
     "screening",
@@ -283,6 +300,7 @@ function ApplicantDashboardInner() {
       return;
     }
 
+    markRecommendationModalHandled(app);
     setShowRecommendationModal(false);
     await openApplicantProfile(app);
 
@@ -328,7 +346,13 @@ function ApplicantDashboardInner() {
       );
       if (recommendationApp) {
         setRecommendationModalApp(recommendationApp);
-        setShowRecommendationModal(true);
+        const shouldShowRecommendationModal =
+          typeof window !== "undefined" &&
+          !!sessionStorage.getItem(getApplicantLoginSessionKey()) &&
+          sessionStorage.getItem(
+            getRecommendationModalSessionKey(recommendationApp),
+          ) !== sessionStorage.getItem(getApplicantLoginSessionKey());
+        setShowRecommendationModal(shouldShowRecommendationModal);
       } else {
         setShowRecommendationModal(false);
         setRecommendationModalApp(null);
@@ -1657,39 +1681,39 @@ function ApplicantDashboardInner() {
 
         {/* ── Admitted dashboard — Documents & Tuition (replaces old student portal modal) ── */}
         {showRecommendationModal && recommendationModalApp && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 backdrop-blur-md animate-in fade-in duration-300">
-            <div className="bg-[#fffefa] backdrop-blur-md rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 border border-[#e8dfd2] shadow-2xl text-center space-y-6 animate-in zoom-in-95 duration-200">
-              <div className="w-20 h-20 bg-[#f3eee6] border border-[#e2d6c3] text-[#9a6614] rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
-                <GraduationCap className="w-11 h-11" />
+          <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-slate-950/40 p-3 backdrop-blur-md animate-in fade-in duration-300 sm:p-4">
+            <div className="my-auto w-full max-w-[20rem] rounded-xl border border-[#e8dfd2] bg-[#fffefa] p-4 text-center shadow-2xl animate-in zoom-in-95 duration-200 sm:max-w-md sm:rounded-2xl sm:p-8">
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-[#e2d6c3] bg-[#f3eee6] text-[#9a6614] shadow-sm sm:mb-4 sm:h-20 sm:w-20">
+                <GraduationCap className="h-7 w-7 sm:h-11 sm:w-11" />
               </div>
-              <div className="space-y-3">
+              <div className="space-y-2 sm:space-y-3">
                 <span className="px-3 py-1 bg-[#fff7e8] text-[#7a4f10] text-xs font-semibold rounded-full border border-[#efd9a8]">
                   Course Recommendation
                 </span>
-                <h3 className="text-2xl sm:text-3xl font-semibold text-slate-900">
+                <h3 className="text-lg font-semibold leading-tight text-slate-900 sm:text-3xl">
                   Review Your Recommended Course
                 </h3>
-                <p className="text-slate-500 font-medium text-base leading-relaxed px-2">
+                <p className="hidden px-2 text-base font-medium leading-relaxed text-slate-500 sm:block">
                   The admission office has recommended another course for your
                   application. Open your profile to accept it, reject it, or
                   recommend a different postgraduate course.
                 </p>
               </div>
               {recommendationModalApp.approved_course && (
-                <div className="rounded-xl border border-[#efd9a8] bg-white p-4 text-left">
+                <div className="mt-4 rounded-lg border border-[#efd9a8] bg-white p-3 text-left sm:mt-6 sm:rounded-xl sm:p-4">
                   <p className="text-[11px] font-bold uppercase tracking-wide text-[#9a6614]">
                     Recommended Course
                   </p>
-                  <p className="mt-1 text-base font-semibold text-slate-900">
+                  <p className="mt-1 text-sm font-semibold leading-snug text-slate-900 sm:text-base">
                     {recommendationModalApp.approved_course}
                   </p>
                 </div>
               )}
-              <div className="space-y-3">
+              <div className="mt-4 space-y-2 sm:mt-6 sm:space-y-3">
                 <Button
                   onClick={openRecommendationDecisionProfile}
                   disabled={profileLoading}
-                  className="w-full h-12 bg-[#151515] hover:bg-[#2a2a2a] text-white font-bold text-base rounded-xl shadow-sm transition-all duration-300"
+                  className="h-10 w-full rounded-lg bg-[#151515] text-sm font-bold text-white shadow-sm transition-all duration-300 hover:bg-[#2a2a2a] sm:h-12 sm:rounded-xl sm:text-base"
                 >
                   {profileLoading
                     ? "Opening Profile..."
@@ -1698,8 +1722,11 @@ function ApplicantDashboardInner() {
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={() => setShowRecommendationModal(false)}
-                  className="w-full h-10 text-slate-500 hover:text-slate-800"
+                  onClick={() => {
+                    markRecommendationModalHandled(recommendationModalApp);
+                    setShowRecommendationModal(false);
+                  }}
+                  className="h-9 w-full text-sm text-slate-500 hover:text-slate-800 sm:h-10"
                 >
                   Later
                 </Button>

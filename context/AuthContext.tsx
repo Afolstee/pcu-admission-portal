@@ -302,6 +302,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       const response = (await ApiClient.login(email, password, portal)) as ApiResponse;
       ApiClient.setToken(response.token);
       saveUserAndRole(response.user);
+      if (
+        typeof window !== "undefined" &&
+        ["applicant", "admitted", "freshapplicant"].includes(response.user?.role)
+      ) {
+        const loginKey = `pcu-applicant-login:${
+          response.user.id ?? response.user.username ?? response.user.email
+        }`;
+        sessionStorage.setItem(loginKey, Date.now().toString());
+      }
       if (response.applicant) {
         setApplicant(response.applicant);
       }

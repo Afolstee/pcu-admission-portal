@@ -58,7 +58,7 @@ def recover_candidate(txn: dict, apply: bool):
     isw_resp = InterswitchClient.requery_transaction(ref, amount_kobo)
     response_code = str(isw_resp.get("ResponseCode", "")).strip()
     response_desc = isw_resp.get("ResponseDescription", "")
-    tran_status = classify_response(response_code, int(txn["requery_count"]))
+    tran_status = classify_response(response_code, int(txn["requery_count"]), response_desc)
 
     result = {
         "reference_no": ref,

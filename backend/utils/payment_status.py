@@ -13,6 +13,19 @@ CANCELLED_CODES = {
     'Z9',   # User cancelled / session expired on gateway
 }
 
+CANCELLED_DESCRIPTION_MARKERS = (
+    'cancel',
+    'cancelled',
+    'canceled',
+    'abort',
+    'aborted',
+    'abandon',
+    'abandoned',
+    'user closed',
+    'closed by user',
+    'user terminated',
+)
+
 PENDING_CODES = {
     'T0',    # Transaction pending / processing (very common for bank transfers)
     'T03',   # Transaction pending at processor
@@ -59,7 +72,11 @@ def generate_receipt_no() -> str:
     return f"pcu-{datetime.now().strftime('%Y%m%d')}-{secrets.token_hex(8).upper()}"
 
 
-def classify_response(response_code: str, current_requery_count: int) -> str:
+def classify_response(
+    response_code: str,
+    current_requery_count: int,
+    response_desc: str = '',
+) -> str:
     """
     Return the tran_status to write, given the Interswitch ResponseCode.
     
@@ -73,12 +90,14 @@ def classify_response(response_code: str, current_requery_count: int) -> str:
     ------
     response_code        : raw ResponseCode from Interswitch (may be None/empty)
     current_requery_count: the requery_count value already in the DB row
+    response_desc        : raw ResponseDescription from Interswitch
 
     Returns
     -------
     'successful' | 'cancelled' | 'pending' | 'failed'
     """
     code = (response_code or '').strip()
+    desc = (response_desc or '').strip().lower()
 
     # Successful payment
     if code == '00':
@@ -86,7 +105,7 @@ def classify_response(response_code: str, current_requery_count: int) -> str:
 
     # User cancelled on gateway. Empty/unknown requery responses are not
     # cancellations; they remain pending so async confirmation can still land.
-    if code in CANCELLED_CODES:
+    if code in CANCELLED_CODES or any(marker in desc for marker in CANCELLED_DESCRIPTION_MARKERS):
         return 'cancelled'
 
     # Transient/processing codes — NEVER mark as failed, always PENDING

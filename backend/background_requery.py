@@ -110,7 +110,7 @@ def requery_all_pending(dry_run: bool = False) -> dict:
 
         response_code = str(isw_resp.get('ResponseCode', '')).strip()
         response_desc = isw_resp.get('ResponseDescription', '')
-        tran_status   = classify_response(response_code, requery_count)
+        tran_status   = classify_response(response_code, requery_count, response_desc)
 
 
         if dry_run:

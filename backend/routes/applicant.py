@@ -1683,7 +1683,7 @@ def payment_callback():
     response_desc = isw_resp.get('ResponseDescription', '')
     
     # Classify response using the fixed logic
-    tran_status = classify_response(response_code, requery_count)
+    tran_status = classify_response(response_code, requery_count, response_desc)
     is_successful = (tran_status == 'successful')
     
     if is_successful:
@@ -1788,7 +1788,7 @@ def verify_transaction_by_reference(reference_no: str):
     response_code = str(isw_resp.get('ResponseCode', '')).strip()
     response_desc = isw_resp.get('ResponseDescription', '')
 
-    tran_status = classify_response(response_code, requery_count)
+    tran_status = classify_response(response_code, requery_count, response_desc)
     is_successful = (tran_status == 'successful')
 
     latest_after = Database.execute_query(
@@ -1942,7 +1942,7 @@ def verify_payment(payload):
             response_desc = isw_resp.get('ResponseDescription', '')
             
             # Classify using fixed logic
-            tran_status = classify_response(response_code, txn['requery_count'])
+            tran_status = classify_response(response_code, txn['requery_count'], response_desc)
             is_successful = (tran_status == 'successful')
             
             print(f"[verify-payment] {reference_no} | requery code={response_code!r} → {tran_status}")
@@ -2098,7 +2098,7 @@ def payment_webhook():
     response_code = str(isw_resp.get('ResponseCode', '')).strip()
     response_desc = isw_resp.get('ResponseDescription', '')
 
-    tran_status   = classify_response(response_code, requery_count)
+    tran_status   = classify_response(response_code, requery_count, response_desc)
     is_successful = (tran_status == 'successful')
     is_cancelled  = (tran_status == 'cancelled')
 

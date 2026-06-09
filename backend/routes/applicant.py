@@ -1688,7 +1688,6 @@ def payment_callback():
     
     if is_successful:
         lock_acquired = atomic_settle_payment(txnref, user_id, payment_type)
-        
         if lock_acquired:
             receipt_no = generate_receipt_no()
             sql, params = build_update_sql_params(
@@ -1696,20 +1695,27 @@ def payment_callback():
                 isw_resp, amount_kobo, receipt_no
             )
             Database.execute_update(sql, params)
-            redirect_url = make_frontend_url(f"/applicant/payment/callback?txnref={txnref}")
-            return make_html_redirect(redirect_url)
         else:
             print(f"[callback] Already settled by another handler: {txnref}")
-            redirect_url = make_frontend_url(f"/applicant/payment/callback?txnref={txnref}")
-            return make_html_redirect(redirect_url)
-    
-    # For non-successful payments, update status directly
-    receipt_no = None
-    sql, params = build_update_sql_params(
-        tran_status, txnref, response_code, response_desc,
-        isw_resp, amount_kobo, receipt_no
-    )
-    Database.execute_update(sql, params)
+        redirect_url = make_frontend_url(f"/applicant/payment/callback?txnref={txnref}")
+        return make_html_redirect(redirect_url)
+
+    # Only write cancelled when the gateway confirms user cancellation.
+    # All other non-success statuses stay pending for polling/webhook recovery.
+    if tran_status == 'cancelled':
+        sql, params = build_update_sql_params(
+            'cancelled', txnref, response_code, response_desc,
+            isw_resp, amount_kobo, None
+        )
+        Database.execute_update(sql, params)
+    else:
+        Database.execute_update(
+            '''UPDATE payment_transactions
+               SET requery_count = COALESCE(requery_count, 0) + 1,
+                   updated_at    = NOW()
+               WHERE reference_no = %s AND tran_status = 'pending' ''',
+            (txnref,)
+        )
     redirect_url = make_frontend_url(f"/applicant/payment/callback?txnref={txnref}")
     return make_html_redirect(redirect_url)
 
@@ -1837,7 +1843,7 @@ def verify_payment(payload):
                   response_description,
                   academic_session_id,
                   COALESCE(requery_count, 0) AS requery_count,
-                  last_queried_at, fully_paid_for_session
+                  last_queried_at, fully_paid_for_session, updated_at
            FROM payment_transactions
            WHERE reference_no = %s AND user_id = %s
            ORDER BY created_at DESC LIMIT 1''',
@@ -1868,31 +1874,57 @@ def verify_payment(payload):
         
         if message:
             response['message'] = message
+            response['response_desc'] = message
         
         return response
     
-    user_cancelled = (
-        current_status == 'cancelled'
-        and (txn.get('response_description') or '') == 'Cancelled by user'
-    )
+    RECOVERY_WINDOW_MINUTES = 5
 
-    # If already finalised, just return status. Old gateway-derived cancelled
-    # rows are recoverable and should be requeried.
-    if current_status in ('successful', 'failed') or user_cancelled:
+    if current_status == 'cancelled':
         return jsonify(build_response(
-            current_status, 
-            current_status == 'successful',
+            'cancelled',
+            False,
+            txn['receipt_no'],
+            'Transaction cancelled'
+        )), 200
+
+    if current_status == 'successful':
+        return jsonify(build_response(
+            'successful',
+            True,
             txn['receipt_no'],
             'Transaction already finalised'
         )), 200
+
+    if current_status == 'failed':
+        updated_at = txn.get('updated_at')
+        if updated_at:
+            age_minutes = (datetime.now().replace(tzinfo=None) - updated_at).total_seconds() / 60
+            if age_minutes >= RECOVERY_WINDOW_MINUTES:
+                return jsonify(build_response(
+                    'failed',
+                    False,
+                    None,
+                    'Transaction already finalised'
+                )), 200
+        else:
+            return jsonify(build_response(
+                'failed',
+                False,
+                None,
+                'Transaction already finalised'
+            )), 200
     
 
     amount_kobo = txn['amount_in_kobo'] or round(float(txn['amount'] or 0) * 100)
     last_queried = txn.get('last_queried_at')
     should_requery = (
-        current_status in ('pending', 'requery_error', 'cancelled') and
-        (last_queried is None or 
-         (datetime.now(timezone.utc).replace(tzinfo=None) - last_queried).total_seconds() > 5)
+        current_status == 'failed' or
+        (
+            current_status in ('pending', 'requery_error', 'cancelled') and
+            (last_queried is None or
+             (datetime.now(timezone.utc).replace(tzinfo=None) - last_queried).total_seconds() > 5)
+        )
     )
     
     if should_requery:
@@ -2015,7 +2047,8 @@ def payment_webhook():
     txn_res = Database.execute_query(
         '''SELECT id, user_id, amount_in_kobo, amount, tran_status, receipt_no,
                   response_description,
-                  tran_type, COALESCE(requery_count, 0) AS requery_count
+                  tran_type, COALESCE(requery_count, 0) AS requery_count,
+                  updated_at
            FROM payment_transactions
            WHERE reference_no = %s
            ORDER BY created_at DESC LIMIT 1''',
@@ -2030,15 +2063,20 @@ def payment_webhook():
     payment_type  = txn['tran_type']
     requery_count = int(txn['requery_count'])
 
-    user_cancelled = (
-        txn['tran_status'] == 'cancelled'
-        and (txn.get('response_description') or '') == 'Cancelled by user'
-    )
+    WEBHOOK_RECOVERY_WINDOW_MINUTES = 30
 
-    # Idempotency. Old gateway-derived cancelled rows are recoverable.
-    if txn['tran_status'] in ('successful', 'failed') or user_cancelled:
+    if txn['tran_status'] in ('successful', 'cancelled'):
         print(f"[webhook] Already finalised ({txn['tran_status']}): {reference_no}")
         return jsonify({'message': 'already processed'}), 200
+
+    if txn['tran_status'] == 'failed':
+        updated_at = txn.get('updated_at')
+        if updated_at:
+            age_minutes = (datetime.now().replace(tzinfo=None) - updated_at).total_seconds() / 60
+            if age_minutes >= WEBHOOK_RECOVERY_WINDOW_MINUTES:
+                return jsonify({'message': 'already processed'}), 200
+        else:
+            return jsonify({'message': 'already processed'}), 200
 
     amount_kobo = txn['amount_in_kobo'] or (round(float(txn['amount'] or 0) * 100))
 

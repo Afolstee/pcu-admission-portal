@@ -85,6 +85,14 @@ function ApplicantInfoTab({
   passportUrl: string | null;
   applicant: any;
 }) {
+  const isAdmissionFinalised = ["admitted", "accepted", "enrolled"].includes(
+    applicant?.application_status
+  );
+  const displayCourseName =
+    isAdmissionFinalised && applicant?.finalised_course
+      ? applicant.finalised_course
+      : form?.proposed_course_name;
+
   return (
     <div className="space-y-6 bg-white border border-gray-200 p-6 rounded-xl">
       {/* Header with passport */}
@@ -127,11 +135,7 @@ function ApplicantInfoTab({
           </div>
           <div className="pt-1">
             <Badge className="bg-slate-100 text-slate-600 border-slate-200 font-medium rounded-md px-2.5 py-1 text-xs">
-              {form?.degree_name && form?.proposed_course_name
-                ? `${form.degree_code || form.degree_name} — ${form.proposed_course_name}`
-                : form?.proposed_course_name ||
-                  applicant?.program_name ||
-                  "N/A"}
+              {form?.degree_code && displayCourseName}
             </Badge>
           </div>
         </div>
@@ -198,8 +202,8 @@ function ApplicantInfoTab({
             }
           />
           <InfoCard
-            label="Proposed Course"
-            value={form?.proposed_course_name}
+            label={isAdmissionFinalised ? "Finalised Course" : "Proposed Course"}
+            value={displayCourseName}
             colSpan="md:col-span-2"
           />
           <InfoCard

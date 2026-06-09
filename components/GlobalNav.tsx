@@ -159,10 +159,14 @@ export function GlobalNav() {
   const isManagementPortal =
     isAuthenticated && ["hod", "dean"].includes(user?.role || "");
   const isAdmissionOfficerSection = pathname?.startsWith("/admission_officer");
+  const isPgAdminSection = pathname?.startsWith("/pgadmin");
   const isApplicantSection = pathname?.startsWith("/applicant");
   const isStudentSection = pathname?.startsWith("/student");
   const isOfficialPortalSection =
-    isAdmissionOfficerSection || isApplicantSection || isStudentSection;
+    isAdmissionOfficerSection ||
+    isPgAdminSection ||
+    isApplicantSection ||
+    isStudentSection;
 
   React.useEffect(() => {
     const fetchCount = () => {
@@ -236,6 +240,9 @@ export function GlobalNav() {
         return "/lecturer/dashboard";
       case "ictdirector":
         return "/ict/dashboard";
+      case "pgadmin":
+      case "pgdean":
+        return "/pgadmin/dashboard";
       default:
         return "/";
     }
@@ -255,12 +262,12 @@ export function GlobalNav() {
   return (
     <>
       {/* Top Header - "Only the name of the authenticated user" */}
-      <header>
+      <header className="lg:hidden bg-white/95 border-b border-slate-100 px-4 py-2 backdrop-blur">
         {/* Mobile Hamburger Toggle */}
         <button
           onClick={toggle}
           className={cn(
-            "lg:hidden p-2 -ml-4 mr-2 rounded-lg transition-colors shrink-0",
+            "p-2 rounded-lg transition-colors shrink-0",
             isOfficialPortalSection
               ? "text-slate-700 hover:bg-[#ead6aa] hover:text-[#15110a]"
               : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",

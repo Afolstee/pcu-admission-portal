@@ -14,8 +14,6 @@ import {
   ChevronLeft,
   FileText,
   Download,
-  CheckCircle2,
-  Clock,
 } from "lucide-react";
 import {
   Select,
@@ -154,32 +152,36 @@ function PgApplicationsPageInner() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-slate-50/50">
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
 
         {/* Header */}
-        <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="mb-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <Link
               href="/pgadmin/dashboard"
-              className="text-slate-500 hover:text-slate-700 text-sm mb-1.5 block transition-colors"
+              className="text-slate-500 hover:text-slate-800 text-sm mb-2 block font-bold"
             >
               ← Back to Dashboard
             </Link>
-            <h1 className="text-2xl font-bold text-slate-800">Applications</h1>
-            <p className="text-slate-500 text-sm mt-0.5">Review applications, complete evaluations and finalize admissions</p>
+            <h1 className="text-3xl font-black text-slate-800 tracking-tight mb-1">
+              Applications
+            </h1>
+            <p className="text-slate-500 font-medium">
+              Review applications, complete evaluations and finalize admissions
+            </p>
           </div>
 
           <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="w-56 h-10 bg-white border-gray-200 text-slate-700 font-medium rounded-lg">
+            <SelectTrigger className="w-52 h-11 bg-white border-slate-200/80 shadow-sm rounded-xl font-bold">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent className="bg-white border-gray-200 rounded-lg shadow-lg">
-              <SelectItem value="submitted" className="text-slate-700 font-medium cursor-pointer">New Submissions</SelectItem>
-              <SelectItem value="screening" className="text-slate-700 font-medium cursor-pointer">Awaiting Decision</SelectItem>
-              <SelectItem value="admitted" className="text-slate-700 font-medium cursor-pointer">Admitted</SelectItem>
-              <SelectItem value="rejected" className="text-slate-700 font-medium cursor-pointer">Rejected</SelectItem>
+            <SelectContent className="bg-white/95 backdrop-blur-md rounded-xl border-slate-100 shadow-xl">
+              <SelectItem value="submitted" className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer">New Submissions</SelectItem>
+              <SelectItem value="screening" className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer">Awaiting Decision</SelectItem>
+              <SelectItem value="admitted" className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer">Admitted</SelectItem>
+              <SelectItem value="rejected" className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer">Rejected</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -196,12 +198,12 @@ function PgApplicationsPageInner() {
               placeholder="Search by name or form number..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300 transition-all"
+              className="w-full pl-9 pr-4 py-2.5 bg-white border border-[#e8dfd2] rounded-xl text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#d8c29a] transition-all shadow-sm"
             />
           </div>
           <Button
             type="submit"
-            className="h-10 px-5 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-lg text-sm transition-colors"
+            className="h-10 px-5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl text-sm transition-colors"
           >
             Search
           </Button>
@@ -212,70 +214,87 @@ function PgApplicationsPageInner() {
 
         {/* List */}
         {loading ? (
-          <div className="text-center py-20 bg-white border border-gray-200 rounded-xl">
-            <div className="w-8 h-8 border-2 border-slate-200 border-t-slate-500 rounded-full animate-spin mx-auto mb-3" />
-            <p className="text-slate-400 text-sm">Loading applications...</p>
+          <div className="text-center py-20 bg-white border border-slate-100 rounded-3xl shadow-sm">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#6b357d] mx-auto mb-4" />
+            <p className="text-slate-500 font-semibold text-sm">Loading applications...</p>
           </div>
         ) : applications.length === 0 ? (
-          <div className="text-center py-20 bg-white border border-dashed border-gray-300 rounded-xl">
-            <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-            <p className="text-slate-600 font-semibold text-base">No Applications Found</p>
-            <p className="text-slate-400 text-sm mt-1">
-              {debouncedSearch
-                ? `No results for "${debouncedSearch}" in this filter`
-                : `No PG applications with status "${status}"`}
-            </p>
-          </div>
+          <Card className="border-dashed border-2 border-slate-200 shadow-inner bg-slate-50/50 rounded-3xl overflow-hidden">
+            <CardContent className="py-20 text-center max-w-sm mx-auto space-y-4">
+              <div className="w-16 h-16 bg-white border border-slate-100 shadow-md rounded-2xl flex items-center justify-center mx-auto text-slate-300">
+                <FileText className="w-8 h-8" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-slate-800 font-bold text-lg">Inbox is Empty</p>
+                <p className="text-slate-400 text-sm leading-relaxed font-medium">
+                  {debouncedSearch
+                    ? `No results for "${debouncedSearch}" in this filter`
+                    : `No PG applications with status "${status}"`}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-4">
             {applications.map((app) => (
               <Link
                 key={app.id}
                 href={`/pgadmin/application/${app.id}`}
                 className="block"
               >
-                <Card className="bg-white border border-gray-200 hover:border-slate-400 hover:shadow-sm transition-all duration-150 rounded-xl group">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex-1 min-w-0 space-y-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-semibold text-slate-800 text-sm capitalize">
-                            {app.name}
-                          </h3>
-                          <Badge
-                            className={`${statusColors[app.application_status] || "bg-gray-100 text-gray-600"} font-medium text-[10px] uppercase tracking-wide py-0.5 px-2 rounded-md`}
-                          >
-                          </Badge>
-                          
+                <Card className="hover:shadow-lg hover:border-[#d8c29a] border-[#e8dfd2] transition-all duration-300 bg-white hover:-translate-y-0.5 rounded-2xl group relative overflow-hidden shadow-sm">
+                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#c99b45] opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                  <CardContent className="p-5 sm:p-6">
+                    <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="min-w-0 flex-1 space-y-5">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <h3 className="font-black text-slate-900 text-lg sm:text-xl leading-snug capitalize">
+                              {app.name}
+                            </h3>
+                          </div>
+                          <div className="flex flex-wrap gap-2 sm:justify-end lg:min-w-[250px]">
+                            <Badge
+                              data-status={app.application_status}
+                              className={`admission-status-badge ${statusColors[app.application_status] || "bg-slate-50 text-slate-700 border border-slate-200"} font-bold text-xs py-1.5 px-3.5 rounded-full`}
+                            >
+                              {app.application_status.replace("_", " ")}
+                            </Badge>
+                            {app.has_evaluation && (
+                              <span className="text-xs font-black px-3.5 py-1.5 rounded-full border shadow-sm bg-blue-50 text-blue-700 border-blue-100">
+                                Evaluated
+                              </span>
+                            )}
+                          </div>
                         </div>
 
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                          <div>
-                            <span className="text-slate-400 block">Form No.</span>
-                            <p className="font-mono font-semibold text-slate-700">{app.form_no || "N/A"}</p>
+                        <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
+                          <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3">
+                            <span className="text-xs text-slate-500 font-bold">Form No.</span>
+                            <p className="mt-1 font-bold text-slate-800 font-mono text-sm break-words">{app.form_no || "N/A"}</p>
                           </div>
-                          <div>
-                            <span className="text-slate-400 block">Email</span>
-                            <p className="text-slate-600 truncate max-w-[160px]">{app.email}</p>
+                          <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3">
+                            <span className="text-xs text-slate-500 font-bold">Email Address</span>
+                            <p className="mt-1 font-bold text-slate-800 text-sm break-words">{app.email}</p>
                           </div>
-                          <div className="col-span-2 md:col-span-1">
-                            <span className="text-slate-400 block">Programme</span>
-                            <p className="font-semibold text-slate-700 truncate max-w-[200px]">{app.program_name}</p>
+                          <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3 sm:col-span-2 xl:col-span-1">
+                            <span className="text-xs text-slate-500 font-bold">Programme Offered</span>
+                            <p className="mt-1 font-black text-slate-900 text-sm break-words">{app.program_name}</p>
                           </div>
-                          <div>
-                            <span className="text-slate-400 block">Session</span>
-                            <p className="text-slate-600">{app.session || "N/A"}</p>
+                          <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3">
+                            <span className="text-xs text-slate-500 font-bold">Session</span>
+                            <p className="mt-1 font-bold text-slate-800 text-sm">{app.session || "N/A"}</p>
                           </div>
                         </div>
                       </div>
 
                       {/* Actions */}
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center justify-end gap-2 lg:justify-center">
                         <button
                           onClick={(e) => handleDownload(app, e)}
                           disabled={downloading === app.id}
                           title="Download Application"
-                          className="flex items-center gap-1 p-2 bg-gray-100 hover:bg-gray-200 text-slate-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="flex items-center gap-1 p-2.5 bg-[#fbfaf7] border border-[#e8dfd2] text-slate-500 rounded-xl hover:bg-[#ead6aa] hover:text-[#15110a] hover:border-[#d8c29a] transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {downloading === app.id ? (
                             <span className="w-4 h-4 border-2 border-slate-300 border-t-slate-500 rounded-full animate-spin" />
@@ -283,8 +302,8 @@ function PgApplicationsPageInner() {
                             <Download className="h-4 w-4" />
                           )}
                         </button>
-                        <div className="p-2 text-slate-400 group-hover:text-slate-700 transition-colors">
-                          <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
+                        <div className="p-2.5 bg-[#fbfaf7] border border-[#e8dfd2] text-slate-500 rounded-xl group-hover:bg-[#ead6aa] group-hover:text-[#15110a] group-hover:border-[#d8c29a] transition-all duration-300">
+                          <ChevronRight className="h-5 w-5 transform group-hover:translate-x-0.5 transition-transform" />
                         </div>
                       </div>
                     </div>

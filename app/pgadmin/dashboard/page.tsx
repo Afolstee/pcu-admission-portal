@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient } from "@/lib/api";
@@ -17,7 +16,6 @@ import {
   UserCheck,
   Eye,
   XCircle,
-  ChevronRight,
   ClipboardList,
 } from "lucide-react";
 
@@ -50,7 +48,7 @@ function activityDot(type: string) {
 }
 
 function friendlyTime(iso: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "â€”";
   const date = new Date(iso);
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -91,10 +89,10 @@ export default function PgAdminDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
-          <div className="w-10 h-10 border-4 border-slate-200 border-t-slate-500 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-slate-500 text-sm font-medium">Loading...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading dashboard...</p>
         </div>
       </div>
     );
@@ -105,125 +103,129 @@ export default function PgAdminDashboard() {
       label: "Total Applications",
       value: stats?.total_applications ?? 0,
       icon: FileText,
-      accent: "text-slate-600",
-      iconBg: "bg-slate-100",
+      accent: "text-slate-900",
+      iconBg: "bg-[#f3eee6] text-slate-700 border border-[#e2d6c3]",
     },
     {
       label: "New Submissions",
       value: stats?.new_applications ?? 0,
       icon: ClipboardList,
-      accent: "text-blue-600",
-      iconBg: "bg-blue-50",
+      accent: "text-[#2d5f9a]",
+      iconBg: "bg-[#eef4fb] text-[#2d5f9a] border border-[#ccdded]",
     },
     {
       label: "Under Review",
       value: stats?.under_review ?? 0,
       icon: Eye,
-      accent: "text-amber-600",
-      iconBg: "bg-amber-50",
+      accent: "text-[#9a6614]",
+      iconBg: "bg-[#fff7e8] text-[#9a6614] border border-[#efd9a8]",
     },
     {
       label: "Admitted",
       value: stats?.total_admitted ?? 0,
       icon: UserCheck,
-      accent: "text-emerald-600",
-      iconBg: "bg-emerald-50",
+      accent: "text-[#23704d]",
+      iconBg: "bg-[#eef7f1] text-[#23704d] border border-[#cfe6d8]",
     },
     {
       label: "Rejected",
       value: stats?.total_rejected ?? 0,
       icon: XCircle,
-      accent: "text-rose-600",
-      iconBg: "bg-rose-50",
+      accent: "text-[#9f1239]",
+      iconBg: "bg-[#fff1f2] text-[#9f1239] border border-[#fecdd3]",
     },
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-
+    <div className="min-h-screen bg-[#f3eee6]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
-
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-slate-800">Good day, PG Admin</h1>
-          <p className="text-slate-500 text-sm mt-0.5">Postgraduate School Portal</p>
+        <div className="mb-6">
+          <h1 className="text-3xl font-black text-slate-900 mb-1">
+            PG Admin Dashboard
+          </h1>
+          <p className="text-slate-600 font-medium">
+            Manage postgraduate applications and admissions
+          </p>
         </div>
 
-        {/* Quick actions */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
-          <Link
-            href="/pgadmin/applications?status=submitted"
-            className="group flex items-center gap-4 bg-white hover:bg-slate-50 border border-gray-200 rounded-xl p-4 transition-colors"
-          >
-            <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-              <ClipboardList className="w-5 h-5" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-slate-800 font-semibold text-sm">Review New Applications</p>
-              <p className="text-slate-400 text-xs mt-0.5">
-                {stats?.new_applications ?? 0} awaiting Section B evaluation
+        <section className="mb-6 overflow-hidden rounded-2xl bg-[#c99b45] border border-[#b98d3d] shadow-sm">
+          <div className="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="text-white">
+              <p className="text-sm font-bold !text-white/85 mb-1">
+                Welcome back
               </p>
+              <h2 className="text-2xl font-black !text-white">
+                {user?.username || "PG Admin"}
+              </h2>
             </div>
-            <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
-          </Link>
+            <div className="flex items-center gap-3">
+              <div className="rounded-2xl bg-white/80 border border-white/70 px-4 py-3 text-center shadow-sm">
+                <p className="text-xs font-bold text-[#5c4520]">New</p>
+                <p className="text-2xl font-black text-[#15110a]">
+                  {stats?.new_applications ?? 0}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-white/80 border border-white/70 px-4 py-3 text-center shadow-sm">
+                <p className="text-xs font-bold text-[#5c4520]">Admitted</p>
+                <p className="text-2xl font-black text-[#15110a]">
+                  {stats?.total_admitted ?? 0}
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
 
-          <Link
-            href="/pgadmin/applications?status=screening"
-            className="group flex items-center gap-4 bg-white hover:bg-slate-50 border border-gray-200 rounded-xl p-4 transition-colors"
-          >
-            <div className="w-10 h-10 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
-              <Eye className="w-5 h-5" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-slate-800 font-semibold text-sm">Awaiting Admission Decision</p>
-              <p className="text-slate-400 text-xs mt-0.5">
-                {stats?.under_review ?? 0} awaiting final review
-              </p>
-            </div>
-            <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
-          </Link>
-        </div>
-
-        {/* Stat cards */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-8">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-4 mb-6">
           {statCards.map(({ label, value, icon: Icon, accent, iconBg }) => (
             <Card
               key={label}
-              className="bg-white border border-gray-200 shadow-none rounded-xl"
+              className="hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 border-[#e8dfd2] bg-white rounded-2xl overflow-hidden group shadow-sm"
             >
-              <CardContent className="p-4">
-                <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center mb-3`}>
-                  <Icon className={`w-4 h-4 ${accent}`} />
+              <CardContent className="min-h-[104px] p-5 flex items-center justify-between gap-4">
+                <div className="min-w-0 space-y-1">
+                  <p className="text-xs font-bold leading-snug text-slate-500">
+                    {label}
+                  </p>
+                  <p className={`text-3xl font-black ${accent}`}>{value}</p>
                 </div>
-                <p className={`text-2xl font-bold ${accent}`}>{value}</p>
-                <p className="text-xs text-slate-500 font-medium mt-0.5 leading-tight">{label}</p>
+                <div
+                  className={`shrink-0 p-3 rounded-2xl ${iconBg} group-hover:scale-105 transition-transform duration-300`}
+                >
+                  <Icon className="h-6 w-6 shrink-0" />
+                </div>
               </CardContent>
             </Card>
           ))}
         </div>
 
-        {/* Main grid */}
-        <div className="grid md:grid-cols-2 gap-6">
-
-          {/* Recent Activity */}
-          <Card className="bg-white border border-gray-200 shadow-none rounded-xl">
-            <CardHeader className="pb-3 border-b border-gray-100 px-5 pt-5">
-              <CardTitle className="text-sm font-semibold text-slate-700">Recent Activity</CardTitle>
+        <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <Card className="border-[#e8dfd2] shadow-sm bg-white rounded-2xl overflow-hidden">
+            <CardHeader className="pb-4 border-b border-[#f0e8dc]">
+              <CardTitle className="text-lg font-bold text-slate-900">
+                Recent Activity Log
+              </CardTitle>
             </CardHeader>
-            <CardContent className="p-5">
+            <CardContent className="p-6">
               {activity.length === 0 ? (
-                <div className="text-center py-10 text-slate-400">
-                  <FileText className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                  <p className="text-sm">No recent activity.</p>
+                <div className="py-12 text-center font-medium text-slate-500">
+                  <FileText className="mx-auto mb-2 h-10 w-10 text-slate-300" />
+                  <p className="text-sm">No recent activity to display.</p>
                 </div>
               ) : (
-                <div className="relative border-l border-gray-200 ml-3 space-y-4 py-1">
+                <div className="relative border-l border-[#eadfce] ml-3 space-y-4 py-2">
                   {activity.map((item, i) => (
-                    <div key={i} className="relative pl-5">
-                      <span className={`absolute left-0 top-2 -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 border-gray-50 ${activityDot(item.type)}`} />
-                      <div className="bg-gray-50 border border-gray-100 rounded-lg p-3">
-                        <p className="font-semibold text-sm text-slate-700 leading-snug">{item.label}</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">{friendlyTime(item.event_time)}</p>
+                    <div key={i} className="group relative pl-6">
+                      <span
+                        className={`absolute left-0 top-1.5 h-3.5 w-3.5 -translate-x-1/2 rounded-full border-2 border-white shadow-md ${activityDot(item.type)}`}
+                      />
+                      <div className="p-4 bg-[#fbfaf7] hover:bg-[#f7f1e8] border border-[#eee5d8] rounded-2xl transition-all duration-200">
+                        <p className="text-sm font-bold leading-snug text-slate-800">
+                          {item.label}
+                        </p>
+                        <p className="mt-1.5 flex items-center gap-1.5 text-[10px] font-bold text-slate-500">
+                          <span>&bull;</span>
+                          <span>{friendlyTime(item.event_time)}</span>
+                        </p>
                       </div>
                     </div>
                   ))}
@@ -232,44 +234,59 @@ export default function PgAdminDashboard() {
             </CardContent>
           </Card>
 
-          {/* Breakdowns */}
-          <div className="flex flex-col gap-4">
-            <Card className="bg-white border border-gray-200 shadow-none rounded-xl">
-              <CardHeader className="pb-3 border-b border-gray-100 px-5 pt-5">
-                <CardTitle className="text-sm font-semibold text-slate-700">By Status</CardTitle>
+          <div className="flex flex-col gap-6">
+            <Card className="border-[#e8dfd2] shadow-sm bg-white rounded-2xl overflow-hidden">
+              <CardHeader className="pb-4 border-b border-[#f0e8dc]">
+                <CardTitle className="text-base font-bold text-slate-900">
+                  Applications by Status
+                </CardTitle>
               </CardHeader>
-              <CardContent className="p-5 space-y-2">
+              <CardContent className="space-y-4 p-6">
                 {stats?.by_status?.map((s) => (
-                  <div key={s.application_status} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-                    <span className="text-sm text-slate-600 capitalize">
+                  <div
+                    key={s.application_status}
+                    className="flex items-center justify-between rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3"
+                  >
+                    <span className="text-sm font-bold capitalize text-slate-600">
                       {s.application_status.replace("_", " ")}
                     </span>
-                    <Badge className="bg-slate-100 text-slate-600 hover:bg-slate-100 border-none font-semibold text-xs px-2.5 py-0.5 rounded-md">
+                    <Badge className="rounded-lg border-none bg-[#ead6aa] px-3 py-1 text-xs font-bold text-[#4b3411] hover:bg-[#ead6aa]">
                       {s.count}
                     </Badge>
                   </div>
                 ))}
                 {(!stats?.by_status || stats.by_status.length === 0) && (
-                  <p className="text-sm text-slate-400 italic text-center py-4">No data yet.</p>
+                  <p className="py-4 text-center text-sm italic text-muted-foreground">
+                    No data yet.
+                  </p>
                 )}
               </CardContent>
             </Card>
 
-            <Card className="bg-white border border-gray-200 shadow-none rounded-xl">
-              <CardHeader className="pb-3 border-b border-gray-100 px-5 pt-5">
-                <CardTitle className="text-sm font-semibold text-slate-700">By Programme</CardTitle>
+            <Card className="border-[#e8dfd2] shadow-sm bg-white rounded-2xl overflow-hidden">
+              <CardHeader className="pb-4 border-b border-[#f0e8dc]">
+                <CardTitle className="text-base font-bold text-slate-900">
+                  Applications by Program
+                </CardTitle>
               </CardHeader>
-              <CardContent className="p-5 space-y-2">
-                {stats?.by_program?.slice(0, 6).map((p) => (
-                  <div key={p.name} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-                    <span className="text-xs text-slate-600 truncate max-w-[200px]">{p.name || "Unknown"}</span>
-                    <Badge className="bg-slate-100 text-slate-600 hover:bg-slate-100 border-none font-semibold text-xs px-2.5 py-0.5 rounded-md ml-2 shrink-0">
+              <CardContent className="space-y-4 p-6">
+                {stats?.by_program?.map((p) => (
+                  <div
+                    key={p.name}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3"
+                  >
+                    <span className="min-w-0 truncate text-sm font-bold text-slate-600">
+                      {p.name || "Unknown"}
+                    </span>
+                    <Badge className="shrink-0 rounded-lg border-none bg-[#dce7f1] px-3 py-1 text-xs font-bold text-[#234766] hover:bg-[#dce7f1]">
                       {p.count}
                     </Badge>
                   </div>
                 ))}
                 {(!stats?.by_program || stats.by_program.length === 0) && (
-                  <p className="text-sm text-slate-400 italic text-center py-4">No data yet.</p>
+                  <p className="py-4 text-center text-sm italic text-muted-foreground">
+                    No data yet.
+                  </p>
                 )}
               </CardContent>
             </Card>

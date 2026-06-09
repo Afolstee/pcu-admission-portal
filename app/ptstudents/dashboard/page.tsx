@@ -205,13 +205,11 @@ export default function PtStudentsDashboardPage() {
         </div>
       </main>
 
-      <footer className="bg-[#202833]">
-        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-4 text-sm md:flex-row md:items-center md:justify-between">
-          <p>
-            &copy; 2026 Part-Time Studies, Precious Cornerstone University. All
-            Rights Reserved
+      <footer className="border-t border-border bg-[rgb(229,52,44)] px-4 py-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-6xl text-center text-sm text-muted-foreground">
+          <p className="text-white">
+            &copy; Precious Cornerstone University ICT. All rights reserved.
           </p>
-          <p className="font-semibold">Follow us on: f &middot; x &middot; G+ &middot; in</p>
         </div>
       </footer>
     </div>

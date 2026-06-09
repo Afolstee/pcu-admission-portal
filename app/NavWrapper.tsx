@@ -39,6 +39,7 @@ export function NavWrapper({ children }: { children: React.ReactNode }) {
     pathname === "/ptstudents/login";
 
   const isStudentLoginPage =
+    pathname === "/auth/login" ||
     pathname === "/student/login" ||
     pathname === "/pgstudents/login" ||
     pathname === "/ptstudents/login";

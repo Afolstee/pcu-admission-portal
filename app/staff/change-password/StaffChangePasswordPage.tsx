@@ -18,6 +18,8 @@ const STAFF_DASHBOARD_PATHS: Record<string, string> = {
   deo: "/deo/dashboard",
   hod: "/hod/dashboard",
   dean: "/dean/dashboard",
+  pgdean: "/pgadmin/dashboard",
+  pgadmin: "/pgadmin/dashboard",
 };
 
 export default function StaffChangePasswordPage() {
@@ -81,7 +83,7 @@ export default function StaffChangePasswordPage() {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-8 space-y-5">
+        <form noValidate onSubmit={handleSubmit} className="p-8 space-y-5">
           {message && (
             <div
               className={cn(

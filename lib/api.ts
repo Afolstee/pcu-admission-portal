@@ -15,6 +15,8 @@ export interface ApplicantStatus {
   program_name: string;
   degree_code?: string | null;
   approved_course?: string | null;
+  finalised_course?: string | null;
+  applicant_recommended_course?: string | null;
   form_no: string | null;
   matric_no: string | null;
   application_status: string;
@@ -52,6 +54,7 @@ export interface CourseData {
   category: string;
   remark: string | null;
   lecturer: string | null;
+  semester?: string | null;
 }
 
 export interface CourseRegistrationResponse {
@@ -94,6 +97,8 @@ export interface LetterStatus {
   sent_at: string | null;
   error_message: string | null;
   retry_count: number;
+  form_no?: string | null;
+  course?: string | null;
 }
 
 export interface LetterStatusSummaryResponse {
@@ -311,6 +316,52 @@ export class ApiClient {
       const data = await response.json();
       const status = response.status;
 
+      // ── Global 401 interceptor ──────────────────────────────────────
+      // If the JWT has expired or is invalid, clear all auth state and
+      // redirect to login. Skip auth endpoints (they return 401 for
+      // invalid credentials, not expired tokens).
+      const isAuthEndpoint =
+        endpoint.startsWith("/auth/login") ||
+        endpoint.startsWith("/auth/signup");
+      if (response.status === 401 && !isAuthEndpoint) {
+        this.setToken(null);
+        this.clearCache();
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("auth_user");
+          localStorage.removeItem("last_active");
+
+          // Determine the correct login page based on current path
+          const currentPath = window.location.pathname;
+          let loginPath = "/auth/login";
+          if (currentPath.includes("/student")) {
+            loginPath = "/student/login";
+          } else if (
+            [
+              "/admission_officer",
+              "/dean",
+              "/deo",
+              "/hod",
+              "/ict",
+              "/lecturer",
+              "/registrar",
+              "/staff",
+            ].some((p) => currentPath.includes(p))
+          ) {
+            loginPath = "/staff/login";
+          }
+
+          // Handle basePath
+          if (currentPath.startsWith("/e-portal")) {
+            loginPath = `/e-portal${loginPath}`;
+          }
+
+          window.location.href = loginPath;
+        }
+        const error: any = new Error("Session expired. Please log in again.");
+        error.response = data;
+        throw error;
+      }
+
       // Clear cache on mutations to ensure fresh data, even if the request failed
       if (!isGet) {
         this.clearCache();
@@ -333,9 +384,14 @@ export class ApiClient {
     if (isGet) {
       this.inFlight.set(cacheKey, promise);
       // Clean up from inFlight map once resolved or failed
-      promise.finally(() => {
-        this.inFlight.delete(cacheKey);
-      });
+      promise.then(
+        () => {
+          this.inFlight.delete(cacheKey);
+        },
+        () => {
+          this.inFlight.delete(cacheKey);
+        },
+      );
     }
 
     return promise;
@@ -490,6 +546,37 @@ export class ApiClient {
     return data;
   }
 
+  static async scanDocument(file: File): Promise<{
+    quality_score: number;
+    is_acceptable: boolean;
+    issues: string[];
+    sharpness: number;
+    brightness: number;
+    original_b64: string;
+    preview_b64: string;
+    skip_scan?: boolean;
+    message?: string;
+  }> {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const token = this.getToken();
+    const headers: HeadersInit = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    const response = await fetch(`${API_BASE_URL}/applicant/scan-document`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok && !data.skip_scan) {
+      throw new Error(data.message || "Scan failed");
+    }
+    return data;
+  }
+
   static async deleteDocument(document_id: number) {
     const { data } = await this.fetch(
       `/applicant/delete-document/${document_id}`,
@@ -544,6 +631,15 @@ export class ApiClient {
   }> {
     const { data } = await this.fetch<{ installment_plans: InstallmentPlan[] }>(
       "/applicant/installment-plans",
+    );
+    return data;
+  }
+
+  static async getProcessingFee(): Promise<{
+    processing_fee: number;
+  }> {
+    const { data } = await this.fetch<{ processing_fee: number }>(
+      "/applicant/processing-fee",
     );
     return data;
   }
@@ -805,20 +901,36 @@ export class ApiClient {
   static async getApplications(
     status?: string,
     program_id?: number,
-  ): Promise<{ applications: Application[] }> {
+    page?: number,
+    per_page?: number,
+    search?: string,
+  ): Promise<{
+    applications: Application[];
+    count: number;
+    page: number;
+    per_page: number;
+    total_pages: number;
+  }> {
     let endpoint = "/admission_officer/applications";
     const params = new URLSearchParams();
     if (status) params.append("status", status);
     if (program_id) params.append("program_id", program_id.toString());
+    if (page) params.append("page", page.toString());
+    if (per_page) params.append("per_page", per_page.toString());
+    if (search) params.append("search", search);
     if (params.toString()) endpoint += `?${params.toString()}`;
 
-    const { data } = await this.fetch<{ applications: Application[] }>(
-      endpoint,
-    );
+    const { data } = await this.fetch<{
+      applications: Application[];
+      count: number;
+      page: number;
+      per_page: number;
+      total_pages: number;
+    }>(endpoint);
     return data;
   }
 
-  static async getApplicationDetails(applicant_id: number) {
+  static async getApplicationDetails(applicant_id: string | number) {
     const { data } = await this.fetch(
       `/admission_officer/application/${applicant_id}`,
     );
@@ -842,7 +954,7 @@ export class ApiClient {
   }
 
   static async sendAdmissionLetter(
-    applicant_id: number,
+    applicant_id: string | number,
     admission_date?: string,
     template_id?: string,
   ) {
@@ -917,6 +1029,134 @@ export class ApiClient {
   static async getStatistics() {
     const { data } = await this.fetch("/admission_officer/statistics");
     return data;
+  }
+
+  // =================== PG Admin Endpoints ===================
+
+  static async getPgAdminDashboard(activityLimit = 10): Promise<{
+    statistics: {
+      total_applications: number;
+      total_admitted: number;
+      pending_submission: number;
+      new_applications: number;
+      under_review: number;
+      total_rejected: number;
+      by_status: Array<{ application_status: string; count: number }>;
+      by_program: Array<{ name: string; count: number }>;
+    };
+    recent_activity: Array<{
+      type: string;
+      label: string;
+      event_time: string | null;
+    }>;
+  }> {
+    const { data } = await this.fetch<any>(
+      `/pgadmin/dashboard?limit=${activityLimit}`,
+    );
+    return data;
+  }
+
+  // Compatibility alias
+  static async getPgDeanDashboard(activityLimit = 10) {
+    return this.getPgAdminDashboard(activityLimit);
+  }
+
+  static async getPgApplications(
+    status?: string,
+    page?: number,
+    per_page?: number,
+    search?: string,
+  ): Promise<{
+    applications: any[];
+    count: number;
+    page: number;
+    per_page: number;
+    total_pages: number;
+  }> {
+    const params = new URLSearchParams();
+    if (status) params.append("status", status);
+    if (page) params.append("page", page.toString());
+    if (per_page) params.append("per_page", per_page.toString());
+    if (search) params.append("search", search);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    const { data } = await this.fetch<any>(`/pgadmin/applications${qs}`);
+    return data;
+  }
+
+  static async getPgApplicationDetails(
+    applicationId: string | number,
+  ): Promise<any> {
+    const { data } = await this.fetch<any>(
+      `/pgadmin/application/${applicationId}`,
+    );
+    return data;
+  }
+
+  static async getPgEvaluation(applicationId: string | number): Promise<any> {
+    const { data } = await this.fetch<any>(
+      `/pgadmin/evaluation/${applicationId}`,
+    );
+    return data;
+  }
+
+  static async savePgEvaluation(
+    applicationId: string | number,
+    evaluation: {
+      transcript_received: string;
+      transcript_comment?: string;
+      ref_letters_count: number;
+      recommendation?: string;
+      supervisor_name?: string;
+    },
+  ): Promise<any> {
+    const { data } = await this.fetch<any>(
+      `/pgadmin/evaluate/${applicationId}`,
+      {
+        method: "POST",
+        body: JSON.stringify(evaluation),
+      },
+    );
+    return data;
+  }
+
+  static async pgReviewApplication(
+    applicationId: string | number,
+    decision: "accept" | "reject" | "recommend",
+    approvedCourse?: string,
+  ): Promise<any> {
+    const { data } = await this.fetch<any>(`/pgadmin/review-application`, {
+      method: "POST",
+      body: JSON.stringify({
+        applicant_id: applicationId,
+        decision,
+        approved_course: approvedCourse,
+      }),
+    });
+    return data;
+  }
+
+  static async pgSendAdmissionLetter(
+    applicationId: string | number,
+    admissionDate?: string,
+  ): Promise<any> {
+    const { data } = await this.fetch<any>(`/pgadmin/send-admission-letter`, {
+      method: "POST",
+      body: JSON.stringify({
+        applicant_id: applicationId,
+        admission_date: admissionDate,
+      }),
+    });
+    return data;
+  }
+
+  static getPgApplicationPrintUrl(applicationId: string | number): string {
+    const token = this.getToken();
+    return `${API_BASE_URL}/pgadmin/print-application/${applicationId}?token=${token || ""}`;
+  }
+
+  static async getPgPrograms(): Promise<any[]> {
+    const { data } = await this.fetch<any>(`/pgadmin/programs`);
+    return Array.isArray(data) ? data : data?.programs || [];
   }
 
   static async getRecentActivity(limit = 15): Promise<{
@@ -1357,7 +1597,9 @@ export class ApiClient {
   }
 
   static async getGlobalSettings(): Promise<any> {
-    const { data } = await this.fetch<{ settings: Array<{ key: string; value: string }> }>("/settings/all");
+    const { data } = await this.fetch<{
+      settings: Array<{ key: string; value: string }>;
+    }>("/settings/all");
     const settings = data?.settings || [];
     // Transform array of {key, value} into a key→value map for backward compatibility
     return settings.reduce((acc: Record<string, string>, s) => {
@@ -1372,10 +1614,10 @@ export class ApiClient {
     // Send each setting individually so the sync logic in settings.py fires
     // (e.g. current_academic_session syncs academic_sessions table,
     //  current_semester syncs semesters table)
-    let lastResult: { message: string } = { message: '' };
+    let lastResult: { message: string } = { message: "" };
     for (const [key, value] of Object.entries(settings)) {
       // Skip entries with no value (avoids 400 from backend)
-      if (value === undefined || value === null || value === '') continue;
+      if (value === undefined || value === null || value === "") continue;
       const { data } = await this.fetch<{ message: string }>(
         "/settings/update",
         {
@@ -1399,5 +1641,22 @@ export class ApiClient {
       },
     );
     return data;
+  }
+
+  // ─── PG Admin endpoints ────────────────────────────────────────────────────
+
+  /** Download the printable PG application PDF.
+   *  Works for both pgadmin, pgdean, and admissionofficer roles. */
+  static async downloadPgApplicationPdf(applicationId: string): Promise<Blob> {
+    const token = this.getToken();
+    const res = await fetch(
+      `${API_BASE_URL}/pgadmin/print-application/${applicationId}`,
+      {
+        method: "GET",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      },
+    );
+    if (!res.ok) throw new Error("Failed to download PG application PDF");
+    return res.blob();
   }
 }

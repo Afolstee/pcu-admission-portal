@@ -121,7 +121,7 @@ class InterswitchClient:
             "hash": hash_value,
             "mode": "LIVE" if is_live else "TEST",
         }
-        return f"{base_url}/pay?{urllib.parse.urlencode(params)}"
+        return f"{base_url}/collections/w/pay?{urllib.parse.urlencode(params)}"
 
     # ── Pay-item resolution ───────────────────────────────────────────────────
     @classmethod

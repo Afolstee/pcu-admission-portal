@@ -81,6 +81,8 @@ export default function LoginPage() {
       "hod",
       "dean",
       "registrar",
+      "pgdean",
+      "pgadmin",
     ];
     if (staffRoles.includes(role)) {
       setAccessDenied(true);
@@ -262,7 +264,7 @@ export default function LoginPage() {
         ) : null}
 
         <CardHeader className="portal-login-header p-0">
-          <div className="flex justify-center">
+          <div className="flex justify-center bg-white rounded-2xl p-1.5 shadow-md">
             <Image
               src="/e-portal/images/logo new.png"
               alt="University Logo"
@@ -277,7 +279,7 @@ export default function LoginPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          <form onSubmit={handleSubmit} className="portal-login-form">
+          <form noValidate onSubmit={handleSubmit} className="portal-login-form">
             <div className="portal-login-field">
               <Label htmlFor="email" className="portal-login-label">Email or Username</Label>
               <Input

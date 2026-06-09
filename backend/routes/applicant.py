@@ -1,7 +1,9 @@
 from flask import Blueprint, request, jsonify, Response, send_file, redirect
 from database import Database
 from utils.auth import AuthHandler
+from datetime import datetime, timedelta, timezone
 from utils.document_handler import DocumentHandler
+from utils.scanner import scan_document, ScannerError
 from utils.pdf_generator import PDFGenerator
 from utils.payment_receipt_generator import PaymentReceiptGenerator
 from utils.medical_form_generator import MedicalFormGenerator
@@ -19,8 +21,26 @@ import uuid
 import secrets
 import string
 import json
+import copy
+
+from routes.form_templates.utme import template as utme_template
+from routes.form_templates.postgraduate import template as postgraduate_template
+from routes.form_templates.jupeb import template as jupeb_template
+from routes.form_templates.hnd_conversion import template as hnd_conversion_template
+from routes.form_templates.ijmb import template as ijmb_template
+from routes.form_templates.direct_entry import template as direct_entry_template
+from routes.form_templates.part_time import template as part_time_template
 
 applicant_bp = Blueprint('Applicant', __name__)
+
+
+def _ensure_pg_recommendation_columns():
+    Database.execute_update(
+        '''ALTER TABLE pg_application
+           ADD COLUMN IF NOT EXISTS approved_course TEXT,
+           ADD COLUMN IF NOT EXISTS finalised_course TEXT,
+           ADD COLUMN IF NOT EXISTS applicant_recommended_course TEXT'''
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -66,6 +86,59 @@ def _ensure_application_row(user_id, program_type_id, current_session_id, refere
     This handles the case where a first payment stayed pending/failed and the
     applicant initiates a fresh attempt.
     """
+    if program_type_id == 2:
+        existing = Database.execute_query(
+            '''SELECT uuid, application_payment_reference
+               FROM pg_application
+               WHERE user_id = %s AND academic_session_id = %s''',
+            (user_id, current_session_id)
+        )
+        if existing:
+            app_id       = existing[0]['uuid']
+            stored_ref   = existing[0].get('application_payment_reference')
+
+            # Check whether the stored reference already has a successful transaction
+            if stored_ref:
+                already_paid = Database.execute_query(
+                    """SELECT id FROM payment_transactions
+                       WHERE reference_no = %s AND tran_status = 'successful'
+                       LIMIT 1""",
+                    (stored_ref,)
+                )
+            else:
+                already_paid = None
+
+            # If not yet paid, update the reference to the new attempt
+            if not already_paid:
+                Database.execute_update(
+                    """UPDATE pg_application
+                       SET application_payment_reference = %s, updated_date = NOW()
+                       WHERE uuid = %s""",
+                    (reference_no, app_id)
+                )
+
+            return app_id
+
+        year = datetime.now().year
+        code = _prog_code(program_type_id)
+        while True:
+            suffix  = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(4))
+            form_no = f"PCU/{year}/{code}{suffix}"
+            if not Database.execute_query('SELECT uuid FROM pg_application WHERE form_no = %s', (form_no,)):
+                break
+
+        Database.execute_update(
+            '''INSERT INTO pg_application
+                   (user_id, form_no, academic_session_id,
+                    applicant_stage, application_payment_reference)
+               VALUES (%s, %s, %s, %s, %s)''',
+            (user_id, form_no, current_session_id, 'started', reference_no)
+        )
+        res = Database.execute_query(
+            'SELECT uuid FROM pg_application WHERE form_no = %s', (form_no,)
+        )
+        return res[0]['uuid'] if res else None
+
     existing = Database.execute_query(
         '''SELECT id, application_payment_reference
            FROM applications
@@ -127,6 +200,53 @@ def _ensure_application_row(user_id, program_type_id, current_session_id, refere
 
 
 def _get_applicant_fee_context(user_id):
+    # Try pg_application first
+    pg_res = Database.execute_query(
+        '''SELECT pg.uuid,
+                  pg.finalised_course,
+                  pg.approved_course,
+                  pg.proposed_course AS program_setup_id
+           FROM pg_application pg
+           WHERE pg.user_id = %s AND pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+           ORDER BY pg.created_date DESC LIMIT 1''',
+        (user_id,)
+    )
+    if pg_res:
+        pg_row = pg_res[0]
+        finalised_course = (pg_row.get('finalised_course') or '').strip()
+        if not finalised_course:
+            finalised_course = (pg_row.get('approved_course') or '').strip()
+        if not finalised_course and pg_row.get('program_setup_id'):
+            ps_res = Database.execute_query(
+                'SELECT name FROM pg_program_setup WHERE id = %s',
+                (pg_row['program_setup_id'],)
+            )
+            if ps_res:
+                finalised_course = ps_res[0]['name']
+
+        if not finalised_course:
+            raise ValueError('finalised_course is required to resolve faculty and fees')
+
+        faculty_res = Database.execute_query(
+            '''SELECT faculty_id
+               FROM pg_program_setup
+               WHERE LOWER(name) = LOWER(%s)
+               LIMIT 1''',
+            (finalised_course,)
+        )
+        if not faculty_res or faculty_res[0].get('faculty_id') is None:
+            raise ValueError(f"No faculty found for finalised_course '{finalised_course}'")
+
+        pt_res = Database.execute_query('SELECT level_id FROM program_types WHERE id = 2')
+        level_id = pt_res[0]['level_id'] if pt_res else None
+
+        return {
+            'program_type': 2,
+            'level': level_id,
+            'faculty_id': faculty_res[0]['faculty_id'],
+            'finalised_course': finalised_course,
+        }
+
     app_res = Database.execute_query(
         '''SELECT app.prog_type,
                   pt.level_id,
@@ -196,13 +316,20 @@ def _resolve_fee_amount(payment_type: str, user_id, program_type_id=None, instal
         return float(res[0]['amount'])
 
     if payment_type == 'acceptance_fee':
-        app_res = Database.execute_query(
-            'SELECT prog_type FROM applications WHERE user_id = %s ORDER BY created_at DESC LIMIT 1',
+        pg_res = Database.execute_query(
+            'SELECT uuid FROM pg_application WHERE user_id = %s ORDER BY created_date DESC LIMIT 1',
             (user_id,)
         )
-        if not app_res:
-            raise ValueError('No application found for this user')
-        prog_type = app_res[0]['prog_type']
+        if pg_res:
+            prog_type = 2
+        else:
+            app_res = Database.execute_query(
+                'SELECT prog_type FROM applications WHERE user_id = %s ORDER BY created_at DESC LIMIT 1',
+                (user_id,)
+            )
+            if not app_res:
+                raise ValueError('No application found for this user')
+            prog_type = app_res[0]['prog_type']
 
         fee_res = Database.execute_query(
             '''SELECT pf.amount
@@ -305,6 +432,15 @@ def _get_processing_fee() -> float:
         return 300.0
 
 
+@applicant_bp.route('/processing-fee', methods=['GET'])
+def get_processing_fee_endpoint():
+    try:
+        processing_fee = _get_processing_fee()
+        return jsonify({'processing_fee': processing_fee}), 200
+    except Exception as e:
+        return jsonify({'message': str(e)}), 500
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Public / lookup endpoints
 # ─────────────────────────────────────────────────────────────────────────────
@@ -319,21 +455,45 @@ def get_olevel_data():
 @applicant_bp.route('/programs', methods=['GET'])
 def get_programs():
     program_type_id = request.args.get('program_type_id')
-    programs = Database.execute_query(
-        '''SELECT
-               ps.id  AS program_id, ps.name AS program,
-               d.id   AS department_id, d.name AS department,
-               dg.id  AS degree_id, dg.name AS degree, dg.code AS degree_code,
-               dy.years AS duration
-           FROM degree_program dp
-           JOIN degrees dg       ON dp.degree_id     = dg.id
-           JOIN program_setup ps ON ps.degree_id     = dp.degree_id
-           JOIN departments d    ON ps.department_id = d.id
-           JOIN duration_years dy ON dp.duration_id  = dy.id
-           WHERE dp.program_type_id = %s
-           ORDER BY d.name, ps.name''',
-        (program_type_id,)
-    )
+    
+    try:
+        is_pg = program_type_id and int(program_type_id) == 2
+    except ValueError:
+        is_pg = False
+
+    if is_pg:
+        programs = Database.execute_query(
+            '''SELECT
+                   pgps.id AS program_id,
+                   COALESCE(dg.code || ' ', '') || pgps.name AS program,
+                   d.id AS department_id,
+                   d.name AS department,
+                   dg.id AS degree_id,
+                   dg.name AS degree,
+                   dg.code AS degree_code,
+                   3 AS duration
+               FROM pg_program_setup pgps
+               LEFT JOIN departments d ON pgps.department_id = d.id
+               LEFT JOIN degrees dg ON pgps.degree_id = dg.id
+               WHERE pgps.is_active = TRUE
+               ORDER BY d.name, pgps.name'''
+        )
+    else:
+        programs = Database.execute_query(
+            '''SELECT
+                   ps.id  AS program_id, ps.name AS program,
+                   d.id   AS department_id, d.name AS department,
+                   dg.id  AS degree_id, dg.name AS degree, dg.code AS degree_code,
+                   dy.years AS duration
+               FROM degree_program dp
+               JOIN degrees dg       ON dp.degree_id     = dg.id
+               JOIN program_setup ps ON ps.degree_id     = dp.degree_id
+               JOIN departments d    ON ps.department_id = d.id
+               JOIN duration_years dy ON dp.duration_id  = dy.id
+               WHERE dp.program_type_id = %s
+               ORDER BY d.name, ps.name''',
+            (program_type_id,)
+        )
 
     global_lock = False
     pt_status   = {'undergraduate': True, 'postgraduate': False, 'part-time': False, 'jupeb': False}
@@ -405,6 +565,83 @@ def get_installment_plans(payload):
 # ─────────────────────────────────────────────────────────────────────────────
 # Application form
 # ─────────────────────────────────────────────────────────────────────────────
+# Form Templates & Dynamic Options
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _populate_dynamic_options(template, program_type_id):
+    """Populate dynamic options in template based on program type"""
+    try:
+        # Create a deep copy to avoid modifying the original template
+        template = copy.deepcopy(template)
+        
+        # Fetch all countries from database, ordered by ID
+        countries = Database.execute_query(
+            'SELECT id, name FROM country ORDER BY id ASC'
+        )
+        # Do NOT include placeholder - frontend handles it with SelectValue placeholder prop
+        country_options = [c['name'] for c in (countries or [])]
+        
+        # Fetch all UTME subjects from database
+        subjects = Database.execute_query(
+            'SELECT name FROM utme_subjects ORDER BY name ASC'
+        )
+        subject_options = [s['name'] for s in (subjects or [])]
+        
+        # Populate fields across all steps
+        for step in template.get('steps', []):
+            for field in step.get('fields', []):
+                field_name = field.get('name', '')
+                
+                # Populate nationality from countries table
+                if field_name == 'nationality':
+                    field['options'] = country_options
+                
+                # Populate UTME subjects
+                elif field_name.startswith('utme_subject'):
+                    field['options'] = subject_options
+        
+        return template
+    except Exception as e:
+        print(f"Error populating dynamic options: {e}")
+        import traceback
+        traceback.print_exc()
+        return template
+
+
+@applicant_bp.route('/get-utme-subjects', methods=['GET'])
+@AuthHandler.token_required
+def get_utme_subjects(payload):
+    """Fetch all UTME subjects from database"""
+    try:
+        subjects = Database.execute_query(
+            'SELECT id, name FROM utme_subjects ORDER BY name ASC'
+        )
+        return jsonify({
+            'subjects': [{'id': s['id'], 'name': s['name']} for s in (subjects or [])]
+        }), 200
+    except Exception as e:
+        print(f"Error fetching UTME subjects: {e}")
+        return jsonify({'message': 'Failed to fetch subjects', 'subjects': []}), 500
+
+
+@applicant_bp.route('/get-countries', methods=['GET'])
+@AuthHandler.token_required
+def get_countries(payload):
+    """Fetch all countries from database, ordered by ID with placeholder"""
+    try:
+        countries = Database.execute_query(
+            'SELECT id, name FROM country ORDER BY id ASC'
+        )
+        # Add placeholder option at the beginning
+        countries_list = [{'id': '', 'name': '-select nationality-'}]
+        countries_list.extend([{'id': c['id'], 'name': c['name']} for c in (countries or [])])
+        return jsonify({'countries': countries_list}), 200
+    except Exception as e:
+        print(f"Error fetching countries: {e}")
+        return jsonify({'message': 'Failed to fetch countries', 'countries': []}), 500
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 @applicant_bp.route('/form/<int:program_type_id>', methods=['GET'])
 @AuthHandler.token_required
@@ -416,125 +653,21 @@ def get_form_template(payload, program_type_id):
         return jsonify({'message': 'Access denied. Valid applicant or student role required.'}), 403
 
     form_templates = {
-        1: {
-            'program': 'Undergraduate',
-            'steps': [
-                {
-                    'title': 'Personal Information',
-                    'type': 'fields',
-                    'fields': [
-                        {'name': 'email', 'type': 'email', 'label': 'Email', 'required': True, 'disabled': True},
-                        {'name': 'first_name', 'type': 'text', 'label': 'First Name', 'required': True, 'disabled': True},
-                        {'name': 'last_name', 'type': 'text', 'label': 'Last Name', 'required': True, 'disabled': True},
-                        {'name': 'middle_name', 'type': 'text', 'label': 'Middle name', 'required': False},
-                        {'name': 'gender', 'type': 'select', 'label': 'Gender', 'options': ['Male', 'Female'], 'required': True},
-                        {'name': 'date_of_birth', 'type': 'date', 'label': 'Date of Birth', 'required': True},
-                        {'name': 'place_of_birth', 'type': 'text', 'label': 'Place of birth', 'required': True},
-                        {'name': 'marital_status', 'type': 'select', 'label': 'Marital Status', 'options': ['Single', 'Married', 'Divorced', 'Widowed'], 'required': True},
-                        {'name': 'religion', 'type': 'select', 'label': 'Religion', 'options': ['Christianity', 'Islam', 'Traditional', 'Other'], 'required': True},
-                        {'name': 'blood_group', 'type': 'text', 'label': 'Blood Group', 'required': False},
-                        {'name': 'genotype', 'type': 'text', 'label': 'Genotype', 'required': False},
-                        {'name': 'phone_number', 'type': 'text', 'label': 'Phone Number', 'required': True, 'disabled': True},
-                        {'name': 'secondary_phone_number', 'type': 'text', 'label': 'Secondary Phone Number', 'required': False},
-                        {'name': 'nationality', 'type': 'select', 'label': 'Nationality', 'options': ['Nigerian', 'Non-Nigerian'], 'required': True},
-                        {'name': 'state', 'type': 'select', 'label': 'State', 'options': ['Abia','Adamawa','Akwa Ibom','Anambra','Bauchi','Bayelsa','Benue','Borno','Cross River','Delta','Ebonyi','Edo','Ekiti','Enugu','Gombe','Imo','Jigawa','Kaduna','Kano','Katsina','Kebbi','Kogi','Kwara','Lagos','Nasarawa','Niger','Ogun','Ondo','Osun','Oyo','Plateau','Rivers','Sokoto','Taraba','Yobe','Zamfara','FCT'], 'required': True},
-                        {'name': 'lga', 'type': 'text', 'label': 'Local Government Area', 'required': True},
-                        {'name': 'address', 'type': 'textarea', 'label': 'Address', 'required': True},
-                    ]
-                },
-                {'title': 'Sponsor and Next of Kin', 'type': 'fields', 'fields': [
-                    {'name': 'sponsor_name', 'type': 'text', 'label': 'Sponsor Name', 'required': True},
-                    {'name': 'sponsor_address', 'type': 'text', 'label': 'Sponsor Address', 'required': True},
-                    {'name': 'sponsor_phone_number', 'type': 'text', 'label': 'Sponsor Phone Number', 'required': True},
-                    {'name': 'sponsor_relationship', 'type': 'select', 'label': 'Sponsor Relationship', 'options': ['Father','Mother','Guardian','Uncle','Aunt','Self','Other'], 'required': True},
-                    {'name': 'sponsor_email', 'type': 'email', 'label': 'Sponsor Email', 'required': False},
-                    {'name': 'next_of_kin_name', 'type': 'text', 'label': "Next of Kin's Name", 'required': True},
-                    {'name': 'next_of_kin_address', 'type': 'text', 'label': "Next of Kin's Address", 'required': True},
-                    {'name': 'next_of_kin_phone_number', 'type': 'text', 'label': "Next of Kin's Phone Number", 'required': True},
-                ]},
-                {'title': "O'LEVEL", 'type': 'olevel'},
-                {'title': 'Documents', 'type': 'documents', 'documents': [
-                    {'type': 'passport', 'label': 'Passport Photograph', 'required': True},
-                    {'type': 'birth_certificate', 'label': 'Birth Certificate', 'required': True},
-                ]},
-            ]
-        },
-        2: {
-            'program': 'Postgraduate',
-            'steps': [
-                {'title': 'Personal Information', 'type': 'fields', 'fields': [
-                    {'name': 'email', 'type': 'email', 'label': 'Email', 'required': True, 'disabled': True},
-                    {'name': 'first_name', 'type': 'text', 'label': 'First Name', 'required': True, 'disabled': True},
-                    {'name': 'last_name', 'type': 'text', 'label': 'Last Name', 'required': True, 'disabled': True},
-                    {'name': 'date_of_birth', 'type': 'date', 'label': 'Date of Birth', 'required': True},
-                    {'name': 'nationality', 'type': 'text', 'label': 'Nationality', 'required': True},
-                    {'name': 'address', 'type': 'textarea', 'label': 'Address', 'required': True},
-                    {'name': 'phone_number', 'type': 'text', 'label': 'Phone Number', 'required': True, 'disabled': True},
-                    {'name': 'secondary_phone_number', 'type': 'text', 'label': 'Secondary Phone Number', 'required': False},
-                ]},
-                {'title': 'Academic Qualifications', 'type': 'fields', 'fields': [
-                    {'name': 'qualification_type', 'type': 'select', 'label': 'First Degree Type', 'options': ['BSc','BA','BEng','Other'], 'required': True},
-                    {'name': 'qualification_institution', 'type': 'text', 'label': 'University Name', 'required': True},
-                    {'name': 'qualification_year', 'type': 'number', 'label': 'Year of Graduation', 'required': True},
-                    {'name': 'work_experience', 'type': 'textarea', 'label': 'Work Experience', 'required': False},
-                    {'name': 'additional_info', 'type': 'textarea', 'label': 'Research Interests', 'required': False},
-                ]},
-                {'title': 'Sponsor and Next of Kin', 'type': 'fields', 'fields': [
-                    {'name': 'sponsor_name', 'type': 'text', 'label': 'Sponsor Name', 'required': True},
-                    {'name': 'sponsor_phone_number', 'type': 'text', 'label': 'Sponsor Phone Number', 'required': True},
-                    {'name': 'next_of_kin_name', 'type': 'text', 'label': "Next of Kin's Name", 'required': True},
-                    {'name': 'next_of_kin_phone_number', 'type': 'text', 'label': "Next of Kin's Phone Number", 'required': True},
-                ]},
-                {'title': 'Documents', 'type': 'documents', 'documents': [
-                    {'type': 'transcript', 'label': 'University Transcript', 'required': True},
-                    {'type': 'certificate', 'label': 'Degree Certificate', 'required': True},
-                    {'type': 'identification', 'label': 'Identification (Passport/Driver License)', 'required': True},
-                    {'type': 'recommendation', 'label': 'Recommendation Letters (2)', 'required': True},
-                ]},
-            ]
-        },
-        14: {
-            'program': 'Part-Time',
-            'steps': [
-                {'title': 'Personal Information', 'type': 'fields', 'fields': [
-                    {'name': 'email', 'type': 'email', 'label': 'Email', 'required': True, 'disabled': True},
-                    {'name': 'first_name', 'type': 'text', 'label': 'First name', 'required': True, 'disabled': True},
-                    {'name': 'last_name', 'type': 'text', 'label': 'Last name', 'required': True, 'disabled': True},
-                    {'name': 'middle_name', 'type': 'text', 'label': 'Middle name', 'required': False},
-                    {'name': 'gender', 'type': 'select', 'label': 'Gender', 'options': ['Male','Female'], 'required': True},
-                    {'name': 'date_of_birth', 'type': 'date', 'label': 'Date of Birth', 'required': True},
-                    {'name': 'place_of_birth', 'type': 'text', 'label': 'Place of birth', 'required': True},
-                    {'name': 'marital_status', 'type': 'select', 'label': 'Marital Status', 'options': ['Single','Married','Divorced','Widowed'], 'required': True},
-                    {'name': 'religion', 'type': 'select', 'label': 'Religion', 'options': ['Christianity','Islam','Traditional','Other'], 'required': True},
-                    {'name': 'blood_group', 'type': 'text', 'label': 'Blood Group', 'required': False},
-                    {'name': 'phone_number', 'type': 'text', 'label': 'Phone Number', 'required': True, 'disabled': True},
-                    {'name': 'secondary_phone_number', 'type': 'text', 'label': 'Secondary Phone Number', 'required': False},
-                    {'name': 'genotype', 'type': 'text', 'label': 'Genotype', 'required': False},
-                    {'name': 'state', 'type': 'select', 'label': 'State', 'options': ['Abia','Adamawa','Akwa Ibom','Anambra','Bauchi','Bayelsa','Benue','Borno','Cross River','Delta','Ebonyi','Edo','Ekiti','Enugu','Gombe','Imo','Jigawa','Kaduna','Kano','Katsina','Kebbi','Kogi','Kwara','Lagos','Nasarawa','Niger','Ogun','Ondo','Osun','Oyo','Plateau','Rivers','Sokoto','Taraba','Yobe','Zamfara','FCT'], 'required': True},
-                    {'name': 'who_referred_you', 'type': 'text', 'label': 'Who referred you?', 'required': False},
-                    {'name': 'nationality', 'type': 'select', 'label': 'Nationality', 'options': ['Nigerian','Non-Nigerian'], 'required': True},
-                    {'name': 'contact_address', 'type': 'textarea', 'label': 'Contact Address', 'required': True},
-                    {'name': 'lga', 'type': 'text', 'label': 'Local Government Area', 'required': True},
-                ]},
-                {'title': 'Sponsor and Next of Kin', 'type': 'fields', 'fields': [
-                    {'name': 'sponsor_name', 'type': 'text', 'label': 'Sponsor Name', 'required': True},
-                    {'name': 'sponsor_address', 'type': 'text', 'label': 'Sponsor Address', 'required': True},
-                    {'name': 'sponsor_phone_number', 'type': 'text', 'label': 'Sponsor Phone Number', 'required': True},
-                    {'name': 'sponsor_relationship', 'type': 'select', 'label': 'Sponsor Relationship', 'options': ['Father','Mother','Guardian','Uncle','Aunt','Self','Other'], 'required': True},
-                    {'name': 'sponsor_email', 'type': 'email', 'label': 'Sponsor Email', 'required': False},
-                    {'name': 'next_of_kin_name', 'type': 'text', 'label': "Next of Kin's Name", 'required': True},
-                    {'name': 'next_of_kin_address', 'type': 'text', 'label': "Next of Kin's Address", 'required': True},
-                    {'name': 'next_of_kin_phone_number', 'type': 'text', 'label': "Next of Kin's Phone Number", 'required': True},
-                ]},
-                {'title': "O'LEVEL", 'type': 'olevel'},
-                {'title': 'Documents', 'type': 'documents', 'documents': [
-                    {'type': 'passport', 'label': 'Passport Photograph', 'required': True},
-                    {'type': 'birth_certificate', 'label': 'Birth Certificate', 'required': True},
-                ]},
-            ]
-        },
+        1: utme_template,
+        2: postgraduate_template,
+        3: jupeb_template,
+        4: hnd_conversion_template,
+        5: ijmb_template,
+        6: direct_entry_template,
+        7: part_time_template,
     }
-    template = form_templates.get(program_type_id, form_templates[1])
+    template = form_templates.get(program_type_id)
+    if template is None:
+        return jsonify({'message': f'No form template found for program_type_id {program_type_id}'}), 404
+    
+    # Populate dynamic options (e.g., UTME subjects from database)
+    template = _populate_dynamic_options(template, program_type_id)
+    
     return jsonify(template), 200
 
 
@@ -554,32 +687,202 @@ def submit_form(payload):
     program_type_id = None
 
     if not application_id:
-        app_res = Database.execute_query(
-            'SELECT id, prog_type FROM applications WHERE user_id = %s ORDER BY created_at DESC',
+        pg_res = Database.execute_query(
+            'SELECT uuid FROM pg_application WHERE user_id = %s ORDER BY created_date DESC LIMIT 1',
             (user_id,)
         )
-        if not app_res:
-            return jsonify({'message': 'Application record not found'}), 404
-        application_id  = app_res[0]['id']
-        program_type_id = app_res[0]['prog_type']
-    else:
-        app_res = Database.execute_query(
-            'SELECT id, prog_type FROM applications WHERE id = %s AND user_id = %s',
-            (application_id, user_id)
-        )
-        if not app_res:
+        if pg_res:
+            application_id = pg_res[0]['uuid']
+            program_type_id = 2
+        else:
             app_res = Database.execute_query(
                 'SELECT id, prog_type FROM applications WHERE user_id = %s ORDER BY created_at DESC',
                 (user_id,)
             )
             if not app_res:
-                return jsonify({'message': 'Application record not found or access denied'}), 404
-        application_id  = app_res[0]['id']
-        program_type_id = app_res[0]['prog_type']
+                return jsonify({'message': 'Application record not found'}), 404
+            application_id  = app_res[0]['id']
+            program_type_id = app_res[0]['prog_type']
+    else:
+        pg_res = Database.execute_query(
+            'SELECT uuid FROM pg_application WHERE uuid = %s AND user_id = %s',
+            (application_id, user_id)
+        )
+        if pg_res:
+            application_id = pg_res[0]['uuid']
+            program_type_id = 2
+        else:
+            app_res = Database.execute_query(
+                'SELECT id, prog_type FROM applications WHERE id = %s AND user_id = %s',
+                (application_id, user_id)
+            )
+            if not app_res:
+                app_res = Database.execute_query(
+                    'SELECT id, prog_type FROM applications WHERE user_id = %s ORDER BY created_at DESC',
+                    (user_id,)
+                )
+                if not app_res:
+                    return jsonify({'message': 'Application record not found or access denied'}), 404
+            application_id  = app_res[0]['id']
+            program_type_id = app_res[0]['prog_type']
 
     def clean_val(key):
         val = data.get(key)
         return None if val in ('', 'null', 'undefined', None) else val
+
+    if program_type_id == 2:
+        # 1. Save pg_reference
+        ref_fields = {
+            'name1': clean_val('referee_name1'),
+            'address1': clean_val('referee_address1'),
+            'name2': clean_val('referee_name2'),
+            'address2': clean_val('referee_address2'),
+            'name3': clean_val('referee_name3'),
+            'address3': clean_val('referee_address3'),
+        }
+        ref_cols = [k for k, v in ref_fields.items() if v is not None]
+        ref_vals = [ref_fields[k] for k in ref_cols]
+        
+        pg_app_check = Database.execute_query(
+            'SELECT pg_reference_id, nextofkin_sponsor_id FROM pg_application WHERE uuid = %s',
+            (application_id,)
+        )
+        
+        ref_id = None
+        if pg_app_check and pg_app_check[0]['pg_reference_id']:
+            ref_id = pg_app_check[0]['pg_reference_id']
+            if ref_cols:
+                set_clause = ', '.join(f"{c} = %s" for c in ref_cols)
+                Database.execute_update(
+                    f'UPDATE pg_reference SET {set_clause} WHERE id = %s',
+                    tuple(ref_vals + [ref_id])
+                )
+        else:
+            if ref_cols:
+                ref_res = Database.execute_query(
+                    f'''INSERT INTO pg_reference ({', '.join(ref_cols)}) 
+                        VALUES ({', '.join(['%s']*len(ref_cols))}) RETURNING id''',
+                    tuple(ref_vals)
+                )
+                if ref_res:
+                    ref_id = ref_res[0]['id']
+
+        # 2. Save nextofkin_sponsor
+        nok_sp_fields = {
+            'name': clean_val('next_of_kin_name'),
+            'address': clean_val('next_of_kin_address'),
+            'phone_number': clean_val('next_of_kin_phone_number'),
+            'secondary_number': clean_val('next_of_kin_secondary_phone_number'),
+            'sponsor_name': clean_val('sponsor_name'),
+            'sponsor_address': clean_val('sponsor_address'),
+        }
+        nok_sp_cols = [k for k, v in nok_sp_fields.items() if v is not None]
+        nok_sp_vals = [nok_sp_fields[k] for k in nok_sp_cols]
+        
+        nok_sp_id = None
+        if pg_app_check and pg_app_check[0]['nextofkin_sponsor_id']:
+            nok_sp_id = pg_app_check[0]['nextofkin_sponsor_id']
+            if nok_sp_cols:
+                set_clause = ', '.join(f"{c} = %s" for c in nok_sp_cols)
+                Database.execute_update(
+                    f'UPDATE nextofkin_sponsor SET {set_clause}, updated_date = NOW() WHERE id = %s',
+                    tuple(nok_sp_vals + [nok_sp_id])
+                )
+        else:
+            if nok_sp_cols:
+                nok_sp_res = Database.execute_query(
+                    f'''INSERT INTO nextofkin_sponsor ({', '.join(nok_sp_cols)}) 
+                        VALUES ({', '.join(['%s']*len(nok_sp_cols))}) RETURNING id''',
+                    tuple(nok_sp_vals)
+                )
+                if nok_sp_res:
+                    nok_sp_id = nok_sp_res[0]['id']
+
+        # 3. Save pg_application
+        phys_challenged = clean_val('physically_challenged')
+        challenge_reason = clean_val('physical_challenge_reason')
+        if phys_challenged == 'Yes':
+            phys_val = challenge_reason or 'Yes'
+        else:
+            phys_val = 'No'
+
+        proposed_course_id = None
+        if clean_val('proposed_course'):
+            try:
+                proposed_course_id = int(clean_val('proposed_course'))
+            except ValueError:
+                pass
+
+        # Derive proposed_faculty_id from the selected course in pg_program_setup
+        proposed_faculty_id = None
+        if proposed_course_id:
+            fac_res = Database.execute_query(
+                'SELECT faculty_id FROM pg_program_setup WHERE id = %s', (proposed_course_id,)
+            )
+            if fac_res and fac_res[0].get('faculty_id'):
+                proposed_faculty_id = fac_res[0]['faculty_id']
+
+        deg_id_val = None
+        if clean_val('degree_id'):
+            try:
+                deg_id_val = int(clean_val('degree_id'))
+            except ValueError:
+                pass
+
+        pg_app_fields = {
+            'uuid': application_id,
+            'user_id': user_id,
+            'surname': clean_val('last_name'),
+            'first_name': clean_val('first_name'),
+            'middle_name': clean_val('middle_name'),
+            'email': clean_val('email'),
+            'gender': clean_val('gender'),
+            'date_of_birth': clean_val('date_of_birth'),
+            'address': clean_val('address'),
+            'previous_institution': clean_val('previous_institution'),
+            'previous_course': clean_val('previous_course'),
+            'department': clean_val('department'),
+            'class_of_degree': clean_val('class_of_degree'),
+            'proposed_course': proposed_course_id,
+            'proposed_faculty_id': proposed_faculty_id,
+            'degree_id': deg_id_val,
+            'area_of_specialisation': clean_val('area_of_specialisation'),
+            'proposed_research_title': clean_val('proposed_research_title'),
+            'mode_of_study': clean_val('mode_of_study'),
+            'physically_challenged': phys_val,
+            'pg_reference_id': ref_id,
+            'nextofkin_sponsor_id': nok_sp_id,
+            'phone_number': clean_val('phone_number'),
+            'secondary_phone_number': clean_val('secondary_phone_number'),
+        }
+        
+        pg_app_cols = [k for k, v in pg_app_fields.items() if v is not None]
+        pg_app_vals = [pg_app_fields[k] for k in pg_app_cols]
+        
+        update_set = ', '.join(f"{c} = EXCLUDED.{c}" for c in pg_app_cols if c not in ('uuid', 'user_id'))
+        
+        Database.execute_update(
+            f'''INSERT INTO pg_application ({', '.join(pg_app_cols)}, updated_date)
+                VALUES ({', '.join(['%s']*len(pg_app_cols))}, NOW())
+                ON CONFLICT (uuid) DO UPDATE SET {update_set}, updated_date = NOW()''',
+            tuple(pg_app_vals)
+        )
+
+        course_name = None
+        if proposed_course_id:
+            course_res = Database.execute_query('SELECT name FROM pg_program_setup WHERE id = %s', (proposed_course_id,))
+            if course_res:
+                course_name = course_res[0]['name']
+
+        # Update pg_application table
+        Database.execute_update(
+            '''UPDATE pg_application 
+               SET degree_id = %s, finalised_course = %s, applicant_stage = 'in_progress', updated_date = NOW()
+               WHERE uuid = %s''',
+            (deg_id_val, course_name, application_id)
+        )
+
+        return jsonify({'message': 'Postgraduate form saved successfully', 'form_id': application_id}), 200
 
     # ── Biodata ───────────────────────────────────────────────────────────────
     pi_fields = {
@@ -605,7 +908,9 @@ def submit_form(payload):
         'qualification_type': clean_val('qualification_type'),
         'qualification_institution': clean_val('qualification_institution'),
         'qualification_year': clean_val('qualification_year'),
-        'additional_info': clean_val('additional_info'),
+        # work_experience (PG template field) has no dedicated column — fall back to
+        # additional_info only when additional_info is not explicitly provided.
+        'additional_info': clean_val('additional_info') or clean_val('work_experience'),
     }
     pi_cols = [k for k, v in pi_fields.items() if v is not None]
     pi_vals = [pi_fields[k] for k in pi_cols]
@@ -659,35 +964,86 @@ def submit_form(payload):
             tuple(sp_vals)
         )
 
+    # ── Program Choice (University course choices) ──────────────────────────
+    first_choice_id = data.get('first_choice_program_id')
+    second_choice_id = data.get('second_choice_program_id')
+    
+    fc_val = None
+    if first_choice_id not in ('', 'null', 'undefined', None):
+        try:
+            fc_val = int(first_choice_id)
+        except ValueError:
+            pass
+            
+    sc_val = None
+    if second_choice_id not in ('', 'null', 'undefined', None):
+        try:
+            sc_val = int(second_choice_id)
+        except ValueError:
+            pass
+
+    if fc_val is not None or sc_val is not None:
+        pc_exists = Database.execute_query('SELECT id FROM program_choice WHERE application_id = %s', (application_id,))
+        if pc_exists:
+            Database.execute_update(
+                'UPDATE program_choice SET first_choice = %s, second_choice = %s WHERE application_id = %s',
+                (fc_val, sc_val, application_id)
+            )
+        else:
+            Database.execute_update(
+                'INSERT INTO program_choice (application_id, first_choice, second_choice) VALUES (%s, %s, %s)',
+                (application_id, fc_val, sc_val)
+            )
+
+        # For the first choice, also write degree_id to the applications row
+        if fc_val is not None:
+            deg_res = Database.execute_query(
+                '''SELECT dp.degree_id
+                   FROM program_setup ps
+                   JOIN degree_program dp ON dp.degree_id = ps.degree_id
+                   WHERE ps.id = %s
+                   LIMIT 1''',
+                (fc_val,)
+            )
+            if deg_res and deg_res[0].get('degree_id'):
+                Database.execute_update(
+                    '''UPDATE applications
+                       SET degree_id = %s, updated_at = NOW()
+                       WHERE id = %s AND degree_id IS NULL''',
+                    (deg_res[0]['degree_id'], application_id)
+                )
+
     # ── Academic qualification / O'Level ─────────────────────────────────────
     aq_fields = {'user_id': user_id}
-    for choice_key, choice_col in [('first_choice_program_id', 'choice1'), ('second_choice_program_id', 'choice2')]:
-        choice_id = data.get(choice_key)
-        if choice_id:
-            try:
-                ps_res = Database.execute_query('SELECT name FROM program_setup WHERE id = %s', (int(choice_id),))
-                if ps_res:
-                    aq_fields[choice_col] = ps_res[0]['name']
-
-                # For the first choice, also write degree_id to the applications row
-                if choice_col == 'choice1':
-                    deg_res = Database.execute_query(
-                        '''SELECT dp.degree_id
-                           FROM program_setup ps
-                           JOIN degree_program dp ON dp.degree_id = ps.degree_id
-                           WHERE ps.id = %s
-                           LIMIT 1''',
-                        (int(choice_id),)
-                    )
-                    if deg_res and deg_res[0].get('degree_id'):
-                        Database.execute_update(
-                            '''UPDATE applications
-                               SET degree_id = %s, updated_at = NOW()
-                               WHERE id = %s AND degree_id IS NULL''',
-                            (deg_res[0]['degree_id'], application_id)
-                        )
-            except ValueError:
-                pass
+    
+    # Extract original JAMB choices (manually typed) and other UTME details into aq_fields
+    # Build subject ID to name mapping for subject field conversion
+    subject_rows = Database.execute_query('SELECT id, name FROM utme_subjects')
+    subject_map = {str(r['id']): r['name'] for r in (subject_rows or [])}
+    
+    utme_cols = [
+        'utme_reg_no', 'utme_score', 'mode_of_entry', 'choice1', 'choice2',
+        'utme_subject1', 'utme_score1',
+        'utme_subject2', 'utme_score2',
+        'utme_subject3', 'utme_score3',
+        'utme_subject4', 'utme_score4'
+    ]
+    for col in utme_cols:
+        val = data.get(col)
+        if val not in ('', 'null', 'undefined', None):
+            if 'score' in col:
+                try:
+                    aq_fields[col] = int(val)
+                except ValueError:
+                    pass
+            elif 'subject' in col:
+                subject_val = str(val).strip()
+                if subject_val.isdigit():
+                    aq_fields[col] = subject_map.get(subject_val, subject_val)
+                else:
+                    aq_fields[col] = subject_val
+            else:
+                aq_fields[col] = val
 
     olevel_raw = data.get('olevel_results')
     if olevel_raw:
@@ -738,6 +1094,54 @@ def submit_form(payload):
 # Documents
 # ─────────────────────────────────────────────────────────────────────────────
 
+@applicant_bp.route('/scan-document', methods=['POST'])
+@AuthHandler.token_required
+def scan_document_endpoint(payload):
+    """
+    Step 1 of the document upload flow (PG applicants).
+
+    Accepts a raw image, runs the scanner, and returns:
+      - quality assessment (score, issues)
+      - original image as base64
+      - enhanced (scanned) image as base64
+
+    Nothing is written to the database. The user previews both images
+    and chooses to confirm (which calls /upload-document) or cancel.
+    """
+    if 'file' not in request.files:
+        return jsonify({'message': 'No file provided'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'message': 'No file selected'}), 400
+
+    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if ext not in ('jpg', 'jpeg', 'png'):
+        return jsonify({'message': 'Only JPG/PNG images can be scanned. For PDFs or Word docs, upload directly.', 'skip_scan': True}), 200
+
+    image_bytes = file.read()
+    if len(image_bytes) > 15 * 1024 * 1024:
+        return jsonify({'message': 'File exceeds 15 MB limit'}), 400
+
+    try:
+        result = scan_document(image_bytes)
+    except ScannerError as e:
+        return jsonify({'message': str(e)}), 422
+    except Exception as e:
+        return jsonify({'message': f'Scanner error: {e}'}), 500
+
+    quality = result['quality']
+    return jsonify({
+        'quality_score':   quality['score'],
+        'is_acceptable':   quality['is_acceptable'],
+        'issues':          quality['issues'],
+        'sharpness':       quality['sharpness'],
+        'brightness':      quality['brightness'],
+        'original_b64':    result['original_b64'],
+        'preview_b64':     result['preview_b64'],
+    }), 200
+
+
 @applicant_bp.route('/upload-document', methods=['POST'])
 @AuthHandler.token_required
 def upload_document(payload):
@@ -768,21 +1172,34 @@ def upload_document(payload):
     except (TypeError, ValueError) as e:
         return jsonify({'message': f'Invalid file metadata: {e}'}), 400
 
-    app_check = Database.execute_query(
-        'SELECT id FROM applications WHERE id = %s AND user_id = %s', (form_id_uuid, user_id)
+    pg_check = Database.execute_query(
+        'SELECT uuid FROM pg_application WHERE uuid = %s AND user_id = %s', (form_id_uuid, user_id)
     )
-    if not app_check:
-        return jsonify({'message': 'Application not found or access denied'}), 404
+    is_pg = bool(pg_check)
+    if not is_pg:
+        app_check = Database.execute_query(
+            'SELECT id FROM applications WHERE id = %s AND user_id = %s', (form_id_uuid, user_id)
+        )
+        if not app_check:
+            return jsonify({'message': 'Application not found or access denied'}), 404
 
     file_path = os.path.join(upload_folder, stored_filename)
     file_ext  = stored_filename.split('.')[-1] if '.' in stored_filename else ''
 
-    doc_result = Database.execute_query(
-        '''INSERT INTO documents
-               (application_id, document_type, file_name, file_url, file_size, file_type, status)
-           VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
-        (form_id_uuid, document_type, file.filename, file_path, original_size_int, file_ext, 'pending')
-    )
+    if is_pg:
+        doc_result = Database.execute_query(
+            '''INSERT INTO pg_document
+                   (pg_application_id, document_type, file_name, file_url, file_size, file_type, status)
+               VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
+            (form_id_uuid, document_type, file.filename, file_path, original_size_int, file_ext, 'pending')
+        )
+    else:
+        doc_result = Database.execute_query(
+            '''INSERT INTO documents
+                   (application_id, document_type, file_name, file_url, file_size, file_type, status)
+               VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''',
+            (form_id_uuid, document_type, file.filename, file_path, original_size_int, file_ext, 'pending')
+        )
     doc_id = doc_result[0]['id'] if doc_result else None
     if not doc_id:
         DocumentHandler.delete_document(file_path)
@@ -803,12 +1220,25 @@ def upload_document(payload):
 @AuthHandler.token_required
 def delete_document(payload, document_id):
     user_id = payload['user_id']
+    is_pg_doc = False
     doc = Database.execute_query(
-        '''SELECT d.id, d.file_url AS file_path FROM documents d
-           JOIN applications a ON d.application_id = a.id
+        '''SELECT d.id, d.file_url AS file_path 
+           FROM documents d
+           LEFT JOIN applications a ON d.application_id = a.id
            WHERE d.id = %s AND a.user_id = %s''',
         (document_id, user_id)
     )
+    if not doc:
+        doc = Database.execute_query(
+            '''SELECT d.id, d.file_url AS file_path 
+               FROM pg_document d
+               LEFT JOIN pg_application pg ON d.pg_application_id = pg.uuid
+               WHERE d.id = %s AND pg.user_id = %s''',
+        (document_id, user_id)
+        )
+        if doc:
+            is_pg_doc = True
+
     if not doc:
         return jsonify({'message': 'Document not found'}), 404
 
@@ -822,7 +1252,11 @@ def delete_document(payload, document_id):
 
     if os.path.exists(file_path):
         os.remove(file_path)
-    Database.execute_update('DELETE FROM documents WHERE id = %s', (document_id,))
+
+    if is_pg_doc:
+        Database.execute_update('DELETE FROM pg_document WHERE id = %s', (document_id,))
+    else:
+        Database.execute_update('DELETE FROM documents WHERE id = %s', (document_id,))
     return jsonify({'message': 'Document deleted successfully'}), 200
 
 
@@ -834,10 +1268,19 @@ def download_document(payload, document_id):
     doc = Database.execute_query(
         '''SELECT d.file_url AS file_path, d.file_type AS mime_type, d.file_name AS original_filename
            FROM documents d
-           JOIN applications a ON d.application_id = a.id
+           LEFT JOIN applications a ON d.application_id = a.id
            WHERE d.id = %s AND (a.user_id = %s OR %s IN ('admin','ict_director','admissionofficer'))''',
         (document_id, user_id, role)
     )
+    if not doc:
+        doc = Database.execute_query(
+            '''SELECT d.file_url AS file_path, d.file_type AS mime_type, d.file_name AS original_filename
+               FROM pg_document d
+               LEFT JOIN pg_application pg ON d.pg_application_id = pg.uuid
+               WHERE d.id = %s AND (pg.user_id = %s OR pg.user_id = %s OR %s IN ('admin','ict_director','admissionofficer','pgadmin','pgdean'))''',
+            (document_id, user_id, user_id, role)
+        )
+
     if not doc:
         return jsonify({'message': 'Document not found or access denied'}), 404
     file_path = doc[0]['file_path']
@@ -942,17 +1385,29 @@ def initiate_payment(payload):
         if not program_type_id:
             return jsonify({'message': 'program_type_id is required for application_fee'}), 400
 
-        existing_app = Database.execute_query(
-            """SELECT app.id, app.applicant_stage,
-                      app.application_payment_reference
-               FROM applications app
-               WHERE app.user_id = %s
-                 AND app.prog_type = %s
-                 AND app.academic_session_id = %s
-               ORDER BY app.created_at DESC
-               LIMIT 1""",
-            (user_id, program_type_id, current_session_id)
-        )
+        if int(program_type_id) == 2:
+            existing_app = Database.execute_query(
+                """SELECT pg.uuid AS id, pg.applicant_stage,
+                          pg.application_payment_reference
+                   FROM pg_application pg
+                   WHERE pg.user_id = %s
+                     AND pg.academic_session_id = %s
+                   ORDER BY pg.created_date DESC
+                   LIMIT 1""",
+                (user_id, current_session_id)
+            )
+        else:
+            existing_app = Database.execute_query(
+                """SELECT app.id, app.applicant_stage,
+                          app.application_payment_reference
+                   FROM applications app
+                   WHERE app.user_id = %s
+                     AND app.prog_type = %s
+                     AND app.academic_session_id = %s
+                   ORDER BY app.created_at DESC
+                   LIMIT 1""",
+                (user_id, program_type_id, current_session_id)
+            )
 
         if existing_app:
             app_stage   = existing_app[0]['applicant_stage']
@@ -969,18 +1424,29 @@ def initiate_payment(payload):
                 paid = bool(paid_check)
 
             if not paid:
-                # Also check any successful application_fee txn for this user+program (fallback)
-                paid_check2 = Database.execute_query(
-                    """SELECT pt.id FROM payment_transactions pt
-                       JOIN applications app
-                         ON app.application_payment_reference = pt.reference_no
-                       WHERE app.user_id = %s
-                         AND app.prog_type = %s
-                         AND pt.tran_type = 'application_fee'
-                         AND pt.tran_status = 'successful'
-                       LIMIT 1""",
-                    (user_id, program_type_id)
-                )
+                if int(program_type_id) == 2:
+                    paid_check2 = Database.execute_query(
+                        """SELECT pt.id FROM payment_transactions pt
+                           JOIN pg_application pg
+                             ON pg.application_payment_reference = pt.reference_no
+                           WHERE pg.user_id = %s
+                             AND pt.tran_type = 'application_fee'
+                             AND pt.tran_status = 'successful'
+                           LIMIT 1""",
+                        (user_id,)
+                    )
+                else:
+                    paid_check2 = Database.execute_query(
+                        """SELECT pt.id FROM payment_transactions pt
+                           JOIN applications app
+                             ON app.application_payment_reference = pt.reference_no
+                           WHERE app.user_id = %s
+                             AND app.prog_type = %s
+                             AND pt.tran_type = 'application_fee'
+                             AND pt.tran_status = 'successful'
+                           LIMIT 1""",
+                        (user_id, program_type_id)
+                    )
                 paid = bool(paid_check2)
 
             # Block re-purchase unless the application was rejected
@@ -1160,28 +1626,19 @@ def payment_callback():
     tran_status = classify_response(response_code, requery_count)
     is_successful = (tran_status == 'successful')
     
-    print(f"[callback] {txnref} → code={response_code!r} → {tran_status}")
-    
-    # ✅ CRITICAL: For successful payments, acquire lock FIRST before any status update
     if is_successful:
-        # Try to acquire atomic lock (sets status to 'processing')
         lock_acquired = atomic_settle_payment(txnref, user_id, payment_type)
         
         if lock_acquired:
-            # We won the race! Update transaction to final 'successful' state with receipt
             receipt_no = generate_receipt_no()
             sql, params = build_update_sql_params(
                 'successful', txnref, response_code, response_desc,
                 isw_resp, amount_kobo, receipt_no
             )
             Database.execute_update(sql, params)
-            
-            print(f"[callback] SUCCESS: {txnref} | matric generated, role upgraded")
             redirect_url = make_frontend_url(f"/applicant/payment/callback?txnref={txnref}")
             return make_html_redirect(redirect_url)
         else:
-            # Another handler already settled it
-            # Just return success (downstream already applied)
             print(f"[callback] Already settled by another handler: {txnref}")
             redirect_url = make_frontend_url(f"/applicant/payment/callback?txnref={txnref}")
             return make_html_redirect(redirect_url)
@@ -1193,9 +1650,6 @@ def payment_callback():
         isw_resp, amount_kobo, receipt_no
     )
     Database.execute_update(sql, params)
-    
-    # Redirect to the frontend callback page. The page will verify status from /verify-payment
-    # and handle pending / failed states accordingly.
     redirect_url = make_frontend_url(f"/applicant/payment/callback?txnref={txnref}")
     return make_html_redirect(redirect_url)
 
@@ -1208,7 +1662,6 @@ def verify_transaction_by_reference(reference_no: str):
     if not reference_no:
         return None
 
-    # Fetch transaction (include user_id and other fields)
     txn_res = Database.execute_query(
         '''SELECT id, amount_in_kobo, amount, tran_status, receipt_no,
                   tran_type, COALESCE(requery_count, 0) AS requery_count, user_id
@@ -1226,14 +1679,11 @@ def verify_transaction_by_reference(reference_no: str):
     payment_type = txn['tran_type']
     requery_count = int(txn['requery_count'])
 
-    # If transaction is already completed (successful, failed, cancelled), no-op
     if txn['tran_status'] in ('successful', 'failed', 'cancelled'):
-        print(f"[callback verify] Transaction {reference_no} already completed with status: {txn['tran_status']}")
         return txn['tran_status']
 
     amount_kobo = txn['amount_in_kobo'] or (round(float(txn['amount'] or 0) * 100))
 
-    # Recheck DB status right before calling Interswitch to avoid duplicate calls
     latest_check = Database.execute_query(
         '''SELECT tran_status FROM payment_transactions
            WHERE reference_no = %s
@@ -1243,7 +1693,7 @@ def verify_transaction_by_reference(reference_no: str):
     if latest_check and latest_check[0].get('tran_status') != 'pending':
         return latest_check[0].get('tran_status')
 
-    # Requery Interswitch
+
     try:
         isw_resp = InterswitchClient.requery_transaction(reference_no, amount_kobo)
     except Exception as e:
@@ -1264,7 +1714,6 @@ def verify_transaction_by_reference(reference_no: str):
     tran_status = classify_response(response_code, requery_count)
     is_successful = (tran_status == 'successful')
 
-    # Ensure transaction hasn't been updated concurrently
     latest_after = Database.execute_query(
         '''SELECT tran_status FROM payment_transactions
            WHERE reference_no = %s
@@ -1293,14 +1742,7 @@ def verify_transaction_by_reference(reference_no: str):
 @applicant_bp.route('/verify-payment', methods=['POST'])
 @AuthHandler.token_required
 def verify_payment(payload):
-    """
-    ✅ REFACTORED: Now primarily checks DB status with conditional server-side requery.
     
-    Old behavior: Client polls ISW directly 45 times, marks FAILED on timeout
-    New behavior: Client polls DB status, endpoint triggers requery only every 5s
-    
-    Result: PENDING resolves in seconds, not minutes. Timeouts never cause FAILED.
-    """
     from utils.payment_status import classify_response, build_update_sql_params, generate_receipt_no, atomic_settle_payment, get_session_payment_summary
     from utils.interswitch import InterswitchClient
     from datetime import datetime, timedelta
@@ -1360,20 +1802,16 @@ def verify_payment(payload):
             'Transaction already finalised'
         )), 200
     
-    # ✅ KEY CHANGE: Rate-limited requery (max 1 per 5 seconds)
-    # Only requery if:
-    # 1. Status is PENDING
-    # 2. We haven't queried in the last 5 seconds
+
     amount_kobo = txn['amount_in_kobo'] or round(float(txn['amount'] or 0) * 100)
     last_queried = txn.get('last_queried_at')
     should_requery = (
         current_status == 'pending' and
         (last_queried is None or 
-         (datetime.utcnow() - last_queried).total_seconds() > 5)
+         (datetime.now(timezone.utc).replace(tzinfo=None) - last_queried).total_seconds() > 5)
     )
     
     if should_requery:
-        # Rate limit: Mark that we're querying now
         Database.execute_update(
             '''UPDATE payment_transactions 
                SET last_queried_at = NOW()
@@ -1401,7 +1839,6 @@ def verify_payment(payload):
             )
             Database.execute_update(sql, params)
             
-            # If successful, settle with atomic lock
             if is_successful:
                 atomic_settle_payment(reference_no, user_id, payment_type)
                 return jsonify(build_response(
@@ -1410,7 +1847,7 @@ def verify_payment(payload):
                     receipt_no
                 )), 200
             
-            # Return updated status (pending or failed)
+            # Return updated status
             return jsonify(build_response(
                 tran_status,
                 False,
@@ -1425,39 +1862,12 @@ def verify_payment(payload):
                 message='Could not reach ISW, retrying...'
             )), 503
     
-    # No requery needed (too soon), just return current DB status
     return jsonify(build_response(
         current_status,
         False,
         message='Still verifying, check again soon'
     )), 200
-
-    # ── Response ──────────────────────────────────────────────────────────────
-    if tran_status == 'pending':
-        return jsonify({
-            'tran_status':   'pending',
-            'response_code': response_code,
-            'response_desc': response_desc or 'Payment is still being processed. Please wait a moment and refresh.',
-            'is_successful': False,
-            'amount':        float(txn['amount']),
-            'reference_no':  reference_no,
-            'receipt_no':    txn['receipt_no'],
-            'payment_type':  payment_type,
-            'message':       'Your payment is being processed. This can take a few minutes — we will update your status automatically.',
-        }), 202
-
-    return jsonify({
-        'tran_status':   tran_status,
-        'response_code': response_code,
-        'response_desc': response_desc,
-        'is_successful': is_successful,
-        'amount':        float(txn['amount']),
-        'reference_no':  reference_no,
-        'receipt_no':    txn['receipt_no'],
-        'payment_type':  payment_type,
-    }), 200
-
-
+    
 # ─────────────────────────────────────────────────────────────────────────────
 # Payment — cancel (user closed the Interswitch modal without completing)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1465,17 +1875,6 @@ def verify_payment(payload):
 @applicant_bp.route('/cancel-payment', methods=['POST'])
 @AuthHandler.token_required
 def cancel_payment(payload):
-    """
-    Mark a pending transaction as 'cancelled'.
-
-    Called by the frontend when the Interswitch onComplete callback fires
-    with a non-'00' resp code AND the user clearly closed/dismissed the modal
-    (e.g. resp='01' or similar). We do NOT requery Interswitch for these —
-    they represent deliberate user cancellations, not network failures.
-
-    Only updates rows that are still 'pending' to avoid overwriting a
-    transaction that the background worker already resolved.
-    """
     user_id = payload['user_id']
     data    = request.get_json() or {}
     reference_no = data.get('reference_no', '').strip()
@@ -1493,7 +1892,6 @@ def cancel_payment(payload):
 
     current_status = txn[0]['tran_status']
     if current_status != 'pending':
-        # Already finalised (success, failed, or cancelled) — don't overwrite
         return jsonify({'message': f'Transaction already in status: {current_status}', 'tran_status': current_status}), 200
 
     Database.execute_update(
@@ -1514,16 +1912,6 @@ def cancel_payment(payload):
 
 @applicant_bp.route('/payment-webhook', methods=['POST'])
 def payment_webhook():
-    """
-    Interswitch server-to-server webhook (bank-transfer / async confirmation).
-
-    Response-code handling (same rules as verify_payment):
-      '00'         → successful
-      Z0 / T0 / '' → pending  (keep in queue for background worker)
-      other        → pending until requery_count >= FAIL_AFTER_REQUERIES
-
-    No JWT required — called by Interswitch, not the browser.
-    """
     data = request.get_json(silent=True) or {}
 
     reference_no = (
@@ -1555,14 +1943,14 @@ def payment_webhook():
     payment_type  = txn['tran_type']
     requery_count = int(txn['requery_count'])
 
-    # Idempotency — already finalised (skip webhook processing for cancelled txns)
+    # Idempotency 
     if txn['tran_status'] in ('successful', 'failed', 'cancelled'):
         print(f"[webhook] Already finalised ({txn['tran_status']}): {reference_no}")
         return jsonify({'message': 'already processed'}), 200
 
     amount_kobo = txn['amount_in_kobo'] or (round(float(txn['amount'] or 0) * 100))
 
-    # ── Re-query Interswitch (never trust the webhook payload alone) ──────────
+    # Re-query Interswitch 
     try:
         isw_resp = InterswitchClient.requery_transaction(reference_no, amount_kobo)
     except Exception as e:
@@ -1580,7 +1968,6 @@ def payment_webhook():
     response_code = str(isw_resp.get('ResponseCode', '')).strip()
     response_desc = isw_resp.get('ResponseDescription', '')
 
-    # ── Classify (Z0/Z6/Z9/'' → cancelled; others pending or failed) ─────────
     tran_status   = classify_response(response_code, requery_count)
     is_successful = (tran_status == 'successful')
     is_cancelled  = (tran_status == 'cancelled')
@@ -1613,6 +2000,87 @@ def payment_webhook():
 @AuthHandler.token_required
 def get_applicant_status(payload):
     user_id = payload['user_id']
+
+    # Check if a postgraduate application exists for this user
+    pg_app_check = Database.execute_query(
+        'SELECT uuid FROM pg_application WHERE user_id = %s LIMIT 1', (user_id,)
+    )
+    if pg_app_check:
+        _ensure_pg_recommendation_columns()
+        applications = Database.execute_query(
+            '''SELECT
+                   pg.uuid AS id,
+                   u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname AS user_name,
+                   2 AS program_type_id,
+                   pg.applicant_stage AS application_status,
+                   pg.decision,
+                   COALESCE(asess.name, CAST(pg.academic_session_id AS TEXT)) AS program_session,
+                   pg.created_date AS created_at,
+                   pg.form_no,
+                   u.matric_no,
+                   ptype.name AS program_name,
+                   dg.code AS degree_code,
+                   pg.approved_course,
+                   pg.finalised_course,
+                   pg.applicant_recommended_course,
+                   (
+                       EXISTS (
+                           SELECT 1 FROM payment_transactions txn
+                           WHERE txn.reference_no = pg.application_payment_reference
+                             AND txn.tran_status = 'successful'
+                       )
+                       OR
+                       EXISTS (
+                           SELECT 1 FROM payment_transactions txn_fb
+                           WHERE txn_fb.user_id = pg.user_id
+                             AND txn_fb.tran_type  = 'application_fee'
+                             AND txn_fb.tran_status = 'successful'
+                             AND (txn_fb.raw_request_payload->>'program_type_id')::int = 2
+                       )
+                   ) AS has_paid_application_fee,
+                   EXISTS (
+                       SELECT 1 FROM payment_transactions txn_p
+                       WHERE txn_p.reference_no = pg.application_payment_reference
+                         AND txn_p.tran_status IN ('pending', 'requery_error')
+                   ) AS has_pending_application_payment,
+                   (pg.applicant_stage IN ('accepted','enrolled')) AS has_paid_acceptance_fee,
+                   COALESCE(pg.admission_letter_sent, FALSE) AS admission_letter_sent,
+                   EXISTS (
+                       SELECT 1 FROM payment_transactions txn2
+                       WHERE txn2.user_id = pg.user_id
+                         AND txn2.tran_type = 'tuition'
+                         AND txn2.tran_status = 'successful'
+                   ) AS has_paid_tuition,
+                   CASE WHEN pg.applicant_stage != 'started' THEN pg.updated_date ELSE NULL END AS submitted_at,
+                   CASE 
+                       WHEN pg.applicant_stage IN ('admitted','accepted','enrolled') THEN 'admitted' 
+                       WHEN pg.applicant_stage = 'recommended' OR pg.decision = 'recommend' THEN 'recommend'
+                       WHEN pg.applicant_stage IN ('accepted_recommendation','applicant_recommended') THEN pg.applicant_stage
+                       WHEN pg.applicant_stage = 'screening' THEN 'screening'
+                       WHEN pg.applicant_stage = 'rejected' THEN 'rejected'
+                       ELSE 'pending' 
+                   END AS admission_status
+               FROM pg_application pg
+               JOIN users u ON pg.user_id = u.id
+               LEFT JOIN program_types ptype ON ptype.id = 2
+               LEFT JOIN academic_sessions asess ON pg.academic_session_id = asess.id
+               LEFT JOIN degrees dg ON pg.degree_id = dg.id
+               WHERE pg.user_id = %s
+               ORDER BY pg.created_date DESC''',
+            (user_id,)
+        )
+        if not applications:
+            return jsonify({'applicants': [], 'applicant': None}), 200
+        formatted = []
+        for app in applications:
+            d = dict(app)
+            if d.get('created_at') and not isinstance(d['created_at'], str):
+                d['created_at'] = d['created_at'].isoformat()
+            if d.get('submitted_at') and not isinstance(d['submitted_at'], str):
+                d['submitted_at'] = d['submitted_at'].isoformat()
+            formatted.append(d)
+        return jsonify({'applicants': formatted, 'applicant': formatted[0]}), 200
+
     applications = Database.execute_query(
         '''SELECT
                app.id,
@@ -1627,15 +2095,12 @@ def get_applicant_status(payload):
                dg.code AS degree_code,
                COALESCE(app.approved_course, app.finalised_course) AS approved_course,
                (
-                   -- Primary: stored reference was confirmed successful
                    EXISTS (
                        SELECT 1 FROM payment_transactions txn
                        WHERE txn.reference_no = app.application_payment_reference
                          AND txn.tran_status = 'successful'
                    )
                    OR
-                   -- Fallback: any successful application_fee txn linked to THIS same prog_type
-                   -- (scoped by prog_type so a payment for UTME doesn't unlock a PG row)
                    EXISTS (
                        SELECT 1 FROM payment_transactions txn_fb
                        JOIN applications app2
@@ -1646,9 +2111,6 @@ def get_applicant_status(payload):
                          AND app2.prog_type = app.prog_type
                    )
                ) AS has_paid_application_fee,
-               -- True when the stored reference is awaiting gateway confirmation
-               -- (pending or requery_error). Used by the dashboard to distinguish
-               -- "payment processing" from "payment failed".
                EXISTS (
                    SELECT 1 FROM payment_transactions txn_p
                    WHERE txn_p.reference_no = app.application_payment_reference
@@ -1703,11 +2165,7 @@ def get_acceptance_fee(payload):
 @AuthHandler.token_required
 def get_tuition_fee_breakdown(payload):
     """
-    Returns an itemized breakdown of all fee components that make up the
-    school fees (tuition) payment for the authenticated admitted student.
-    Components include: Tuition & Accommodation, Sundry Fees, Digital Training, etc.
-    
-    Also returns the payment status for the current session:
+    returns the payment status for the current session:
     - total_expected: Total fees for this session
     - total_paid: Amount already paid
     - is_fully_paid: Whether all fees are paid
@@ -1782,23 +2240,42 @@ def get_tuition_fee_breakdown(payload):
 @AuthHandler.token_required
 def get_admission_letter(payload):
     user_id = payload['user_id']
-    applicant = Database.execute_query(
-        '''SELECT app.id,
-                  u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname AS name,
-                  app.prog_type AS program_id,
-                  pt.name AS program_name,
-                  app.form_no,
-                  app.approved_course,
-                  app.applicant_stage,
-                  asess.name AS session_name
-           FROM applications app
-           JOIN users u ON app.user_id = u.id
-           LEFT JOIN program_types pt ON app.prog_type = pt.id
-           LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
-           WHERE app.user_id = %s AND app.applicant_stage IN ('admitted','accepted')
-           ORDER BY app.updated_at DESC LIMIT 1''',
-        (user_id,)
-    )
+    is_pg = bool(Database.execute_query('SELECT uuid FROM pg_application WHERE user_id = %s LIMIT 1', (user_id,)))
+    if is_pg:
+        applicant = Database.execute_query(
+            '''SELECT pg.uuid AS id,
+                      u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname AS name,
+                      2 AS program_id,
+                      'Postgraduate' AS program_name,
+                      pg.form_no,
+                      pg.approved_course,
+                      pg.applicant_stage,
+                      asess.name AS session_name
+               FROM pg_application pg
+               JOIN users u ON pg.user_id = u.id
+               LEFT JOIN academic_sessions asess ON pg.academic_session_id = asess.id
+               WHERE pg.user_id = %s AND pg.applicant_stage IN ('admitted','accepted')
+               ORDER BY pg.updated_date DESC LIMIT 1''',
+            (user_id,)
+        )
+    else:
+        applicant = Database.execute_query(
+            '''SELECT app.id,
+                      u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname AS name,
+                      app.prog_type AS program_id,
+                      pt.name AS program_name,
+                      app.form_no,
+                      app.approved_course,
+                      app.applicant_stage,
+                      asess.name AS session_name
+               FROM applications app
+               JOIN users u ON app.user_id = u.id
+               LEFT JOIN program_types pt ON app.prog_type = pt.id
+               LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
+               WHERE app.user_id = %s AND app.applicant_stage IN ('admitted','accepted')
+               ORDER BY app.updated_at DESC LIMIT 1''',
+            (user_id,)
+        )
     if not applicant:
         return jsonify({'message': 'Admission letter not available'}), 404
     if applicant[0]['applicant_stage'] != 'accepted':
@@ -1828,16 +2305,35 @@ def get_admission_letter(payload):
     mode    = 'Full-Time'
     resumption_date = ''
 
-    pd_res = Database.execute_query(
-        '''SELECT f.name AS faculty, d.name AS department
-        FROM applications a
-        JOIN program_setup ps ON LOWER(TRIM(ps.name)) = LOWER(TRIM(a.finalised_course))
-        JOIN departments d ON d.id = ps.department_id
-        JOIN faculties f ON f.id = ps.faculty_id
-        WHERE a.user_id = %s
-        ORDER BY a.updated_at DESC LIMIT 1''',
-            (user_id,)
-        )
+    if is_pg:
+        pd_res = Database.execute_query(
+            '''SELECT f.name AS faculty, d.name AS department
+            FROM pg_application pg
+            JOIN pg_program_setup ps ON (
+                LOWER(TRIM(ps.name)) = LOWER(TRIM(pg.finalised_course))
+                OR EXISTS (
+                    SELECT 1 FROM degrees dg
+                    WHERE dg.id = ps.degree_id
+                      AND LOWER(TRIM(COALESCE(dg.code || ' ', '') || ps.name)) = LOWER(TRIM(pg.finalised_course))
+                )
+            )
+            JOIN departments d ON d.id = ps.department_id
+            JOIN faculties f ON f.id = ps.faculty_id
+            WHERE pg.user_id = %s
+            ORDER BY pg.updated_date DESC LIMIT 1''',
+                (user_id,)
+            )
+    else:
+        pd_res = Database.execute_query(
+            '''SELECT f.name AS faculty, d.name AS department
+            FROM applications a
+            JOIN program_setup ps ON LOWER(TRIM(ps.name)) = LOWER(TRIM(a.finalised_course))
+            JOIN departments d ON d.id = ps.department_id
+            JOIN faculties f ON f.id = ps.faculty_id
+            WHERE a.user_id = %s
+            ORDER BY a.updated_at DESC LIMIT 1''',
+                (user_id,)
+            )
     if pd_res:
         pd = pd_res[0]
         faculty    = pd['faculty']    or faculty
@@ -1872,12 +2368,21 @@ def get_form(payload, applicant_id):
     if role not in ('applicant', 'student', 'admitted', 'freshapplicant') and user_type_id not in ('2', '7', '13', '1', '15'):
         return jsonify({'message': 'Access denied. Valid applicant or student role required.'}), 403
     user_id = payload['user_id']
-    app_res = Database.execute_query(
-        '''SELECT app.id, app.prog_type, app.application_payment_reference
-           FROM applications app
-           WHERE app.id = %s AND app.user_id = %s''',
+    pg_res = Database.execute_query(
+        '''SELECT pg.uuid AS id, 2 AS prog_type, pg.application_payment_reference
+           FROM pg_application pg
+           WHERE pg.uuid = %s AND pg.user_id = %s''',
         (applicant_id, user_id)
     )
+    if pg_res:
+        app_res = pg_res
+    else:
+        app_res = Database.execute_query(
+            '''SELECT app.id, app.prog_type, app.application_payment_reference
+               FROM applications app
+               WHERE app.id = %s AND app.user_id = %s''',
+            (applicant_id, user_id)
+        )
     if not app_res:
         return jsonify({'message': 'Application not found'}), 404
 
@@ -1903,30 +2408,57 @@ def get_form(payload, applicant_id):
 
     if not payment_confirmed:
         # Fallback: any successful application_fee transaction for this user
-        fallback_check = Database.execute_query(
-            """SELECT id FROM payment_transactions
-               WHERE user_id = %s AND tran_type = 'application_fee'
-                 AND tran_status = 'successful'
-               LIMIT 1""",
-            (user_id,)
-        )
+        if app_res[0].get('prog_type') == 2:
+            fallback_check = Database.execute_query(
+                """SELECT id FROM payment_transactions
+                   WHERE user_id = %s AND tran_type = 'application_fee'
+                     AND tran_status = 'successful'
+                     AND (raw_request_payload->>'program_type_id')::int = 2
+                   LIMIT 1""",
+                (user_id,)
+            )
+        else:
+            fallback_check = Database.execute_query(
+                """SELECT id FROM payment_transactions
+                   WHERE user_id = %s AND tran_type = 'application_fee'
+                     AND tran_status = 'successful'
+                   LIMIT 1""",
+                (user_id,)
+            )
         if fallback_check:
             payment_confirmed = True
             # Heal the stale reference in the application row
-            healed_ref = Database.execute_query(
-                """SELECT reference_no FROM payment_transactions
-                   WHERE user_id = %s AND tran_type = 'application_fee'
-                     AND tran_status = 'successful'
-                   ORDER BY confirmed_at DESC LIMIT 1""",
-                (user_id,)
-            )
-            if healed_ref:
-                Database.execute_update(
-                    """UPDATE applications
-                       SET application_payment_reference = %s, updated_at = NOW()
-                       WHERE id = %s""",
-                    (healed_ref[0]['reference_no'], app_res[0]['id'])
+            if app_res[0].get('prog_type') == 2:
+                healed_ref = Database.execute_query(
+                    """SELECT reference_no FROM payment_transactions
+                       WHERE user_id = %s AND tran_type = 'application_fee'
+                         AND tran_status = 'successful'
+                         AND (raw_request_payload->>'program_type_id')::int = 2
+                       ORDER BY confirmed_at DESC LIMIT 1""",
+                    (user_id,)
                 )
+                if healed_ref:
+                    Database.execute_update(
+                        """UPDATE pg_application
+                           SET application_payment_reference = %s, updated_date = NOW()
+                           WHERE uuid = %s""",
+                        (healed_ref[0]['reference_no'], app_res[0]['id'])
+                    )
+            else:
+                healed_ref = Database.execute_query(
+                    """SELECT reference_no FROM payment_transactions
+                       WHERE user_id = %s AND tran_type = 'application_fee'
+                         AND tran_status = 'successful'
+                       ORDER BY confirmed_at DESC LIMIT 1""",
+                    (user_id,)
+                )
+                if healed_ref:
+                    Database.execute_update(
+                        """UPDATE applications
+                           SET application_payment_reference = %s, updated_at = NOW()
+                           WHERE id = %s""",
+                        (healed_ref[0]['reference_no'], app_res[0]['id'])
+                    )
 
     if not payment_confirmed:
         return jsonify({
@@ -1935,84 +2467,232 @@ def get_form(payload, applicant_id):
         }), 403
 
     application_id = app_res[0]['id']
-    pi_res      = Database.execute_query('SELECT * FROM biodata WHERE application_id = %s', (application_id,))
-    nok_res     = Database.execute_query('SELECT * FROM next_of_kin WHERE application_id = %s', (application_id,))
-    sponsor_res = Database.execute_query('SELECT * FROM sponsor WHERE application_id = %s', (application_id,))
+    prog_type = app_res[0].get('prog_type')
 
     form_data = {}
-    if pi_res:
-        form_data = dict(pi_res[0])
-        if 'surname' in form_data:
-            form_data['last_name'] = form_data['surname']
-        dob = form_data.get('date_of_birth')
-        if dob and hasattr(dob, 'strftime'):
-            form_data['date_of_birth'] = dob.strftime('%Y-%m-%d')
-        form_data['full_name'] = ' '.join(filter(None, [form_data.get('first_name'), form_data.get('middle_name'), form_data.get('surname')]))
 
-    if nok_res:
-        n = dict(nok_res[0])
-        form_data.update({'next_of_kin_name': n.get('full_name'), 'next_of_kin_phone_number': n.get('phone_number'), 'next_of_kin_address': n.get('address')})
-
-    if sponsor_res:
-        s = dict(sponsor_res[0])
-        form_data.update({'sponsor_name': s.get('full_name'), 'sponsor_address': s.get('address'), 'sponsor_phone_number': s.get('phone_number'), 'sponsor_relationship': s.get('relationship'), 'sponsor_email': s.get('email')})
-
-    aq_res = Database.execute_query('SELECT * FROM academic_qualification WHERE user_id = %s', (user_id,))
-    if aq_res:
-        aq = aq_res[0]
-        olevel_exams = []
-        for sitting, prefix, type_key, no_key in [(0, '', 'exam_type', 'exam_no'), (1, 'second_', 'exam_type1', 'exam_no1')]:
-            if aq.get(type_key):
-                subjects = [
-                    {'subject_id': aq.get(f'{prefix}subject{i}'), 'grade_id': aq.get(f'{prefix}grade{i}'), 'subject': aq.get(f'{prefix}subject{i}'), 'grade': aq.get(f'{prefix}grade{i}')}
-                    for i in range(1, 6)
-                    if aq.get(f'{prefix}subject{i}') and aq.get(f'{prefix}grade{i}')
-                ]
-                olevel_exams.append({'name': aq.get(type_key), 'number': aq.get(no_key), 'subjects': subjects})
-        if olevel_exams:
-            form_data['olevel_results'] = olevel_exams
-
-        for choice_key, col in [('first_choice_program_name', 'choice1'), ('second_choice_program_name', 'choice2')]:
-            if aq.get(col):
-                form_data[choice_key] = aq.get(col)
-                ps_res = Database.execute_query('SELECT id FROM program_setup WHERE name = %s LIMIT 1', (aq.get(col),))
-                if ps_res:
-                    form_data[choice_key.replace('name', 'id')] = ps_res[0]['id']
-
-    prog_type = app_res[0].get('prog_type')
-    if prog_type:
-        pc_res = Database.execute_query(
-            '''SELECT DISTINCT ps.id, ps.name AS course, d.id AS department_id, d.name AS department
-               FROM degree_program dp
-               JOIN program_setup ps ON ps.degree_id = dp.degree_id
-               JOIN departments d ON d.id = ps.department_id
-               WHERE dp.program_type_id = %s ORDER BY d.name, ps.name''',
-            (int(prog_type),)
+    if prog_type == 2:
+        # Load Postgraduate form details
+        pg_app = Database.execute_query(
+            '''SELECT pg.*, 
+                      ns.name AS next_of_kin_name, ns.address AS next_of_kin_address, 
+                      ns.phone_number AS next_of_kin_phone_number, ns.secondary_number AS next_of_kin_secondary_phone_number,
+                      ns.sponsor_name, ns.sponsor_address,
+                      ref.name1 AS referee_name1, ref.address1 AS referee_address1,
+                      ref.name2 AS referee_name2, ref.address2 AS referee_address2,
+                      ref.name3 AS referee_name3, ref.address3 AS referee_address3
+               FROM pg_application pg
+               LEFT JOIN nextofkin_sponsor ns ON ns.id = pg.nextofkin_sponsor_id
+               LEFT JOIN pg_reference ref ON ref.id = pg.pg_reference_id
+               WHERE pg.uuid = %s''',
+            (application_id,)
         )
-        form_data['available_courses'] = [dict(r) for r in (pc_res or [])]
+        if pg_app:
+            row = pg_app[0]
+            form_data = {
+                'first_name': row['first_name'],
+                'last_name': row['surname'],
+                'middle_name': row['middle_name'],
+                'email': row['email'],
+                'gender': row['gender'],
+                'date_of_birth': row['date_of_birth'].strftime('%Y-%m-%d') if row['date_of_birth'] else None,
+                'phone_number': row['phone_number'],
+                'secondary_phone_number': row['secondary_phone_number'],
+                'address': row['address'],
+                'physically_challenged': row['physically_challenged'],
+                'physical_challenge_reason': row['physically_challenged'] if row['physically_challenged'] != 'No' else '',
+                'previous_institution': row['previous_institution'],
+                'previous_course': row['previous_course'],
+                'department': row['department'],
+                'class_of_degree': row['class_of_degree'],
+                'proposed_course': row['proposed_course'],
+                'proposed_faculty': row['proposed_faculty_id'],
+                'degree_id': row['degree_id'],
+                'area_of_specialisation': row['area_of_specialisation'],
+                'proposed_research_title': row['proposed_research_title'],
+                'mode_of_study': row['mode_of_study'],
+                'sponsor_name': row['sponsor_name'],
+                'sponsor_address': row['sponsor_address'],
+                'next_of_kin_name': row['next_of_kin_name'],
+                'next_of_kin_address': row['next_of_kin_address'],
+                'next_of_kin_phone_number': row['next_of_kin_phone_number'],
+                'next_of_kin_secondary_phone_number': row['next_of_kin_secondary_phone_number'],
+                'referee_name1': row['referee_name1'],
+                'referee_address1': row['referee_address1'],
+                'referee_name2': row['referee_name2'],
+                'referee_address2': row['referee_address2'],
+                'referee_name3': row['referee_name3'],
+                'referee_address3': row['referee_address3'],
+            }
+            if row['proposed_course']:
+                c_res = Database.execute_query('SELECT name FROM pg_program_setup WHERE id = %s', (row['proposed_course'],))
+                if c_res:
+                    form_data['proposed_course_name'] = c_res[0]['name']
+            if row['proposed_faculty_id']:
+                f_res = Database.execute_query('SELECT name FROM faculties WHERE id = %s', (row['proposed_faculty_id'],))
+                if f_res:
+                    form_data['proposed_faculty_name'] = f_res[0]['name']
+            if row['degree_id']:
+                d_res = Database.execute_query('SELECT name, code FROM degrees WHERE id = %s', (row['degree_id'],))
+                if d_res:
+                    form_data['degree_name'] = d_res[0]['name']
+                    form_data['degree_code'] = d_res[0]['code']
 
-    if form_data.get('additional_info'):
-        try:
-            ai = json.loads(form_data['additional_info']) if isinstance(form_data['additional_info'], str) else form_data['additional_info']
-            form_data = {**ai, **form_data}
-        except (json.JSONDecodeError, TypeError):
-            pass
+            if form_data['physically_challenged'] and form_data['physically_challenged'] != 'No':
+                form_data['physical_challenge_reason'] = form_data['physically_challenged']
+                form_data['physically_challenged'] = 'Yes'
+            else:
+                form_data['physically_challenged'] = 'No'
+                form_data['physical_challenge_reason'] = ''
+        else:
+            user_info = Database.execute_query(
+                'SELECT firstname, surname, middlename, email, phone_number FROM users WHERE id = %s',
+                (user_id,)
+            )
+            if user_info:
+                u = user_info[0]
+                form_data = {
+                    'first_name': u.get('firstname'),
+                    'last_name': u.get('surname'),
+                    'middle_name': u.get('middlename'),
+                    'email': u.get('email'),
+                    'phone_number': u.get('phone_number'),
+                    'physically_challenged': 'No',
+                }
 
-    if form_data.get('olevel_results') and isinstance(form_data['olevel_results'], str):
-        try:
-            form_data['olevel_results'] = json.loads(form_data['olevel_results'])
-        except json.JSONDecodeError:
-            pass
+        # Available courses
+        pg_courses = Database.execute_query(
+            '''SELECT ps.id, ps.name AS course, d.id AS department_id, d.name AS department,
+                      ps.faculty_id, ps.degree_id, deg.name AS degree_name, deg.code AS degree_code
+               FROM pg_program_setup ps
+               LEFT JOIN departments d ON d.id = ps.department_id
+               LEFT JOIN degrees deg ON deg.id = ps.degree_id
+               WHERE ps.is_active = TRUE ORDER BY ps.id'''
+        )
+        form_data['available_courses'] = [dict(r) for r in (pg_courses or [])]
+
+        # Available faculties
+        faculties = Database.execute_query('SELECT id, name FROM faculties ORDER BY name')
+        form_data['available_faculties'] = [dict(f) for f in (faculties or [])]
+
+        # Available degrees (only PG program type degrees)
+        pg_degrees = Database.execute_query(
+            '''SELECT d.id, d.name, d.code
+               FROM degrees d
+               JOIN degree_program dp ON dp.degree_id = d.id
+               WHERE dp.program_type_id = 2 ORDER BY d.name'''
+        )
+        form_data['available_degrees'] = [dict(d) for d in (pg_degrees or [])]
+
+    else:
+        # Load UTME/other form details
+        pi_res      = Database.execute_query('SELECT * FROM biodata WHERE application_id = %s', (application_id,))
+        nok_res     = Database.execute_query('SELECT * FROM next_of_kin WHERE application_id = %s', (application_id,))
+        sponsor_res = Database.execute_query('SELECT * FROM sponsor WHERE application_id = %s', (application_id,))
+
+        if pi_res:
+            form_data = dict(pi_res[0])
+            if 'surname' in form_data:
+                form_data['last_name'] = form_data['surname']
+            dob = form_data.get('date_of_birth')
+            if dob and hasattr(dob, 'strftime'):
+                form_data['date_of_birth'] = dob.strftime('%Y-%m-%d')
+            form_data['full_name'] = ' '.join(filter(None, [form_data.get('first_name'), form_data.get('middle_name'), form_data.get('surname')]))
+
+        if nok_res:
+            n = dict(nok_res[0])
+            form_data.update({'next_of_kin_name': n.get('full_name'), 'next_of_kin_phone_number': n.get('phone_number'), 'next_of_kin_address': n.get('address')})
+
+        if sponsor_res:
+            s = dict(sponsor_res[0])
+            form_data.update({'sponsor_name': s.get('full_name'), 'sponsor_address': s.get('address'), 'sponsor_phone_number': s.get('phone_number'), 'sponsor_relationship': s.get('relationship'), 'sponsor_email': s.get('email')})
+
+        aq_res = Database.execute_query('SELECT * FROM academic_qualification WHERE user_id = %s', (user_id,))
+        if aq_res:
+            aq = aq_res[0]
+            olevel_exams = []
+            for sitting, prefix, type_key, no_key in [(0, '', 'exam_type', 'exam_no'), (1, 'second_', 'exam_type1', 'exam_no1')]:
+                if aq.get(type_key):
+                    subjects = [
+                        {'subject_id': aq.get(f'{prefix}subject{i}'), 'grade_id': aq.get(f'{prefix}grade{i}'), 'subject': aq.get(f'{prefix}subject{i}'), 'grade': aq.get(f'{prefix}grade{i}')}
+                        for i in range(1, 6)
+                        if aq.get(f'{prefix}subject{i}') and aq.get(f'{prefix}grade{i}')
+                    ]
+                    olevel_exams.append({'name': aq.get(type_key), 'number': aq.get(no_key), 'subjects': subjects})
+            if olevel_exams:
+                form_data['olevel_results'] = olevel_exams
+
+            # Load university choices from program_choice table
+            pc_res = Database.execute_query(
+                '''SELECT pc.first_choice, pc.second_choice, ps1.name AS first_choice_name, ps2.name AS second_choice_name
+                   FROM program_choice pc
+                   LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id
+                   LEFT JOIN program_setup ps2 ON pc.second_choice = ps2.id
+                   WHERE pc.application_id = %s''',
+                (application_id,)
+            )
+            if pc_res:
+                pc_row = pc_res[0]
+                if pc_row.get('first_choice'):
+                    form_data['first_choice_program_id'] = pc_row['first_choice']
+                    form_data['first_choice_program_name'] = pc_row['first_choice_name']
+                if pc_row.get('second_choice'):
+                    form_data['second_choice_program_id'] = pc_row['second_choice']
+                    form_data['second_choice_program_name'] = pc_row['second_choice_name']
+
+            # Load original JAMB choices (manually typed) & other UTME details
+            utme_fields = [
+                'utme_reg_no', 'utme_score', 'mode_of_entry', 'choice1', 'choice2',
+                'utme_subject1', 'utme_score1',
+                'utme_subject2', 'utme_score2',
+                'utme_subject3', 'utme_score3',
+                'utme_subject4', 'utme_score4'
+            ]
+            for f in utme_fields:
+                if aq.get(f) is not None:
+                    form_data[f] = aq.get(f)
+
+        if prog_type:
+            pc_res = Database.execute_query(
+                '''SELECT DISTINCT ps.id, ps.name AS course, d.id AS department_id, d.name AS department
+                   FROM degree_program dp
+                   JOIN program_setup ps ON ps.degree_id = dp.degree_id
+                   JOIN departments d ON d.id = ps.department_id
+                   WHERE dp.program_type_id = %s ORDER BY d.name, ps.name''',
+                (int(prog_type),)
+            )
+            form_data['available_courses'] = [dict(r) for r in (pc_res or [])]
+
+        if form_data.get('additional_info'):
+            try:
+                ai = json.loads(form_data['additional_info']) if isinstance(form_data['additional_info'], str) else form_data['additional_info']
+                form_data = {**ai, **form_data}
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        if form_data.get('olevel_results') and isinstance(form_data['olevel_results'], str):
+            try:
+                form_data['olevel_results'] = json.loads(form_data['olevel_results'])
+            except json.JSONDecodeError:
+                pass
 
     form_data['id'] = application_id
-    documents = Database.execute_query(
-        '''SELECT d.id AS document_id, d.document_type, d.document_type AS display_name,
-                  d.file_name AS original_filename, d.file_size, d.status
-           FROM documents d
-           JOIN applications a ON d.application_id = a.id
-           WHERE a.user_id = %s''',
-        (user_id,)
-    )
+    if prog_type == 2:
+        documents = Database.execute_query(
+            '''SELECT d.id AS document_id, d.document_type, d.document_type AS display_name,
+                      d.file_name AS original_filename, d.file_size, d.status
+               FROM pg_document d
+               WHERE d.pg_application_id = %s''',
+            (application_id,)
+        )
+    else:
+        documents = Database.execute_query(
+            '''SELECT d.id AS document_id, d.document_type, d.document_type AS display_name,
+                      d.file_name AS original_filename, d.file_size, d.status
+               FROM documents d
+               WHERE d.application_id = %s''',
+            (application_id,)
+        )
     return jsonify({'form': form_data, 'documents': documents or []}), 200
 
 
@@ -2030,16 +2710,25 @@ def submit_application(payload):
     if not applicant_id:
         return jsonify({'message': 'applicant_id is required'}), 400
 
-    app_check = Database.execute_query(
-        'SELECT id FROM applications WHERE id = %s AND user_id = %s', (applicant_id, user_id)
+    pg_check = Database.execute_query(
+        'SELECT uuid FROM pg_application WHERE uuid = %s AND user_id = %s', (applicant_id, user_id)
     )
-    if not app_check:
-        return jsonify({'message': 'Application not found or access denied'}), 404
+    if pg_check:
+        success = Database.execute_update(
+            "UPDATE pg_application SET applicant_stage = 'submitted', updated_date = NOW() WHERE uuid = %s AND user_id = %s",
+            (applicant_id, user_id)
+        )
+    else:
+        app_check = Database.execute_query(
+            'SELECT id FROM applications WHERE id = %s AND user_id = %s', (applicant_id, user_id)
+        )
+        if not app_check:
+            return jsonify({'message': 'Application not found or access denied'}), 404
 
-    success = Database.execute_update(
-        "UPDATE applications SET applicant_stage = 'submitted', updated_at = NOW() WHERE id = %s AND user_id = %s",
-        (applicant_id, user_id)
-    )
+        success = Database.execute_update(
+            "UPDATE applications SET applicant_stage = 'submitted', updated_at = NOW() WHERE id = %s AND user_id = %s",
+            (applicant_id, user_id)
+        )
     if not success:
         return jsonify({'message': 'Failed to submit application'}), 500
     return jsonify({'message': 'Application submitted successfully'}), 200
@@ -2132,14 +2821,24 @@ def get_payment_receipt(payload, receipt_no):
 @AuthHandler.token_required
 def get_medical_form(payload):
     user_id = payload['user_id']
-    applicant = Database.execute_query(
-        '''SELECT app.id, u.firstname || ' ' || u.surname AS name, pt.name AS program_name
-           FROM applications app
-           JOIN users u ON app.user_id = u.id
-           LEFT JOIN program_types pt ON app.prog_type = pt.id
-           WHERE app.user_id = %s ORDER BY app.updated_at DESC LIMIT 1''',
-        (user_id,)
-    )
+    is_pg = bool(Database.execute_query('SELECT uuid FROM pg_application WHERE user_id = %s LIMIT 1', (user_id,)))
+    if is_pg:
+        applicant = Database.execute_query(
+            '''SELECT pg.uuid AS id, u.firstname || ' ' || u.surname AS name, 'Postgraduate' AS program_name
+               FROM pg_application pg
+               JOIN users u ON pg.user_id = u.id
+               WHERE pg.user_id = %s ORDER BY pg.updated_date DESC LIMIT 1''',
+            (user_id,)
+        )
+    else:
+        applicant = Database.execute_query(
+            '''SELECT app.id, u.firstname || ' ' || u.surname AS name, pt.name AS program_name
+               FROM applications app
+               JOIN users u ON app.user_id = u.id
+               LEFT JOIN program_types pt ON app.prog_type = pt.id
+               WHERE app.user_id = %s ORDER BY app.updated_at DESC LIMIT 1''',
+            (user_id,)
+        )
     if not applicant:
         return jsonify({'message': 'Applicant record not found'}), 404
 
@@ -2253,7 +2952,208 @@ def respond_to_recommendation(payload):
         'SELECT ar.id, ar.application_id, ar.recommended_program_id FROM application_reviews ar WHERE ar.id = %s AND ar.application_id = %s',
         (review_id, applicant_id)
     )
-    if not review:
-        return jsonify({'message': 'Review not found'}), 404
-
     return jsonify({'message': f'Recommendation {response} successfully', 'applicant_id': applicant_id, 'response': response}), 200
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PG COURSE RECOMMENDATION ENDPOINTS
+# ─────────────────────────────────────────────────────────────────────────────
+
+@applicant_bp.route('/accept-recommended-course', methods=['POST'])
+@AuthHandler.token_required
+def accept_recommended_course(payload):
+    """
+    Applicant accepts the admin's recommended course.
+    
+    Only valid for PG applicants in 'recommended' status.
+    Updates applicant_stage to 'accepted_recommendation'.
+    
+    Request JSON:
+        - applicant_id: UUID of the PG application
+    
+    Response:
+        {
+            'message': 'Recommended course accepted successfully',
+            'new_status': 'accepted_recommendation',
+            'approved_course': course_name
+        }
+    """
+    user_id = payload['user_id']
+    _ensure_pg_recommendation_columns()
+    data = request.get_json() or {}
+    applicant_id = data.get('applicant_id')
+    
+    if not applicant_id:
+        return jsonify({'message': 'applicant_id is required'}), 400
+    
+    # Verify applicant exists and belongs to this user
+    pg_app = Database.execute_query(
+        '''SELECT uuid, applicant_stage, approved_course
+           FROM pg_application
+           WHERE uuid = %s AND user_id = %s''',
+        (applicant_id, user_id)
+    )
+    
+    if not pg_app:
+        return jsonify({'message': 'Application not found or access denied'}), 404
+    
+    current_stage = pg_app[0]['applicant_stage']
+    approved_course = pg_app[0]['approved_course']
+    
+    # Must be in 'recommended' status
+    if current_stage != 'recommended':
+        return jsonify({
+            'message': f'Can only accept recommendation when status is "recommended", current status is "{current_stage}"'
+        }), 400
+    
+    if not approved_course:
+        return jsonify({'message': 'No recommended course found'}), 400
+    
+    # Update to accepted_recommendation status
+    success = Database.execute_update(
+        '''UPDATE pg_application
+           SET applicant_stage = 'accepted_recommendation', updated_date = NOW()
+           WHERE uuid = %s''',
+        (applicant_id,)
+    )
+    
+    if not success:
+        return jsonify({'message': 'Failed to update application status'}), 500
+    
+    return jsonify({
+        'message': 'Recommended course accepted successfully',
+        'new_status': 'accepted_recommendation',
+        'approved_course': approved_course
+    }), 200
+
+
+@applicant_bp.route('/recommend-alternative-course', methods=['POST'])
+@AuthHandler.token_required
+def recommend_alternative_course(payload):
+    """
+    Applicant recommends an alternative course.
+    
+    Only valid for PG applicants in 'recommended' status.
+    Stores the applicant's alternative recommendation and updates status to 'applicant_recommended'.
+    
+    Request JSON:
+        - applicant_id: UUID of the PG application
+        - alternative_course: Course name string (must match a course in pg_program_setup)
+    
+    Response:
+        {
+            'message': 'Alternative course recommendation submitted successfully',
+            'new_status': 'applicant_recommended',
+            'original_recommended_course': admin's course,
+            'applicant_recommended_course': applicant's course
+        }
+    """
+    user_id = payload['user_id']
+    _ensure_pg_recommendation_columns()
+    data = request.get_json() or {}
+    applicant_id = data.get('applicant_id')
+    alternative_course = data.get('alternative_course')  # course name string
+    
+    if not applicant_id or not alternative_course:
+        return jsonify({'message': 'applicant_id and alternative_course are required'}), 400
+    
+    # Verify applicant exists and belongs to this user
+    pg_app = Database.execute_query(
+        '''SELECT uuid, applicant_stage, approved_course, user_id
+           FROM pg_application
+           WHERE uuid = %s AND user_id = %s''',
+        (applicant_id, user_id)
+    )
+    
+    if not pg_app:
+        return jsonify({'message': 'Application not found or access denied'}), 404
+    
+    current_stage = pg_app[0]['applicant_stage']
+    approved_course = pg_app[0]['approved_course']
+    
+    # Must be in 'recommended' status
+    if current_stage != 'recommended':
+        return jsonify({
+            'message': f'Can only recommend alternative when status is "recommended", current status is "{current_stage}"'
+        }), 400
+    
+    # Verify the alternative course exists
+    course_check = Database.execute_query(
+        '''SELECT ps.id, ps.name
+           FROM pg_program_setup ps
+           LEFT JOIN degrees dg ON ps.degree_id = dg.id
+           WHERE LOWER(ps.name) = LOWER(%s)
+              OR LOWER(COALESCE(dg.code || ' ', '') || ps.name) = LOWER(%s)
+           LIMIT 1''',
+        (alternative_course, alternative_course)
+    )
+    
+    if not course_check:
+        return jsonify({'message': f'Alternative course "{alternative_course}" not found'}), 404
+    
+    # Update: store applicant's recommended course and change status
+    success = Database.execute_update(
+        '''UPDATE pg_application
+           SET applicant_stage = 'applicant_recommended',
+               applicant_recommended_course = %s,
+               updated_date = NOW()
+           WHERE uuid = %s''',
+        (alternative_course, applicant_id)
+    )
+    
+    if not success:
+        return jsonify({'message': 'Failed to update application status'}), 500
+    
+    return jsonify({
+        'message': 'Alternative course recommendation submitted successfully',
+        'new_status': 'applicant_recommended',
+        'original_recommended_course': approved_course,
+        'applicant_recommended_course': alternative_course
+    }), 200
+
+
+@applicant_bp.route('/reject-recommended-course', methods=['POST'])
+@AuthHandler.token_required
+def reject_recommended_course(payload):
+    """Applicant rejects the admin recommended course, ending the application."""
+    user_id = payload['user_id']
+    _ensure_pg_recommendation_columns()
+    data = request.get_json() or {}
+    applicant_id = data.get('applicant_id')
+
+    if not applicant_id:
+        return jsonify({'message': 'applicant_id is required'}), 400
+
+    pg_app = Database.execute_query(
+        '''SELECT uuid, applicant_stage, decision, approved_course
+           FROM pg_application
+           WHERE uuid = %s AND user_id = %s''',
+        (applicant_id, user_id)
+    )
+
+    if not pg_app:
+        return jsonify({'message': 'Application not found or access denied'}), 404
+
+    current_stage = pg_app[0]['applicant_stage']
+    if current_stage != 'recommended':
+        return jsonify({
+            'message': f'Can only reject recommendation when status is "recommended", current status is "{current_stage}"'
+        }), 400
+
+    success = Database.execute_update(
+        '''UPDATE pg_application
+           SET applicant_stage = 'rejected',
+               finalised_course = NULL,
+               updated_date = NOW()
+           WHERE uuid = %s''',
+        (applicant_id,)
+    )
+
+    if not success:
+        return jsonify({'message': 'Failed to reject recommendation'}), 500
+
+    return jsonify({
+        'message': 'Course recommendation rejected. Your application has ended.',
+        'new_status': 'rejected',
+        'approved_course': pg_app[0].get('approved_course')
+    }), 200

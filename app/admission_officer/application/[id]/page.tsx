@@ -492,11 +492,23 @@ function ReviewsTab({
   const currentApprovedCourse = application.applicant.approved_course as
     | string
     | undefined;
+  const applicantRecommendedCourse = application.applicant
+    .applicant_recommended_course as string | undefined;
   const decisionDate = application.applicant.decision_date as
     | string
     | undefined;
+  const applicationStatus = application.applicant.application_status as string;
+  const isRecommendationFollowUp =
+    applicationStatus === "accepted_recommendation" ||
+    applicationStatus === "applicant_recommended";
+  const followUpCourse =
+    applicationStatus === "accepted_recommendation"
+      ? currentApprovedCourse
+      : applicantRecommendedCourse;
 
-  const needsCourse = decision === "accept" || decision === "recommend";
+  const needsCourse =
+    decision === "recommend" ||
+    (decision === "accept" && !isRecommendationFollowUp);
 
   const handleReview = async () => {
     if (needsCourse && !approvedCourse) {
@@ -507,10 +519,16 @@ function ReviewsTab({
     setError(null);
     setReviewSuccess(null);
     try {
+      const courseForSubmission =
+        decision === "accept" && isRecommendationFollowUp
+          ? followUpCourse || approvedCourse
+          : needsCourse
+            ? approvedCourse
+            : undefined;
       await ApiClient.reviewApplication(
         applicantId,
         decision,
-        needsCourse ? approvedCourse : undefined,
+        courseForSubmission,
       );
       const labels: Record<string, string> = {
         accept: "Accepted",
@@ -542,8 +560,10 @@ function ReviewsTab({
     d === "accept" ? "Accepted" : d === "reject" ? "Rejected" : "Recommended";
 
   const canReview =
-    application.applicant.application_status === "submitted" ||
-    application.applicant.application_status === "screening";
+    applicationStatus === "submitted" ||
+    applicationStatus === "screening" ||
+    applicationStatus === "accepted_recommendation" ||
+    applicationStatus === "applicant_recommended";
 
   return (
     <div className="space-y-6">
@@ -643,7 +663,9 @@ function ReviewsTab({
                     cls: "border-blue-200 bg-blue-50/50 hover:bg-blue-50 text-blue-700 border-blue-300 ring-blue-400",
                   },
                 ] as const
-              ).map((opt) => {
+              )
+                .filter((opt) => !isRecommendationFollowUp || opt.value !== "recommend")
+                .map((opt) => {
                 const Icon = opt.icon;
                 return (
                   <button
@@ -670,7 +692,27 @@ function ReviewsTab({
             </div>
 
             {/* Accept — choose from applicant's 1st / 2nd choice */}
-            {decision === "accept" && (
+            {isRecommendationFollowUp && (
+              <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4 text-sm text-blue-900">
+                {applicationStatus === "accepted_recommendation" ? (
+                  <>
+                    Applicant accepted the recommended course:{" "}
+                    <span className="font-bold">
+                      {currentApprovedCourse || "N/A"}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    Applicant recommended an alternative course:{" "}
+                    <span className="font-bold">
+                      {applicantRecommendedCourse || "N/A"}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+
+            {decision === "accept" && !isRecommendationFollowUp && (
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
                   Accepted Course
@@ -822,6 +864,9 @@ const statusColors: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800",
   submitted: "bg-blue-100 text-blue-800",
   screening: "bg-purple-100 text-purple-800",
+  recommended: "bg-cyan-100 text-cyan-800",
+  accepted_recommendation: "bg-emerald-100 text-emerald-800",
+  applicant_recommended: "bg-blue-100 text-blue-800",
   admitted: "bg-green-100 text-green-800",
   accepted: "bg-emerald-100 text-emerald-800",
   rejected: "bg-red-100 text-red-800",
@@ -839,7 +884,7 @@ function ApplicationDetailContent() {
   const returnStatus = searchParams.get("status");
   const applicationsHref =
     returnStatus &&
-    ["submitted", "screening", "admitted", "rejected"].includes(returnStatus)
+    ["submitted", "screening", "recommended", "admitted", "rejected"].includes(returnStatus)
       ? `/admission_officer/applications?status=${returnStatus}`
       : "/admission_officer/applications";
 

@@ -186,6 +186,10 @@ function ApplicantDashboardInner() {
       loginMarker,
     );
   };
+  const getRecommendationStatus = (applicant?: ApplicantStatus | null) =>
+    applicant?.admission_status === "recommend"
+      ? "recommend"
+      : applicant?.application_status || applicant?.admission_status || "";
   const profileStatuses = [
     "submitted",
     "screening",
@@ -340,7 +344,7 @@ function ApplicantDashboardInner() {
       const recommendationApp = apps.find(
         (app: ApplicantStatus) =>
           app.has_paid_application_fee &&
-          ["recommended", "recommend"].includes(app.application_status),
+          ["recommended", "recommend"].includes(getRecommendationStatus(app)),
       );
       if (recommendationApp) {
         setRecommendationModalApp(recommendationApp);
@@ -1695,7 +1699,7 @@ function ApplicantDashboardInner() {
                 <p className="hidden px-2 text-base font-medium leading-relaxed text-slate-500 sm:block">
                   The admission office has recommended another course for your
                   application. Open your profile to accept it, reject it, or
-                  recommend a different postgraduate course.
+                  recommend a different course.
                 </p>
               </div>
               {recommendationModalApp.approved_course && (

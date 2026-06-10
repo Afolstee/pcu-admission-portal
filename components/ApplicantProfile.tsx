@@ -93,8 +93,8 @@ export default function ApplicantProfile({
     const programChoiceSection = {
       title: "Proposed Course Choices",
       fields: [
-        { key: "first_choice_program_name", label: "PCU First Choice Program" },
-        { key: "second_choice_program_name", label: "PCU Second Choice Program" },
+        { key: "first_choice_program_name", label: "First Choice" },
+        { key: "second_choice_program_name", label: "Second Choice" },
       ],
       alwaysShow: true,
     };
@@ -120,6 +120,10 @@ export default function ApplicantProfile({
     program_type_id === 2
       ? profileTemplate?.showOLevel || false
       : template?.steps?.some((step) => step.type === "olevel") || false;
+  const recommendationStatus =
+    applicant?.admission_status === "recommend"
+      ? "recommend"
+      : applicant?.application_status || applicant?.admission_status || "";
 
   const apiBaseUrl =
     process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/e-portal/api";
@@ -615,15 +619,16 @@ export default function ApplicantProfile({
                 </div>
               )}
 
-              {/* COURSE RECOMMENDATION SECTION - Only for PG applicants in recommendation status */}
-              {program_type_id === 2 && (
+              {/* COURSE RECOMMENDATION SECTION */}
+              {[
+                "recommended",
+                "recommend",
+                "accepted_recommendation",
+                "applicant_recommended",
+              ].includes(recommendationStatus) && (
                 <CourseRecommendationSection
                   applicantId={applicant?.id || applicant?.uuid || ""}
-                  applicationStatus={
-                    applicant?.application_status ||
-                    applicant?.admission_status ||
-                    ""
-                  }
+                  applicationStatus={recommendationStatus}
                   approvedCourse={applicant?.approved_course}
                   applicantRecommendedCourse={
                     applicant?.applicant_recommended_course

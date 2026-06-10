@@ -88,6 +88,8 @@ def get_applications(payload):
         non_pg_params = []
         if status == 'admitted':
             non_pg_where.append("app.applicant_stage IN ('admitted', 'accepted', 'enrolled')")
+        elif status == 'screening':
+            non_pg_where.append("app.applicant_stage IN ('screening', 'accepted_recommendation', 'applicant_recommended')")
         elif status == 'submitted':
             non_pg_where.append("app.applicant_stage = 'submitted' AND (app.prog_type != 2 OR app.prog_type IS NULL)")
         else:
@@ -124,6 +126,9 @@ def get_applications(payload):
                        END
                    ) AS program_name,
                    app.applicant_stage AS application_status,
+                   app.approved_course,
+                   app.finalised_course,
+                   app.applicant_recommended_course,
                    app.updated_at AS submitted_at,
                    app.form_no,
                    COALESCE(asess.name, CAST(app.academic_session_id AS TEXT)) AS session
@@ -259,6 +264,7 @@ def get_application_details(payload, applicant_id):
                        app.decision_date,
                        app.approved_course,
                        app.finalised_course,
+                       app.applicant_recommended_course,
                        app.admission_letter_sent,
                        (app.applicant_stage = 'accepted') AS has_paid_acceptance_fee
                 FROM applications app
@@ -516,23 +522,55 @@ def review_application(payload):
     if decision not in ['accept', 'reject', 'recommend']:
         return jsonify({'message': 'Invalid decision. Must be accept, reject, or recommend'}), 400
 
-    if decision in ['accept', 'recommend'] and not approved_course:
-        return jsonify({'message': 'approved_course is required when decision is accept or recommend'}), 400
+    if decision == 'recommend' and not approved_course:
+        return jsonify({'message': 'approved_course is required when decision is recommend'}), 400
 
     officer_user_id = payload['user_id']
-
-    stage_map  = {'accept': 'admitted', 'reject': 'rejected', 'recommend': 'screening'}
-    new_status = stage_map[decision]
 
     pg_app = Database.execute_query('SELECT uuid FROM pg_application WHERE uuid = %s', (applicant_id,))
     is_pg = bool(pg_app)
     if is_pg:
         return jsonify({'message': 'PG applications are managed by the PG Admin'}), 403
 
+    current_app = Database.execute_query(
+        '''SELECT applicant_stage, approved_course, applicant_recommended_course
+           FROM applications WHERE id = %s''',
+        (applicant_id,)
+    )
+    if not current_app:
+        return jsonify({'message': 'Applicant not found'}), 404
+
+    current_stage = current_app[0].get('applicant_stage')
+    current_approved_course = current_app[0].get('approved_course')
+    applicant_rec_course = current_app[0].get('applicant_recommended_course')
+
+    is_recommendation_follow_up = current_stage in ('accepted_recommendation', 'applicant_recommended')
+    if decision == 'accept' and not approved_course and not is_recommendation_follow_up:
+        return jsonify({'message': 'approved_course is required when decision is accept'}), 400
+
+    if decision == 'recommend':
+        new_status = 'recommended'
+        stored_approved_course = approved_course
+        finalised_course = None
+    elif decision == 'reject':
+        new_status = 'rejected'
+        stored_approved_course = current_approved_course or approved_course
+        finalised_course = None
+    else:
+        new_status = 'admitted'
+        stored_approved_course = current_approved_course or approved_course
+        if current_stage == 'applicant_recommended':
+            finalised_course = applicant_rec_course or approved_course
+        elif current_stage == 'accepted_recommendation':
+            finalised_course = stored_approved_course
+        else:
+            finalised_course = approved_course
+
     ps_id = None
     department_id = None
     degree_id = None
-    if approved_course:
+    course_to_resolve = finalised_course
+    if course_to_resolve:
         if is_pg:
             ps_res = Database.execute_query(
                 '''SELECT ps.id, ps.department_id, ps.degree_id
@@ -541,7 +579,7 @@ def review_application(payload):
                    WHERE LOWER(ps.name) = LOWER(%s)
                       OR LOWER(COALESCE(dg.code || ' ', '') || ps.name) = LOWER(%s)
                    LIMIT 1''',
-                (approved_course, approved_course)
+                (course_to_resolve, course_to_resolve)
             )
         else:
             ps_res = Database.execute_query(
@@ -549,7 +587,7 @@ def review_application(payload):
                    FROM program_setup ps
                    WHERE LOWER(ps.name) = LOWER(%s)
                    LIMIT 1''',
-                (approved_course,)
+                (course_to_resolve,)
             )
         if ps_res:
             ps_id = ps_res[0]['id']
@@ -584,7 +622,7 @@ def review_application(payload):
                    decision_maker_user_id  = %s,
                    updated_at              = NOW()
                WHERE id = %s''',
-            (new_status, decision, approved_course, approved_course, ps_id, degree_id, officer_user_id, applicant_id)
+            (new_status, decision, stored_approved_course, finalised_course, ps_id, degree_id, officer_user_id, applicant_id)
         )
 
     if not success:

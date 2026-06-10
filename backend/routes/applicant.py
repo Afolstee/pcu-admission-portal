@@ -44,6 +44,15 @@ def _ensure_pg_recommendation_columns():
     )
 
 
+def _ensure_application_recommendation_columns():
+    Database.execute_update(
+        '''ALTER TABLE applications
+           ADD COLUMN IF NOT EXISTS approved_course TEXT,
+           ADD COLUMN IF NOT EXISTS finalised_course TEXT,
+           ADD COLUMN IF NOT EXISTS applicant_recommended_course TEXT'''
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2237,7 +2246,9 @@ def get_applicant_status(payload):
                u.matric_no,
                ptype.name AS program_name,
                dg.code AS degree_code,
-               COALESCE(app.approved_course, app.finalised_course) AS approved_course,
+               app.approved_course,
+               app.finalised_course,
+               app.applicant_recommended_course,
                (
                    EXISTS (
                        SELECT 1 FROM payment_transactions txn
@@ -2269,7 +2280,14 @@ def get_applicant_status(payload):
                      AND txn2.tran_status = 'successful'
                ) AS has_paid_tuition,
                CASE WHEN app.applicant_stage != 'started' THEN app.updated_at ELSE NULL END AS submitted_at,
-               CASE WHEN app.applicant_stage IN ('admitted','accepted','enrolled') THEN 'admitted' ELSE 'pending' END AS admission_status
+               CASE
+                   WHEN app.applicant_stage IN ('admitted','accepted','enrolled') THEN 'admitted'
+                   WHEN app.applicant_stage IN ('accepted_recommendation','applicant_recommended') THEN app.applicant_stage
+                   WHEN app.applicant_stage = 'recommended' OR app.decision = 'recommend' THEN 'recommend'
+                   WHEN app.applicant_stage = 'screening' THEN 'screening'
+                   WHEN app.applicant_stage = 'rejected' THEN 'rejected'
+                   ELSE 'pending'
+               END AS admission_status
            FROM applications app
            JOIN users u ON app.user_id = u.id
            LEFT JOIN program_types ptype ON app.prog_type = ptype.id
@@ -3153,13 +3171,13 @@ def accept_recommended_course(payload):
     """
     user_id = payload['user_id']
     _ensure_pg_recommendation_columns()
+    _ensure_application_recommendation_columns()
     data = request.get_json() or {}
     applicant_id = data.get('applicant_id')
     
     if not applicant_id:
         return jsonify({'message': 'applicant_id is required'}), 400
     
-    # Verify applicant exists and belongs to this user
     pg_app = Database.execute_query(
         '''SELECT uuid, applicant_stage, approved_course
            FROM pg_application
@@ -3168,7 +3186,42 @@ def accept_recommended_course(payload):
     )
     
     if not pg_app:
-        return jsonify({'message': 'Application not found or access denied'}), 404
+        app = Database.execute_query(
+            '''SELECT id, applicant_stage, approved_course
+               FROM applications
+               WHERE id = %s AND user_id = %s''',
+            (applicant_id, user_id)
+        )
+
+        if not app:
+            return jsonify({'message': 'Application not found or access denied'}), 404
+
+        current_stage = app[0]['applicant_stage']
+        approved_course = app[0]['approved_course']
+
+        if current_stage != 'recommended':
+            return jsonify({
+                'message': f'Can only accept recommendation when status is "recommended", current status is "{current_stage}"'
+            }), 400
+
+        if not approved_course:
+            return jsonify({'message': 'No recommended course found'}), 400
+
+        success = Database.execute_update(
+            '''UPDATE applications
+               SET applicant_stage = 'accepted_recommendation', updated_at = NOW()
+               WHERE id = %s''',
+            (applicant_id,)
+        )
+
+        if not success:
+            return jsonify({'message': 'Failed to update application status'}), 500
+
+        return jsonify({
+            'message': 'Recommended course accepted successfully',
+            'new_status': 'accepted_recommendation',
+            'approved_course': approved_course
+        }), 200
     
     current_stage = pg_app[0]['applicant_stage']
     approved_course = pg_app[0]['approved_course']
@@ -3223,6 +3276,7 @@ def recommend_alternative_course(payload):
     """
     user_id = payload['user_id']
     _ensure_pg_recommendation_columns()
+    _ensure_application_recommendation_columns()
     data = request.get_json() or {}
     applicant_id = data.get('applicant_id')
     alternative_course = data.get('alternative_course')  # course name string
@@ -3230,7 +3284,6 @@ def recommend_alternative_course(payload):
     if not applicant_id or not alternative_course:
         return jsonify({'message': 'applicant_id and alternative_course are required'}), 400
     
-    # Verify applicant exists and belongs to this user
     pg_app = Database.execute_query(
         '''SELECT uuid, applicant_stage, approved_course, user_id
            FROM pg_application
@@ -3239,7 +3292,56 @@ def recommend_alternative_course(payload):
     )
     
     if not pg_app:
-        return jsonify({'message': 'Application not found or access denied'}), 404
+        app = Database.execute_query(
+            '''SELECT id, applicant_stage, approved_course, user_id, prog_type
+               FROM applications
+               WHERE id = %s AND user_id = %s''',
+            (applicant_id, user_id)
+        )
+
+        if not app:
+            return jsonify({'message': 'Application not found or access denied'}), 404
+
+        current_stage = app[0]['applicant_stage']
+        approved_course = app[0]['approved_course']
+        prog_type = app[0].get('prog_type')
+
+        if current_stage != 'recommended':
+            return jsonify({
+                'message': f'Can only recommend alternative when status is "recommended", current status is "{current_stage}"'
+            }), 400
+
+        course_check = Database.execute_query(
+            '''SELECT ps.id, ps.name
+               FROM program_setup ps
+               JOIN degree_program dp ON dp.degree_id = ps.degree_id
+               WHERE LOWER(ps.name) = LOWER(%s)
+                 AND (%s IS NULL OR dp.program_type_id = %s)
+               LIMIT 1''',
+            (alternative_course, prog_type, prog_type)
+        )
+
+        if not course_check:
+            return jsonify({'message': f'Alternative course "{alternative_course}" not found'}), 404
+
+        success = Database.execute_update(
+            '''UPDATE applications
+               SET applicant_stage = 'applicant_recommended',
+                   applicant_recommended_course = %s,
+                   updated_at = NOW()
+               WHERE id = %s''',
+            (alternative_course, applicant_id)
+        )
+
+        if not success:
+            return jsonify({'message': 'Failed to update application status'}), 500
+
+        return jsonify({
+            'message': 'Alternative course recommendation submitted successfully',
+            'new_status': 'applicant_recommended',
+            'original_recommended_course': approved_course,
+            'applicant_recommended_course': alternative_course
+        }), 200
     
     current_stage = pg_app[0]['applicant_stage']
     approved_course = pg_app[0]['approved_course']
@@ -3291,6 +3393,7 @@ def reject_recommended_course(payload):
     """Applicant rejects the admin recommended course, ending the application."""
     user_id = payload['user_id']
     _ensure_pg_recommendation_columns()
+    _ensure_application_recommendation_columns()
     data = request.get_json() or {}
     applicant_id = data.get('applicant_id')
 
@@ -3305,7 +3408,39 @@ def reject_recommended_course(payload):
     )
 
     if not pg_app:
-        return jsonify({'message': 'Application not found or access denied'}), 404
+        app = Database.execute_query(
+            '''SELECT id, applicant_stage, decision, approved_course
+               FROM applications
+               WHERE id = %s AND user_id = %s''',
+            (applicant_id, user_id)
+        )
+
+        if not app:
+            return jsonify({'message': 'Application not found or access denied'}), 404
+
+        current_stage = app[0]['applicant_stage']
+        if current_stage != 'recommended':
+            return jsonify({
+                'message': f'Can only reject recommendation when status is "recommended", current status is "{current_stage}"'
+            }), 400
+
+        success = Database.execute_update(
+            '''UPDATE applications
+               SET applicant_stage = 'rejected',
+                   finalised_course = NULL,
+                   updated_at = NOW()
+               WHERE id = %s''',
+            (applicant_id,)
+        )
+
+        if not success:
+            return jsonify({'message': 'Failed to reject recommendation'}), 500
+
+        return jsonify({
+            'message': 'Course recommendation rejected. Your application has ended.',
+            'new_status': 'rejected',
+            'approved_course': app[0].get('approved_course')
+        }), 200
 
     current_stage = pg_app[0]['applicant_stage']
     if current_stage != 'recommended':

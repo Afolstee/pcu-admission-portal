@@ -43,6 +43,9 @@ const statusColors: Record<string, string> = {
   pending: "bg-amber-50 text-amber-700 border border-amber-200/60 shadow-sm shadow-amber-500/5",
   submitted: "bg-blue-50 text-blue-700 border border-blue-200/60 shadow-sm shadow-blue-500/5",
   screening: "bg-purple-50 text-purple-700 border border-purple-200/60 shadow-sm shadow-purple-500/5",
+  recommended: "bg-cyan-50 text-cyan-700 border border-cyan-200/60 shadow-sm shadow-cyan-500/5",
+  accepted_recommendation: "bg-emerald-50 text-emerald-700 border border-emerald-200/60 shadow-sm shadow-emerald-500/5",
+  applicant_recommended: "bg-blue-50 text-blue-700 border border-blue-200/60 shadow-sm shadow-blue-500/5",
   admitted: "bg-emerald-50 text-emerald-700 border border-emerald-200/60 shadow-sm shadow-emerald-500/5",
   accepted: "bg-emerald-50 text-emerald-700 border border-emerald-200/60 shadow-sm shadow-emerald-500/5",
   rejected: "bg-rose-50 text-rose-700 border border-rose-200/60 shadow-sm shadow-rose-500/5",
@@ -57,7 +60,7 @@ function ApplicationsContent() {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<string>(() => {
     const urlStatus = searchParams.get("status");
-    return ["submitted", "screening", "admitted", "rejected"].includes(urlStatus || "")
+    return ["submitted", "screening", "recommended", "admitted", "rejected"].includes(urlStatus || "")
       ? (urlStatus as string)
       : "submitted";
   });
@@ -120,6 +123,7 @@ function ApplicationsContent() {
             <SelectContent className="bg-white/95 backdrop-blur-md rounded-xl border-slate-100 shadow-xl">
               <SelectItem value="submitted" className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer">Submitted</SelectItem>
               <SelectItem value="screening" className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer">Under Review</SelectItem>
+              <SelectItem value="recommended" className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer">Recommended</SelectItem>
               <SelectItem value="admitted" className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer">Admitted</SelectItem>
               <SelectItem value="rejected" className="font-semibold text-slate-600 focus:text-purple-700 focus:bg-purple-50/55 cursor-pointer">Rejected</SelectItem>
             </SelectContent>

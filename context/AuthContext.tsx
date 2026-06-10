@@ -84,6 +84,7 @@ interface AuthContextType {
   ) => Promise<void>;
   login: (email: string, password: string, portal?: "applicant" | "student") => Promise<void>;
   logout: (redirectUrl?: string) => Promise<void>;
+  isLoggingOut: boolean;
   refreshStatus: () => Promise<void>;
   error: string | null;
   portalStatus: PortalStatus | null;
@@ -106,6 +107,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   // Initialize as loading to ensure verifyToken completes before auto-redirects
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const [portalStatus, setPortalStatus] = useState<PortalStatus | null>(null);
   const [isPortalLoading, setIsPortalLoading] = useState(true);
@@ -367,6 +369,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const logout = useCallback(
     async (redirectUrl?: string) => {
+      setIsLoggingOut(true);
       let finalUrl = redirectUrl;
       if (!finalUrl) {
         const currentPath = typeof window !== "undefined" ? window.location.pathname : "";
@@ -404,6 +407,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         ApiClient.setToken(null);
         localStorage.removeItem("auth_user");
         localStorage.removeItem("last_active");
+        saveUserAndRole(null);
+        setApplicant(null);
+        setStudent(null);
 
         let redirectPath = finalUrl;
         // Handle Next.js basePath configuration for hard reloads
@@ -458,13 +464,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     signup,
     login,
     logout,
+    isLoggingOut,
     refreshStatus,
     error,
     portalStatus,
     isPortalLoading,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      {isLoggingOut && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-white">
+          <div className="flex flex-col items-center gap-4 rounded-lg bg-white px-8 py-7 text-center shadow-2xl">
+            <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-[#6b21a8]" />
+            <div>
+              <p className="text-base font-semibold text-slate-900">
+                Logging out
+              </p>
+              <p className="mt-1 text-sm text-slate-500">
+                Please wait while we end your session.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </AuthContext.Provider>
+  );
 };
 
 export const useAuth = () => {

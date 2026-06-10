@@ -20,7 +20,7 @@ type Student = {
 
 export default function LecturerDashboard() {
   const router = useRouter();
-  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, logout: authLogout } = useAuth();
   const [courses, setCourses]     = useState<Course[]>([]);
   const [selected, setSelected]   = useState<Course | null>(null);
   const [students, setStudents]   = useState<Student[]>([]);
@@ -83,10 +83,8 @@ export default function LecturerDashboard() {
     } catch (e: any) { setMsg(e.message); }
   }
 
-  function logout() {
-    ApiClient.setToken(null);
-    localStorage.removeItem("staff_user");
-    router.push("/staff/login");
+  async function logout() {
+    await authLogout("/staff/login");
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {

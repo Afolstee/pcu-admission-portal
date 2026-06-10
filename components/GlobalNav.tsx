@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useSidebar } from "@/context/SidebarContext";
 import { Button } from "@/components/ui/button";
@@ -127,22 +127,13 @@ const ICT_NAV_ITEMS = [
 ];
 
 export function GlobalNav() {
-  const router = useRouter();
   const pathname = usePathname();
-  const { isAuthenticated, user, logout, isLoading } = useAuth();
+  const { isAuthenticated, user, logout, isLoading, isLoggingOut } = useAuth();
   const { isOpen, toggle } = useSidebar();
   const [pendingCount, setPendingCount] = React.useState(0);
 
   const handleLogout = async () => {
-    const currentPath = pathname || "";
     await logout();
-    if (currentPath.startsWith("/student")) {
-      router.replace("/student/login");
-    } else if (currentPath.startsWith("/applicant")) {
-      router.replace("/auth/login");
-    } else {
-      router.replace("/staff/login");
-    }
   };
 
   const isApplicantPortal =
@@ -427,8 +418,10 @@ export function GlobalNav() {
           {isAuthenticated && (
             <button
               onClick={handleLogout}
+              disabled={isLoggingOut}
               className={cn(
                 "w-full flex items-center transition-all duration-200 rounded-xl group relative",
+                isLoggingOut && "pointer-events-none opacity-70",
                 isOfficialPortalSection
                   ? "text-[#d8d1c6] hover:text-white hover:bg-white/5"
                   : "text-slate-500 hover:text-red-600",
@@ -444,7 +437,11 @@ export function GlobalNav() {
                     : "border-slate-100 bg-white group-hover:border-red-200 group-hover:bg-red-50 group-hover:scale-105 group-hover:text-red-600",
                 )}
               >
-                <LogOut size={20} />
+                {isLoggingOut ? (
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                ) : (
+                  <LogOut size={20} />
+                )}
               </div>
               <span
                 className={cn(
@@ -452,7 +449,7 @@ export function GlobalNav() {
                   isOpen ? "opacity-100 w-auto" : "opacity-0 w-0",
                 )}
               >
-                Sign Out
+                {isLoggingOut ? "Logging out" : "Sign Out"}
               </span>
               {!isOpen && (
                 <div className="absolute left-full ml-6 px-3 py-1 bg-slate-800 text-white text-xs rounded-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap">

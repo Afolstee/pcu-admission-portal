@@ -227,13 +227,21 @@ function ApplicantInfoTab({
                       {exam.name || "WAEC"} — Sitting {idx + 1}
                     </h4>
                   </div>
-                  <div className="grid grid-cols-2 gap-4 text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 p-3 bg-slate-50 rounded-xl">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 p-3 bg-slate-50 rounded-xl">
                     <div>
                       <span className="block text-[9px] text-slate-400">
                         Reg Number
                       </span>
                       <span className="text-slate-700 font-mono">
                         {exam.number}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] text-slate-400">
+                        Exam Period
+                      </span>
+                      <span className="text-slate-700">
+                        {exam.period || "N/A"}
                       </span>
                     </div>
                     <div>

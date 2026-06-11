@@ -2416,7 +2416,7 @@ def get_admission_letter(payload):
                FROM pg_application pg
                JOIN users u ON pg.user_id = u.id
                LEFT JOIN academic_sessions asess ON pg.academic_session_id = asess.id
-               WHERE pg.user_id = %s AND pg.applicant_stage IN ('admitted','accepted')
+               WHERE pg.user_id = %s AND pg.applicant_stage IN ('admitted','accepted','enrolled')
                ORDER BY pg.updated_date DESC LIMIT 1''',
             (user_id,)
         )
@@ -2434,13 +2434,13 @@ def get_admission_letter(payload):
                JOIN users u ON app.user_id = u.id
                LEFT JOIN program_types pt ON app.prog_type = pt.id
                LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
-               WHERE app.user_id = %s AND app.applicant_stage IN ('admitted','accepted')
+               WHERE app.user_id = %s AND app.applicant_stage IN ('admitted','accepted','enrolled')
                ORDER BY app.updated_at DESC LIMIT 1''',
             (user_id,)
         )
     if not applicant:
         return jsonify({'message': 'Admission letter not available'}), 404
-    if applicant[0]['applicant_stage'] != 'accepted':
+    if applicant[0]['applicant_stage'] not in ('accepted', 'enrolled'):
         return jsonify({'message': 'Admission letter is only available after paying the acceptance fee'}), 403
 
     applicant_data = applicant[0]
@@ -2519,6 +2519,117 @@ def get_admission_letter(payload):
         'otherFees':      f"\u20a6{other_fees:,.2f}",
         'reference':      ref_no,
     }), 200
+
+
+@applicant_bp.route('/print-admission-letter', methods=['POST'])
+@AuthHandler.token_required
+def print_admission_letter(payload):
+    """Generate and return the applicant's admission letter as a downloadable PDF."""
+    user_id = payload['user_id']
+    is_pg = bool(Database.execute_query('SELECT uuid FROM pg_application WHERE user_id = %s LIMIT 1', (user_id,)))
+    if is_pg:
+        applicant = Database.execute_query(
+            '''SELECT pg.uuid AS id,
+                      u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname AS name,
+                      u.email,
+                      2 AS program_id,
+                      'Postgraduate' AS program_name,
+                      pg.form_no,
+                      pg.approved_course,
+                      pg.finalised_course,
+                      pg.applicant_stage,
+                      asess.name AS session_name
+               FROM pg_application pg
+               JOIN users u ON pg.user_id = u.id
+               LEFT JOIN academic_sessions asess ON pg.academic_session_id = asess.id
+               WHERE pg.user_id = %s AND pg.applicant_stage IN ('admitted','accepted','enrolled')
+               ORDER BY pg.updated_date DESC LIMIT 1''',
+            (user_id,)
+        )
+    else:
+        applicant = Database.execute_query(
+            '''SELECT app.id,
+                      u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname AS name,
+                      u.email,
+                      app.prog_type AS program_id,
+                      pt.name AS program_name,
+                      app.form_no,
+                      app.approved_course,
+                      app.finalised_course,
+                      app.applicant_stage,
+                      asess.name AS session_name
+               FROM applications app
+               JOIN users u ON app.user_id = u.id
+               LEFT JOIN program_types pt ON app.prog_type = pt.id
+               LEFT JOIN academic_sessions asess ON app.academic_session_id = asess.id
+               WHERE app.user_id = %s AND app.applicant_stage IN ('admitted','accepted','enrolled')
+               ORDER BY app.updated_at DESC LIMIT 1''',
+            (user_id,)
+        )
+    if not applicant:
+        return jsonify({'message': 'Admission letter not available'}), 404
+    if applicant[0]['applicant_stage'] not in ('accepted', 'enrolled'):
+        return jsonify({'message': 'Admission letter is only available after paying the acceptance fee'}), 403
+
+    applicant_data = applicant[0]
+    fees = Database.execute_query(
+        '''SELECT fc.name AS fee_name, pf.amount
+           FROM program_fees pf
+           JOIN fee_components fc ON pf.fee_component_id = fc.id
+           WHERE pf.program_type = %s''',
+        (str(applicant_data['program_id']),)
+    )
+    acceptance_fee = tuition_fee = other_fees = 0
+    for fee in (fees or []):
+        fname  = (fee['fee_name'] or '').lower()
+        amount = fee['amount'] or 0
+        if 'acceptance' in fname:            acceptance_fee = amount
+        elif 'tuition' in fname or 'accommodation' in fname: tuition_fee = amount
+        elif any(k in fname for k in ('sundry', 'other', 'digital')): other_fees = amount
+
+    session_res  = Database.execute_query("SELECT name FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
+    session      = session_res[0]['name'] if session_res else '2025/2026'
+
+    # Resolve faculty / department for reference number
+    session_name = applicant_data.get('session_name') or session
+    session_year = session_name.split('/')[0] if '/' in session_name else datetime.now().strftime('%Y')
+    ref_no = f"PCU/ADM/{session_year}"
+
+    programme = (
+        (applicant_data.get('finalised_course') or '').strip()
+        or (applicant_data.get('approved_course') or '').strip()
+        or (applicant_data.get('program_name') or '')
+    )
+
+    # Fetch configurable resumption date from system_settings if available
+    res_res = Database.execute_query("SELECT value FROM system_settings WHERE key = 'resumption_date' LIMIT 1")
+    resumption_date = res_res[0]['value'] if res_res else ''
+
+    try:
+        pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
+            candidate_name=applicant_data['name'],
+            email=applicant_data.get('email', ''),
+            programme=programme,
+            session=session_name,
+            date=datetime.now().strftime('%d %B, %Y'),
+            acceptanceFee=f'\u20a6{acceptance_fee:,.2f}',
+            tuition=f'\u20a6{tuition_fee:,.2f}',
+            otherFees=f'\u20a6{other_fees:,.2f}',
+            resumptionDate=resumption_date,
+            reference=ref_no,
+            ref_number=ref_no,
+            body_html=''
+        )
+    except Exception as e:
+        print(f'[print-admission-letter] PDF generation failed: {e}')
+        return jsonify({'message': 'Failed to generate PDF'}), 500
+
+    filename = f'admission_letter_{applicant_data["form_no"] or applicant_data["id"]}.pdf'
+    return Response(
+        pdf_bytes,
+        mimetype='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename={filename}'}
+    )
 
 
 @applicant_bp.route('/get-form/<applicant_id>', methods=['GET'])

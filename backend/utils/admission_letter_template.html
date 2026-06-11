@@ -1,66 +1,134 @@
 <!DOCTYPE html>
 <html>
+
 <head>
-<meta charset="UTF-8">
-<style>
-    @page {
-        size: a4 portrait;
-        margin: 0.8cm 1.5cm 0.8cm 1.5cm;
-    }
-    body {
-        font-family: "Calibri", "Arial", sans-serif;
-        font-size: 10.5pt;
-        line-height: 1.5;
-        color: #000;
-        text-align: justify;
-    }
-    .header-table { width: 100%; margin-bottom: 10px; }
-    .header-logo-cell { width: 15%; vertical-align: middle; text-align: left; }
-    .header-text-cell { width: 85%; vertical-align: middle; text-align: center; }
-    .title { font-size: 13pt; font-weight: bold; margin-bottom: 2px; }
-    .address { font-size: 8pt; line-height: 1.2; }
+    <meta charset="UTF-8">
+    <style>
+        @page {
+            size: a4 portrait;
+            margin: 0.8cm 1.5cm 0.8cm 1.5cm;
+        }
 
-    .registrar-title { text-align: center; font-weight: bold; font-size: 11pt; margin-top: 5px; margin-bottom: 7px; }
+        body {
+            font-family: "Calibri", "Arial", sans-serif;
+            font-size: 10.5pt;
+            line-height: 1.5;
+            color: #000;
+            text-align: justify;
+        }
 
-    .registrar-box { width: 100%; margin-bottom: 7px; font-size: 8pt; line-height: 1.5; }
-    .reg-left { vertical-align: top; width: 60%; }
-    .reg-right { vertical-align: top; width: 40%; text-align: right; }
+        .header-table {
+            width: 100%;
+            margin-bottom: 10px;
+        }
 
-    .meta-table { width: 100%; margin-top: 7px; margin-bottom: 7px; }
-    .meta-table td { font-size: 9pt; }
+        .header-logo-cell {
+            width: 15%;
+            vertical-align: middle;
+            text-align: left;
+        }
 
-    .salutation { font-weight: bold; margin-bottom: 7px; margin-top: 7px; }
-    .subject {
-        text-align: center;
-        font-weight: bold;
-        margin-bottom: 15px;
-        font-size: 11pt;
-    }
+        .header-text-cell {
+            width: 85%;
+            vertical-align: middle;
+            text-align: center;
+        }
 
-    .body-block {
-        margin-top: 5px;
-        margin-bottom: 5px;
-        padding-left: 0px;
-    }
-    .sub-list {
-        margin-left: 30px;
-        margin-top: 2px;
-        margin-bottom: 2px;
-    }
-    .sub-list div {
-        margin-bottom: 2px;
-    }
-    .fee-list {
-        margin-left: 30px;
-        margin-top: 2px;
-        margin-bottom: 2px;
-        font-weight: bold;
-    }
+        .title {
+            font-size: 13pt;
+            font-weight: bold;
+            margin-bottom: 2px;
+        }
 
-    .signature { margin-top: 5px; }
-    .signature img { display: block; height: 35px; margin-bottom: 2px; }
-</style>
+        .address {
+            font-size: 8pt;
+            line-height: 1.2;
+        }
+
+        .registrar-title {
+            text-align: center;
+            font-weight: bold;
+            font-size: 11pt;
+            margin-top: 5px;
+            margin-bottom: 7px;
+        }
+
+        .registrar-box {
+            width: 100%;
+            margin-bottom: 7px;
+            font-size: 8pt;
+            line-height: 1.5;
+        }
+
+        .reg-left {
+            vertical-align: top;
+            width: 60%;
+        }
+
+        .reg-right {
+            vertical-align: top;
+            width: 40%;
+            text-align: right;
+        }
+
+        .meta-table {
+            width: 100%;
+            margin-top: 7px;
+            margin-bottom: 7px;
+        }
+
+        .meta-table td {
+            font-size: 9pt;
+        }
+
+        .salutation {
+            font-weight: bold;
+            margin-bottom: 7px;
+            margin-top: 7px;
+        }
+
+        .subject {
+            text-align: center;
+            font-weight: bold;
+            margin-bottom: 15px;
+            font-size: 11pt;
+        }
+
+        .body-block {
+            margin-top: 5px;
+            margin-bottom: 5px;
+            padding-left: 0px;
+        }
+
+        .sub-list {
+            margin-left: 30px;
+            margin-top: 2px;
+            margin-bottom: 2px;
+        }
+
+        .sub-list div {
+            margin-bottom: 2px;
+        }
+
+        .fee-list {
+            margin-left: 30px;
+            margin-top: 2px;
+            margin-bottom: 2px;
+            font-weight: bold;
+        }
+
+        .signature {
+            margin-top: 5px;
+        }
+
+        .signature img {
+            display: block;
+            height: 35px;
+            margin-bottom: 2px;
+        }
+    </style>
 </head>
+
 <body>
     <table class="header-table">
         <tr>
@@ -68,7 +136,9 @@
                 {% if logo_image %}
                 <img src="data:image/png;base64,{{ logo_image }}" alt="Logo" style="width: 80px; height: 80px;" />
                 {% else %}
-                <div style="width:80px; height:80px; border:1px solid #ccc; text-align:center; display:table-cell; vertical-align:middle; font-size:9px;">LOGO</div>
+                <div
+                    style="width:80px; height:80px; border:1px solid #ccc; text-align:center; display:table-cell; vertical-align:middle; font-size:9px;">
+                    LOGO</div>
                 {% endif %}
             </td>
             <td class="header-text-cell">
@@ -88,7 +158,8 @@
         <tr>
             <td class="reg-left">
                 <b>Registrar</b><br>
-                <b>Mrs. Morenike F. Afolabi</b> <span style="font-size: 8pt;">B.A, MPA (Ife), M.ED (IB), MNIM, MANUPA, IPMA (UK)</span>
+                <b>Mrs. Morenike F. Afolabi</b> <span style="font-size: 8pt;">B.A, MPA (Ife), M.ED (IB), MNIM, MANUPA,
+                    IPMA (UK)</span>
             </td>
             <td class="reg-right">
                 <b>Phone:</b> +2348033931410<br>
@@ -104,35 +175,59 @@
         </tr>
     </table>
 
-    <div class="salutation">Dear {{ candidate_name }}</div>
+    <div class="salutation">Dear {{ candidate_name }},</div>
 
     <div class="subject">
-        OFFER OF PROVISIONAL ADMISSION INTO THE JUPEB PROGRAMME OF THE PRECIOUS CORNERSTONE UNIVERSITY FOR 2025/2026 SESSION
+        OFFER OF PROVISIONAL ADMISSION INTO THE {{ programme_upper }} PROGRAMME OF THE PRECIOUS CORNERSTONE UNIVERSITY
+        FOR THE {{ session }} SESSION
     </div>
 
     <table style="width: 100%;">
         <tr>
             <td style="width: 45px; text-align: center; vertical-align: top; font-weight: bold;">1.</td>
             <td style="vertical-align: top; padding-bottom: 0px;">
-                I write to inform you that you have been offered a provisional admission into JUPEB Programme for 2025/2026 academic session at the Precious Cornerstone University (PCU), Ibadan.
+                I write to inform you that you have been offered a provisional admission into {{ programme }} programme
+                for the {{ session }} academic session at the Precious Cornerstone University (PCU), Ibadan.
             </td>
         </tr>
         <tr>
             <td style="width: 45px; text-align: center; vertical-align: top; font-weight: bold;">2.</td>
             <td style="vertical-align: top; padding-bottom: 0px;">
-                Please note that this offer is on the condition that you possess the minimum qualification of admission into the programme and if it is discovered at any time, that you do not possess the qualification which you claim to have obtained, you will be required to withdraw from the University.
+                Please note that this offer is on the condition that you possess the minimum qualification of admission
+                into the programme and if it is discovered at any time, that you do not possess the qualification which
+                you claim to have obtained, you will be required to withdraw from the University.
             </td>
         </tr>
         <tr>
             <td style="width: 45px; text-align: center; vertical-align: top; font-weight: bold;">3.</td>
             <td style="vertical-align: top; padding-bottom: 0px;">
-                At the time of registration, you will be required to present the original and four (4) photocopies of each of the following:
+                At the time of registration, you will be required to present the original and four (4) photocopies of
+                each of the following:
                 <table class="sub-list" style="margin-top: 0px; margin-left: 20px;">
-                    <tr><td style="width: 40px; vertical-align: top;">(i.)</td><td style="padding-bottom: 0px;">Letter of Admission into the University issued by Precious Cornerstone University, Ibadan.</td></tr>
-                    <tr><td style="width: 40px; vertical-align: top;">(ii.)</td><td style="padding-bottom: 0px;">O'Level Result (WAEC/NECO SSCE) Results.</td></tr>
-                    <tr><td style="width: 40px; vertical-align: top;">(iii.)</td><td style="padding-bottom: 0px;">Birth Certificate or sworn declaration of age.</td></tr>
-                    <tr><td style="width: 40px; vertical-align: top;">(iv.)</td><td style="padding-bottom: 0px;">Letter of Attestation from three (3) reputable personalities vouching for your good behaviour and conduct throughout your stay of JUPEB programme.</td></tr>
-                    <tr><td style="width: 40px; vertical-align: top;">(v.)</td><td style="padding-bottom: 0px;">Conduct a medical examination from any reputable Government Hospital using the prescribed form attached. Present the report to the University Health Centre and obtain Certificate of medical fitness from the University Medical Centre.</td></tr>
+                    <tr>
+                        <td style="width: 40px; vertical-align: top;">(i.)</td>
+                        <td style="padding-bottom: 0px;">Letter of Admission into the University issued by Precious
+                            Cornerstone University, Ibadan.</td>
+                    </tr>
+                    <tr>
+                        <td style="width: 40px; vertical-align: top;">(ii.)</td>
+                        <td style="padding-bottom: 0px;">O'Level Result (WAEC/NECO SSCE) Results.</td>
+                    </tr>
+                    <tr>
+                        <td style="width: 40px; vertical-align: top;">(iii.)</td>
+                        <td style="padding-bottom: 0px;">Birth Certificate or sworn declaration of age.</td>
+                    </tr>
+                    <tr>
+                        <td style="width: 40px; vertical-align: top;">(iv.)</td>
+                        <td style="padding-bottom: 0px;">Letter of Attestation from three (3) reputable personalities
+                            vouching for your good behaviour and conduct throughout your stay of {{ programme }}.</td>
+                    </tr>
+                    <tr>
+                        <td style="width: 40px; vertical-align: top;">(v.)</td>
+                        <td style="padding-bottom: 0px;">Conduct a medical examination from any reputable Government
+                            Hospital using the prescribed form attached. Present the report to the University Health
+                            Centre and obtain Certificate of medical fitness from the University Medical Centre.</td>
+                    </tr>
                 </table>
             </td>
         </tr>
@@ -141,15 +236,22 @@
             <td style="vertical-align: top; padding-bottom: 0px;">
                 The scheduled School fee is detailed below:
                 <table class="fee-list" style="margin-left: 45px; margin-top: 0px;">
-                    <tr><td style="width: 260px; font-weight: bold;">Tuition and Accommodation</td><td style="font-weight: bold;"><s>N</s>253,500.00</td></tr>
-                    <tr><td style="width: 260px; font-weight: bold;">Other Charges</td><td style="font-weight: bold;"><s>N</s>96,500.00</td></tr>
+                    <tr>
+                        <td style="width: 260px; font-weight: bold;">Tuition and Accommodation</td>
+                        <td style="font-weight: bold;">{{ tuition }}</td>
+                    </tr>
+                    <tr>
+                        <td style="width: 260px; font-weight: bold;">Other Charges</td>
+                        <td style="font-weight: bold;">{{ otherFees }}</td>
+                    </tr>
                 </table>
             </td>
         </tr>
         <tr>
             <td style="width: 45px; text-align: center; vertical-align: top; font-weight: bold;">5.</td>
             <td style="vertical-align: top; padding-bottom: 0px;">
-                Please ensure the payment of the Acceptance fee of <b>Twelve thousand, Five Hundred Naira only (<s>N</s>12,500)</b>, at least two (2) weeks upon the receipt of the admission letter.
+                Please ensure the payment of the Acceptance fee of <b>{{ acceptanceFee }}</b>, at least two (2) weeks
+                upon the receipt of the admission letter.
             </td>
         </tr>
         <tr>
@@ -161,7 +263,7 @@
         <tr>
             <td style="width: 45px; text-align: center; vertical-align: top; font-weight: bold;">7.</td>
             <td style="vertical-align: top; padding-bottom: 0px;">
-                The date of resumption for the 2025/26 academic session is slated for <b>Thursday, 8 January, 2026</b>.
+                The date of resumption for the {{ session }} academic session is slated for <b>{{ resumptionDate }}</b>.
             </td>
         </tr>
         <tr>
@@ -180,4 +282,5 @@
         <b>Mrs. Morenike F. Afolabi</b>
     </div>
 </body>
+
 </html>

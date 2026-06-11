@@ -958,6 +958,7 @@ function ApplicationDetailContent() {
   const [sendingLetter, setSendingLetter] = useState(false);
   const [letterSent, setLetterSent] = useState(false);
   const [passportUrl, setPassportUrl] = useState<string | null>(null);
+  const [downloadingLetter, setDownloadingLetter] = useState(false);
   const [activeTab, setActiveTab] = useState<"info" | "documents" | "reviews">(
     "info",
   );
@@ -1048,6 +1049,32 @@ function ApplicationDetailContent() {
     }
   };
 
+  const handleDownloadLetter = async () => {
+    if (!applicantId) return;
+    setDownloadingLetter(true);
+    setError(null);
+    try {
+      const blob = await ApiClient.previewAdmissionLetter(
+        applicantId as unknown as number,
+        new Date().toISOString().split("T")[0],
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `admission_letter_${applicantId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to download admission letter",
+      );
+    } finally {
+      setDownloadingLetter(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -1094,7 +1121,7 @@ function ApplicationDetailContent() {
 
         {/* Page header */}
         <div className="mb-8">
-          <div className="flex items-start justify-between mb-4">
+          <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
             <div>
               <h1 className="text-3xl font-bold text-foreground">
                 {application.applicant.name}
@@ -1103,15 +1130,41 @@ function ApplicationDetailContent() {
                 {application.applicant.email}
               </p>
             </div>
-            <Badge
-              data-status={application.applicant.application_status}
-              className={`admission-status-badge ${
-                statusColors[application.applicant.application_status] ||
-                "bg-slate-100 text-slate-700"
-              }`}
-            >
-              {application.applicant.application_status.replace(/_/g, " ")}
-            </Badge>
+            <div className="flex items-center gap-3 flex-wrap">
+              {["accepted", "enrolled"].includes(
+                application.applicant.application_status,
+              ) && (
+                <Button
+                  id="download-admission-letter-btn"
+                  size="sm"
+                  variant="outline"
+                  className="gap-2 border-[#6b357d] text-[#6b357d] hover:bg-[#6b357d]/10 font-bold rounded-xl shadow-sm"
+                  onClick={handleDownloadLetter}
+                  disabled={downloadingLetter}
+                >
+                  {downloadingLetter ? (
+                    <>
+                      <span className="h-4 w-4 border-2 border-[#6b357d]/40 border-t-[#6b357d] rounded-full animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="h-4 w-4" />
+                      Download Admission Letter
+                    </>
+                  )}
+                </Button>
+              )}
+              <Badge
+                data-status={application.applicant.application_status}
+                className={`admission-status-badge ${
+                  statusColors[application.applicant.application_status] ||
+                  "bg-slate-100 text-slate-700"
+                }`}
+              >
+                {application.applicant.application_status.replace(/_/g, " ")}
+              </Badge>
+            </div>
           </div>
 
           {/* Global error */}

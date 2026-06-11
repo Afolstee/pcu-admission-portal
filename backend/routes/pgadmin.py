@@ -677,15 +677,15 @@ def send_admission_letter(payload):
                    pg.applicant_stage
             FROM pg_application pg
             JOIN users u ON pg.user_id = u.id
-            WHERE pg.uuid = %s AND pg.applicant_stage IN ('admitted', 'accepted')''',
+            WHERE pg.uuid = %s AND pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')''',
         (applicant_id,)
     )
 
     if not applicant:
-        return jsonify({'message': 'Applicant not found or PG application not admitted'}), 404
+        return jsonify({'message': 'Applicant not found or PG application not admitted/accepted/enrolled'}), 404
 
-    if applicant[0]['applicant_stage'] != 'accepted':
-        return jsonify({'message': 'Cannot send admission letter — applicant has not paid the acceptance fee yet'}), 402
+    if applicant[0]['applicant_stage'] not in ('admitted', 'accepted', 'enrolled'):
+        return jsonify({'message': 'Cannot send admission letter — applicant is not in an eligible stage'}), 402
 
     applicant_data = applicant[0]
 
@@ -712,7 +712,7 @@ def send_admission_letter(payload):
     default_session = session_res[0]['value'] if session_res else '2025/2026'
 
     pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
-        candidateName=applicant_data['name'],
+        candidate_name=applicant_data['name'],
         email=applicant_data['email'],
         programme=applicant_data['program_name'] or '',
         level=applicant_data.get('level') or '100 Level',

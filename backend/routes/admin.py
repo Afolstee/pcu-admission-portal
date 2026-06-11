@@ -666,11 +666,13 @@ def send_admission_letter(payload):
                        2 AS program_id,
                        'Postgraduate' AS program_name,
                        '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
-                       'Postgraduate' AS mode, pg.form_no AS session, 'TBD' AS resumption_date,
+                       'Postgraduate' AS mode,
+                       COALESCE(s.name, '2025/2026') AS session, 'TBD' AS resumption_date,
                        pg.applicant_stage
                 FROM pg_application pg
                 JOIN users u ON pg.user_id = u.id
-                WHERE pg.uuid = %s AND pg.applicant_stage IN ('admitted', 'accepted')''',
+                LEFT JOIN academic_sessions s ON pg.academic_session_id = s.id
+                WHERE pg.uuid = %s AND pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')''',
             (applicant_id,)
         )
     else:
@@ -679,22 +681,24 @@ def send_admission_letter(payload):
                        {USER_NAME_EXPR} AS name,
                        u.email,
                        app.prog_type AS program_id,
-                       pt.name AS program_name,
+                       COALESCE(app.finalised_course, pt.name) AS program_name,
                        '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
-                       pt.name AS mode, app.form_no AS session, 'TBD' AS resumption_date,
+                       pt.name AS mode,
+                       COALESCE(s.name, '2025/2026') AS session, 'TBD' AS resumption_date,
                        app.applicant_stage
                 FROM applications app
                 JOIN users u ON app.user_id = u.id
                 LEFT JOIN program_types pt ON app.prog_type = pt.id
-                WHERE app.id = %s AND app.applicant_stage IN ('admitted', 'accepted')''',
+                LEFT JOIN academic_sessions s ON app.academic_session_id = s.id
+                WHERE app.id = %s AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled')''',
             (applicant_id,)
         )
 
     if not applicant:
         return jsonify({'message': 'Applicant not found or application not admitted'}), 404
 
-    if applicant[0]['applicant_stage'] != 'accepted':
-        return jsonify({'message': 'Cannot send admission letter — applicant has not paid the acceptance fee yet'}), 402
+    if applicant[0]['applicant_stage'] not in ('admitted', 'accepted', 'enrolled'):
+        return jsonify({'message': 'Cannot send admission letter — applicant is not in an eligible stage'}), 402
 
     applicant_data = applicant[0]
 
@@ -711,23 +715,20 @@ def send_admission_letter(payload):
             name = (fee['name'] or '').lower()
             amount = fee['amount'] or 0
             if 'acceptance' in name:
-                acceptance_fee_str = f"₦{amount:,.2f}"
+                acceptance_fee_str = f"NGN {amount:,.2f}"
             elif 'tuition' in name or 'accommodation' in name:
-                tuition_fee_str = f"₦{amount:,.2f}"
+                tuition_fee_str = f"NGN {amount:,.2f}"
             elif 'sundry' in name or 'other' in name or 'digital' in name:
-                other_fees_str = f"₦{amount:,.2f}"
-
-    session_res = Database.execute_query("SELECT name AS value FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
-    default_session = session_res[0]['value'] if session_res else '2025/2026'
+                other_fees_str = f"NGN {amount:,.2f}"
 
     pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
-        candidateName=applicant_data['name'],
+        candidate_name=applicant_data['name'],
         email=applicant_data['email'],
         programme=applicant_data['program_name'] or '',
         level=applicant_data.get('level') or '100 Level',
         department=applicant_data.get('department') or '',
         faculty=applicant_data.get('faculty') or '',
-        session=applicant_data.get('session') or default_session,
+        session=applicant_data.get('session') or '2025/2026',
         mode=applicant_data.get('mode') or 'Full-Time',
         date=admission_date_display,
         acceptanceFee=acceptance_fee_str,
@@ -794,10 +795,12 @@ def preview_admission_letter(payload):
                        2 AS program_id,
                        'Postgraduate' AS program_name,
                        '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
-                       'Postgraduate' AS mode, pg.form_no AS session, 'TBD' AS resumption_date
+                       'Postgraduate' AS mode,
+                       COALESCE(s.name, '2025/2026') AS session, 'TBD' AS resumption_date
                 FROM pg_application pg
                 JOIN users u ON pg.user_id = u.id
-                WHERE pg.uuid = %s AND pg.applicant_stage IN ('admitted', 'accepted') ''',
+                LEFT JOIN academic_sessions s ON pg.academic_session_id = s.id
+                WHERE pg.uuid = %s AND pg.applicant_stage IN ('admitted', 'accepted', 'enrolled') ''',
             (applicant_id,)
         )
     else:
@@ -806,13 +809,15 @@ def preview_admission_letter(payload):
                        {USER_NAME_EXPR} AS name,
                        u.email,
                        app.prog_type AS program_id,
-                       pt.name AS program_name,
+                       COALESCE(app.finalised_course, pt.name) AS program_name,
                        '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
-                       pt.name AS mode, app.form_no AS session, 'TBD' AS resumption_date
+                       pt.name AS mode,
+                       COALESCE(s.name, '2025/2026') AS session, 'TBD' AS resumption_date
                 FROM applications app
                 JOIN users u ON app.user_id = u.id
                 LEFT JOIN program_types pt ON app.prog_type = pt.id
-                WHERE app.id = %s AND app.applicant_stage IN ('admitted', 'accepted') ''',
+                LEFT JOIN academic_sessions s ON app.academic_session_id = s.id
+                WHERE app.id = %s AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled') ''',
             (applicant_id,)
         )
  
@@ -834,14 +839,14 @@ def preview_admission_letter(payload):
             name = (fee['name'] or '').lower()
             amount = fee['amount'] or 0
             if 'acceptance' in name:
-                acceptance_fee_str = f"₦{amount:,.2f}"
+                acceptance_fee_str = f"NGN {amount:,.2f}"
             elif 'tuition' in name or 'accommodation' in name:
-                tuition_fee_str = f"₦{amount:,.2f}"
+                tuition_fee_str = f"NGN {amount:,.2f}"
             elif 'sundry' in name or 'other' in name or 'digital' in name:
-                other_fees_str = f"₦{amount:,.2f}"
+                other_fees_str = f"NGN {amount:,.2f}"
  
     pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
-        candidateName=applicant_data['name'],
+        candidate_name=applicant_data['name'],
         email=applicant_data['email'],
         programme=applicant_data['program_name'] or '',
         level=applicant_data.get('level') or '100 Level',
@@ -904,10 +909,12 @@ def send_batch_letters(payload):
                                2 AS program_id,
                                'Postgraduate' AS program_name,
                                '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
-                               'Postgraduate' AS mode, pg.form_no AS session, 'TBD' AS resumption_date
+                               'Postgraduate' AS mode,
+                               COALESCE(s.name, '2025/2026') AS session, 'TBD' AS resumption_date
                         FROM pg_application pg
                         JOIN users u ON pg.user_id = u.id
-                        WHERE pg.uuid = %s AND pg.applicant_stage = 'accepted' ''',
+                        LEFT JOIN academic_sessions s ON pg.academic_session_id = s.id
+                        WHERE pg.uuid = %s AND pg.applicant_stage IN ('admitted', 'accepted', 'enrolled') ''',
                     (applicant_id,)
                 )
             else:
@@ -916,18 +923,20 @@ def send_batch_letters(payload):
                                {USER_NAME_EXPR} AS name,
                                u.email,
                                app.prog_type AS program_id,
-                               pt.name AS program_name,
+                               COALESCE(app.finalised_course, pt.name) AS program_name,
                                '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
-                               pt.name AS mode, app.form_no AS session, 'TBD' AS resumption_date
+                               pt.name AS mode,
+                               COALESCE(s.name, '2025/2026') AS session, 'TBD' AS resumption_date
                         FROM applications app
                         JOIN users u ON app.user_id = u.id
                         LEFT JOIN program_types pt ON app.prog_type = pt.id
-                        WHERE app.id = %s AND app.applicant_stage = 'accepted' ''',
+                        LEFT JOIN academic_sessions s ON app.academic_session_id = s.id
+                        WHERE app.id = %s AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled') ''',
                     (applicant_id,)
                 )
 
             if not applicant:
-                errors.append({'applicant_id': applicant_id, 'error': 'Not found or not accepted'})
+                errors.append({'applicant_id': applicant_id, 'error': 'Not found or not admitted/accepted/enrolled'})
                 continue
 
             applicant_data = applicant[0]
@@ -945,14 +954,14 @@ def send_batch_letters(payload):
                     name = (fee['name'] or '').lower()
                     amount = fee['amount'] or 0
                     if 'acceptance' in name:
-                        acceptance_fee_str = f"₦{amount:,.2f}"
+                        acceptance_fee_str = f"NGN {amount:,.2f}"
                     elif 'tuition' in name or 'accommodation' in name:
-                        tuition_fee_str = f"₦{amount:,.2f}"
+                        tuition_fee_str = f"NGN {amount:,.2f}"
                     elif 'sundry' in name or 'other' in name or 'digital' in name:
-                        other_fees_str = f"₦{amount:,.2f}"
+                        other_fees_str = f"NGN {amount:,.2f}"
 
             pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
-                candidateName=applicant_data['name'],
+                candidate_name=applicant_data['name'],
                 email=applicant_data['email'],
                 programme=applicant_data['program_name'] or '',
                 level=applicant_data.get('level') or '100 Level',
@@ -1311,7 +1320,7 @@ def get_faculty_departments(payload):
         SELECT pt.name AS faculty, pt.name AS department, COUNT(app.id) AS pending_count
         FROM applications app
         JOIN program_types pt ON app.prog_type = pt.id
-        WHERE app.applicant_stage = 'accepted'
+        WHERE app.applicant_stage IN ('admitted', 'accepted', 'enrolled')
           AND (app.admission_letter_sent IS NULL OR app.admission_letter_sent = FALSE)
         GROUP BY pt.name
         ORDER BY pt.name
@@ -1341,7 +1350,7 @@ def get_department_applicants(payload, department_name):
         FROM applications app
         JOIN users u ON app.user_id = u.id
         JOIN program_types pt ON app.prog_type = pt.id
-        WHERE app.applicant_stage = 'accepted'
+        WHERE app.applicant_stage IN ('admitted', 'accepted', 'enrolled')
           AND (app.admission_letter_sent IS NULL OR app.admission_letter_sent = FALSE)
           AND pt.name = %s
         ORDER BY u.firstname ASC
@@ -1389,18 +1398,20 @@ def send_department_letters(payload):
                            {USER_NAME_EXPR} AS name,
                            u.email,
                            app.prog_type AS program_id,
-                           pt.name AS program_name,
+                           COALESCE(app.finalised_course, pt.name) AS program_name,
                            '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
-                           pt.name AS mode, app.form_no AS session, 'TBD' AS resumption_date
+                           pt.name AS mode,
+                           COALESCE(s.name, %s) AS session, 'TBD' AS resumption_date
                     FROM applications app
                     JOIN users u ON app.user_id = u.id
                     LEFT JOIN program_types pt ON app.prog_type = pt.id
-                    WHERE app.id = %s AND app.applicant_stage = 'accepted' ''',
-                (applicant_id,)
+                    LEFT JOIN academic_sessions s ON app.academic_session_id = s.id
+                    WHERE app.id = %s AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled') ''',
+                (default_session, applicant_id,)
             )
 
             if not applicant:
-                failed_list.append({'applicant_id': applicant_id, 'error': 'Applicant not found or not accepted'})
+                failed_list.append({'applicant_id': applicant_id, 'error': 'Applicant not found or not admitted/accepted/enrolled'})
                 continue
 
             applicant_data = applicant[0]
@@ -1411,21 +1422,21 @@ def send_department_letters(payload):
                    JOIN fee_components fc ON pf.fee_component_id = fc.id
                    WHERE pf.program_type = %s''',
                 (applicant_data['program_id'],)
-)
+            )
             acceptance_fee_str = tuition_fee_str = other_fees_str = ''
             if fees:
                 for fee in fees:
                     name = (fee['name'] or '').lower()
                     amount = fee['amount'] or 0
                     if 'acceptance' in name:
-                        acceptance_fee_str = f"₦{amount:,.2f}"
+                        acceptance_fee_str = f"NGN {amount:,.2f}"
                     elif 'tuition' in name or 'accommodation' in name:
-                        tuition_fee_str = f"₦{amount:,.2f}"
+                        tuition_fee_str = f"NGN {amount:,.2f}"
                     elif 'sundry' in name or 'other' in name or 'digital' in name:
-                        other_fees_str = f"₦{amount:,.2f}"
+                        other_fees_str = f"NGN {amount:,.2f}"
 
             pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
-                candidateName=applicant_data['name'],
+                candidate_name=applicant_data['name'],
                 email=applicant_data['email'],
                 programme=applicant_data['program_name'] or '',
                 level='100 Level',
@@ -1538,7 +1549,7 @@ def get_letter_status_summary(payload):
                          JOIN users u ON app.user_id = u.id
                          LEFT JOIN program_types pt ON app.prog_type = pt.id
                          LEFT JOIN admission_letter_tracking alt ON app.id = alt.applicant_id
-                         WHERE app.applicant_stage = 'accepted'
+                         WHERE app.applicant_stage IN ('admitted', 'accepted', 'enrolled')
                            AND (app.admission_letter_sent IS NULL OR app.admission_letter_sent = FALSE)
                          ORDER BY alt.status NULLS LAST, app.updated_at DESC'''
 
@@ -1599,18 +1610,20 @@ def resend_letter(payload, applicant_id):
                        {USER_NAME_EXPR} AS name,
                        u.email,
                        app.prog_type AS program_id,
-                       pt.name AS program_name,
+                       COALESCE(app.finalised_course, pt.name) AS program_name,
                        '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
-                       pt.name AS mode, app.form_no AS session, 'TBD' AS resumption_date
+                       pt.name AS mode,
+                       COALESCE(s.name, '2025/2026') AS session, 'TBD' AS resumption_date
                 FROM applications app
                 JOIN users u ON app.user_id = u.id
                 LEFT JOIN program_types pt ON app.prog_type = pt.id
-                WHERE app.id = %s AND app.applicant_stage = 'accepted' ''',
+                LEFT JOIN academic_sessions s ON app.academic_session_id = s.id
+                WHERE app.id = %s AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled') ''',
             (applicant_id,)
         )
 
         if not applicant:
-            return jsonify({'message': 'Applicant not found or not accepted'}), 404
+            return jsonify({'message': 'Applicant not found or not admitted/accepted/enrolled'}), 404
 
         applicant_data = applicant[0]
 
@@ -1620,21 +1633,21 @@ def resend_letter(payload, applicant_id):
             JOIN fee_components fc ON pf.fee_component_id = fc.id
             WHERE pf.program_type = %s''',
             (applicant_data['program_id'],)
-)
+        )
         acceptance_fee_str = tuition_fee_str = other_fees_str = ''
         if fees:
             for fee in fees:
                 name = (fee['name'] or '').lower()
                 amount = fee['amount'] or 0
                 if 'acceptance' in name:
-                    acceptance_fee_str = f"₦{amount:,.2f}"
+                    acceptance_fee_str = f"NGN {amount:,.2f}"
                 elif 'tuition' in name or 'accommodation' in name:
-                    tuition_fee_str = f"₦{amount:,.2f}"
+                    tuition_fee_str = f"NGN {amount:,.2f}"
                 elif 'sundry' in name or 'other' in name or 'digital' in name:
-                    other_fees_str = f"₦{amount:,.2f}"
+                    other_fees_str = f"NGN {amount:,.2f}"
 
         pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
-            candidateName=applicant_data['name'],
+            candidate_name=applicant_data['name'],
             email=applicant_data['email'],
             programme=applicant_data['program_name'] or '',
             level='100 Level', department='', faculty='',
@@ -1701,18 +1714,20 @@ def preview_letter(payload, applicant_id):
                        {USER_NAME_EXPR} AS name,
                        u.email,
                        app.prog_type AS program_id,
-                       pt.name AS program_name,
+                       COALESCE(app.finalised_course, pt.name) AS program_name,
                        '100 Level' AS level, 'N/A' AS department, 'N/A' AS faculty,
-                       pt.name AS mode, app.form_no AS session, 'TBD' AS resumption_date
+                       pt.name AS mode,
+                       COALESCE(s.name, '2025/2026') AS session, 'TBD' AS resumption_date
                 FROM applications app
                 JOIN users u ON app.user_id = u.id
                 LEFT JOIN program_types pt ON app.prog_type = pt.id
-                WHERE app.id = %s AND app.applicant_stage = 'accepted' ''',
+                LEFT JOIN academic_sessions s ON app.academic_session_id = s.id
+                WHERE app.id = %s AND app.applicant_stage IN ('admitted', 'accepted', 'enrolled') ''',
             (applicant_id,)
         )
 
         if not applicant:
-            return jsonify({'message': 'Applicant not found or not accepted'}), 404
+            return jsonify({'message': 'Applicant not found or not admitted/accepted/enrolled'}), 404
 
         applicant_data = applicant[0]
 
@@ -1729,14 +1744,14 @@ def preview_letter(payload, applicant_id):
                 name = (fee['name'] or '').lower()
                 amount = fee['amount'] or 0
                 if 'acceptance' in name:
-                    acceptance_fee_str = f"₦{amount:,.2f}"
+                    acceptance_fee_str = f"NGN {amount:,.2f}"
                 elif 'tuition' in name or 'accommodation' in name:
-                    tuition_fee_str = f"₦{amount:,.2f}"
+                    tuition_fee_str = f"NGN {amount:,.2f}"
                 elif 'sundry' in name or 'other' in name or 'digital' in name:
-                    other_fees_str = f"₦{amount:,.2f}"
+                    other_fees_str = f"NGN {amount:,.2f}"
 
         pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
-            candidateName=applicant_data['name'],
+            candidate_name=applicant_data['name'],
             email=applicant_data['email'],
             programme=applicant_data['program_name'] or '',
             level='100 Level', department='', faculty='',

@@ -530,6 +530,22 @@ class PDFGenerator:
         if not kwargs.get("sig_image"):
             kwargs["sig_image"] = _load_image_b64("signature.png")
 
+        # Capitalize candidate name
+        for key in ["candidate_name", "candidateName"]:
+            if key in kwargs and isinstance(kwargs[key], str):
+                kwargs[key] = kwargs[key].upper()
+        if "candidateName" in kwargs and "candidate_name" not in kwargs:
+            kwargs["candidate_name"] = kwargs["candidateName"]
+        
+        # Provide programme_upper for the heading, keeping programme in original casing
+        prog_val = kwargs.get("programme") or kwargs.get("program") or ""
+        if isinstance(prog_val, str):
+            kwargs["programme_upper"] = prog_val.upper()
+            kwargs["programme"] = prog_val
+        else:
+            kwargs["programme_upper"] = ""
+            kwargs["programme"] = ""
+
         if not body_html.strip():
             body_html = PDFGenerator._load_template()
 

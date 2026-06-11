@@ -266,9 +266,8 @@ export default function SendLettersPage() {
               {(["pending", "sent", "failed"] as const).map((tab) => (
                 <span
                   key={tab}
-                  className={`h-1.5 rounded-full transition-all ${
-                    activeTab === tab ? "w-5 bg-[#c99b45]" : "w-1.5 bg-[#d8c9b6]"
-                  }`}
+                  className={`h-1.5 rounded-full transition-all ${activeTab === tab ? "w-5 bg-[#c99b45]" : "w-1.5 bg-[#d8c9b6]"
+                    }`}
                 />
               ))}
             </div>
@@ -295,7 +294,7 @@ export default function SendLettersPage() {
                 {/* Faculty/Department Selector */}
                 <Card className="lg:row-span-2">
                   <CardHeader>
-                    <CardTitle>Faculties & Departments</CardTitle>
+                    <CardTitle>Generated Letters</CardTitle>
                     <CardDescription>
                       {selectedDepartment
                         ? `Selected: ${selectedDepartment}`
@@ -327,11 +326,10 @@ export default function SendLettersPage() {
                               <button
                                 key={dept.name}
                                 onClick={() => handleSelectDepartment(dept.name)}
-                                className={`w-full text-left p-2 rounded-lg text-sm transition-colors ${
-                                  selectedDepartment === dept.name
+                                className={`w-full text-left p-2 rounded-lg text-sm transition-colors ${selectedDepartment === dept.name
                                     ? "!bg-[#c99b45] !text-[#15110a] shadow-sm"
                                     : "hover:bg-muted"
-                                }`}
+                                  }`}
                               >
                                 <div className="flex justify-between items-center">
                                   <span
@@ -516,10 +514,10 @@ export default function SendLettersPage() {
                       <p className="text-xs text-muted-foreground mt-1">
                         {letter.sent_at
                           ? new Date(letter.sent_at).toLocaleDateString("en-GB", {
-                              day: "2-digit",
-                              month: "short",
-                              year: "numeric",
-                            })
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                          })
                           : "—"}
                       </p>
                     </div>

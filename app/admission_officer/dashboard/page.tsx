@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient } from "@/lib/api";
 import {
@@ -130,24 +131,63 @@ export default function AdminDashboard() {
 
         {/* Stats */}
         <div className="grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-4 mb-6">
-          {[
-            { label: "Total Applications", value: stats?.total_applications ?? 0, colour: "text-slate-900", bgIcon: "bg-[#f3eee6] text-slate-700 border border-[#e2d6c3]", icon: FileText },
-            { label: "Admitted Candidates", value: stats?.total_admitted ?? 0,       colour: "text-[#23704d]", bgIcon: "bg-[#eef7f1] text-[#23704d] border border-[#cfe6d8]", icon: UserCheck },
-            { label: "Under Review",        value: stats?.under_review ?? 0,         colour: "text-[#2d5f9a]", bgIcon: "bg-[#eef4fb] text-[#2d5f9a] border border-[#ccdded]", icon: Eye },
-            { label: "Pending Submission",  value: stats?.pending_submission ?? 0,   colour: "text-[#9a6614]", bgIcon: "bg-[#fff7e8] text-[#9a6614] border border-[#efd9a8]", icon: AlertCircle },
-          ].map(({ label, value, colour, bgIcon, icon: Icon }) => (
-            <Card key={label} className="hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 border-[#e8dfd2] bg-white rounded-2xl overflow-hidden group shadow-sm">
+          {/* Total Applications → all applications */}
+          <Link href="/admission_officer/applications?status=submitted" className="block group">
+            <Card className="hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 border-[#e8dfd2] bg-white rounded-2xl overflow-hidden group shadow-sm cursor-pointer hover:border-[#c99b45]">
               <CardContent className="min-h-[104px] p-5 flex items-center justify-between gap-4">
                 <div className="min-w-0 space-y-1">
-                  <p className="text-xs font-bold text-slate-500 leading-snug">{label}</p>
-                  <p className={`text-3xl font-black ${colour}`}>{value}</p>
+                  <p className="text-xs font-bold text-slate-500 leading-snug">Total Applications</p>
+                  <p className="text-3xl font-black text-slate-900">{stats?.total_applications ?? 0}</p>
                 </div>
-                <div className={`shrink-0 p-3 rounded-2xl ${bgIcon} group-hover:scale-105 transition-transform duration-300`}>
-                  <Icon className="w-6 h-6 shrink-0" />
+                <div className="shrink-0 p-3 rounded-2xl bg-[#f3eee6] text-slate-700 border border-[#e2d6c3] group-hover:scale-105 transition-transform duration-300">
+                  <FileText className="w-6 h-6 shrink-0" />
                 </div>
               </CardContent>
             </Card>
-          ))}
+          </Link>
+
+          {/* Admitted Candidates → admitted / accepted / enrolled */}
+          <Link href="/admission_officer/applications?status=admitted" className="block group">
+            <Card className="hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 border-[#e8dfd2] bg-white rounded-2xl overflow-hidden group shadow-sm cursor-pointer hover:border-[#23704d]">
+              <CardContent className="min-h-[104px] p-5 flex items-center justify-between gap-4">
+                <div className="min-w-0 space-y-1">
+                  <p className="text-xs font-bold text-slate-500 leading-snug">Admitted Candidates</p>
+                  <p className="text-3xl font-black text-[#23704d]">{stats?.total_admitted ?? 0}</p>
+                </div>
+                <div className="shrink-0 p-3 rounded-2xl bg-[#eef7f1] text-[#23704d] border border-[#cfe6d8] group-hover:scale-105 transition-transform duration-300">
+                  <UserCheck className="w-6 h-6 shrink-0" />
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+
+          {/* Under Review → screening / accepted_recommendation / applicant_recommended */}
+          <Link href="/admission_officer/applications?status=screening" className="block group">
+            <Card className="hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 border-[#e8dfd2] bg-white rounded-2xl overflow-hidden group shadow-sm cursor-pointer hover:border-[#2d5f9a]">
+              <CardContent className="min-h-[104px] p-5 flex items-center justify-between gap-4">
+                <div className="min-w-0 space-y-1">
+                  <p className="text-xs font-bold text-slate-500 leading-snug">Under Review</p>
+                  <p className="text-3xl font-black text-[#2d5f9a]">{stats?.under_review ?? 0}</p>
+                </div>
+                <div className="shrink-0 p-3 rounded-2xl bg-[#eef4fb] text-[#2d5f9a] border border-[#ccdded] group-hover:scale-105 transition-transform duration-300">
+                  <Eye className="w-6 h-6 shrink-0" />
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+
+          {/* Pending Submission — not clickable */}
+          <Card className="border-[#e8dfd2] bg-white rounded-2xl overflow-hidden shadow-sm">
+            <CardContent className="min-h-[104px] p-5 flex items-center justify-between gap-4">
+              <div className="min-w-0 space-y-1">
+                <p className="text-xs font-bold text-slate-500 leading-snug">Pending Submission</p>
+                <p className="text-3xl font-black text-[#9a6614]">{stats?.pending_submission ?? 0}</p>
+              </div>
+              <div className="shrink-0 p-3 rounded-2xl bg-[#fff7e8] text-[#9a6614] border border-[#efd9a8]">
+                <AlertCircle className="w-6 h-6 shrink-0" />
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Main grid: Recent Activity + Breakdown */}
@@ -193,14 +233,27 @@ export default function AdminDashboard() {
                 <CardTitle className="text-base font-bold text-slate-900">Applications by Status</CardTitle>
               </CardHeader>
               <CardContent className="p-6 space-y-4">
-                {stats?.by_status?.map((s) => (
-                  <div key={s.application_status} className="flex items-center justify-between p-3 bg-[#fbfaf7] border border-[#eee5d8] rounded-xl">
-                    <span className="text-sm font-bold text-slate-600 capitalize">
-                      {s.application_status.replace("_", " ")}
-                    </span>
-                    <Badge className="bg-[#ead6aa] text-[#4b3411] hover:bg-[#ead6aa] border-none font-bold px-3 py-1 text-xs rounded-lg">{s.count}</Badge>
-                  </div>
-                ))}
+                {[...(stats?.by_status ?? [])]
+                  .sort((a, b) => {
+                    const ORDER = ["enrolled", "admitted", "accepted", "screening", "in progress", "started"];
+                    const normA = a.application_status.toLowerCase().replace("_", " ");
+                    const normB = b.application_status.toLowerCase().replace("_", " ");
+                    const idxA = ORDER.indexOf(normA);
+                    const idxB = ORDER.indexOf(normB);
+                    
+                    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                    if (idxA !== -1) return -1;
+                    if (idxB !== -1) return 1;
+                    return 0;
+                  })
+                  .map((s) => (
+                    <div key={s.application_status} className="flex items-center justify-between p-3 bg-[#fbfaf7] border border-[#eee5d8] rounded-xl">
+                      <span className="text-sm font-bold text-slate-600 capitalize">
+                        {s.application_status.replace("_", " ")}
+                      </span>
+                      <Badge className="bg-[#ead6aa] text-[#4b3411] hover:bg-[#ead6aa] border-none font-bold px-3 py-1 text-xs rounded-lg">{s.count}</Badge>
+                    </div>
+                  ))}
                 {(!stats?.by_status || stats.by_status.length === 0) && (
                   <p className="text-sm text-muted-foreground italic text-center py-4">No data yet.</p>
                 )}

@@ -2,11 +2,9 @@
 
 import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient } from "@/lib/api";
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -15,7 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { LogOut, ChevronRight, FileText } from "lucide-react";
+import { ChevronRight, FileText } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -58,6 +56,7 @@ function ApplicationsContent() {
   const { user, isAuthenticated, logout } = useAuth();
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
+
   const [status, setStatus] = useState<string>(() => {
     const urlStatus = searchParams.get("status");
     return ["submitted", "screening", "recommended", "admitted", "rejected"].includes(urlStatus || "")
@@ -65,19 +64,29 @@ function ApplicationsContent() {
       : "submitted";
   });
 
+  const [page, setPage] = useState<number>(() => {
+    const p = parseInt(searchParams.get("page") || "1", 10);
+    return isNaN(p) || p < 1 ? 1 : p;
+  });
+
+  const [totalPages, setTotalPages] = useState<number>(1);
+  const [totalCount, setTotalCount] = useState<number>(0);
+
   useEffect(() => {
     if (!isAuthenticated || user?.role !== "admissionofficer") {
       router.replace("/staff/login");
       return;
     }
     loadApplications();
-  }, [isAuthenticated, user, router, status]);
+  }, [isAuthenticated, user, router, status, page]);
 
   const loadApplications = async () => {
     setLoading(true);
     try {
-      const response = await ApiClient.getApplications(status);
+      const response = await ApiClient.getApplications(status, undefined, page, 10);
       setApplications((response.applications as any as Application[]) || []);
+      setTotalPages(response.total_pages ?? 1);
+      setTotalCount(response.count ?? 0);
     } catch (err) {
       console.error("Error loading applications:", err);
     } finally {
@@ -92,9 +101,32 @@ function ApplicationsContent() {
 
   const handleStatusChange = (nextStatus: string) => {
     setStatus(nextStatus);
-    router.replace(`/admission_officer/applications?status=${nextStatus}`, {
+    setPage(1);
+    router.replace(`/admission_officer/applications?status=${nextStatus}&page=1`, {
       scroll: false,
     });
+  };
+
+  const handlePageChange = (nextPage: number) => {
+    if (nextPage < 1 || nextPage > totalPages) return;
+    setPage(nextPage);
+    router.replace(`/admission_officer/applications?status=${status}&page=${nextPage}`, {
+      scroll: false,
+    });
+  };
+
+  // Build page number array with ellipsis
+  const buildPageNums = (): (number | "...")[] => {
+    const nums = Array.from({ length: totalPages }, (_, i) => i + 1).filter(
+      (p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1
+    );
+    return nums.reduce<(number | "...")[]>((acc, p, idx, arr) => {
+      if (idx > 0 && typeof arr[idx - 1] === "number" && (p as number) - (arr[idx - 1] as number) > 1) {
+        acc.push("...");
+      }
+      acc.push(p);
+      return acc;
+    }, []);
   };
 
   return (
@@ -159,7 +191,7 @@ function ApplicationsContent() {
             {applications.map((app) => (
               <Link key={app.id} href={`/admission_officer/application/${app.id}?status=${status}`} className="block">
                 <Card className="hover:shadow-lg hover:border-[#d8c29a] border-[#e8dfd2] transition-all duration-300 bg-white hover:-translate-y-0.5 rounded-2xl group relative overflow-hidden shadow-sm">
-                  {/* Subtle left gradient strip */}
+                  {/* Subtle left accent strip */}
                   <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#c99b45] opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                   <CardContent className="p-5 sm:p-6">
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
@@ -171,23 +203,23 @@ function ApplicationsContent() {
                           <div className="flex flex-wrap gap-2 sm:justify-end lg:min-w-[250px]">
                             <Badge
                               data-status={app.application_status}
-                              className={`admission-status-badge ${statusColors[app.application_status] || 'bg-slate-50 text-slate-700 border border-slate-200'} font-bold text-xs py-1.5 px-3.5 rounded-full`}
+                              className={`admission-status-badge ${statusColors[app.application_status] || "bg-slate-50 text-slate-700 border border-slate-200"} font-bold text-xs py-1.5 px-3.5 rounded-full`}
                             >
-                              {app.application_status === 'accepted' ? 'Admitted' : app.application_status.replace('_', ' ')}
+                              {app.application_status === "accepted" ? "Admitted" : app.application_status.replace("_", " ")}
                             </Badge>
                             {/* Fee status pill — only shown on admitted tab */}
-                            {status === 'admitted' && (
+                            {status === "admitted" && (
                               <span className={`text-xs font-black px-3.5 py-1.5 rounded-full border shadow-sm ${
-                                app.application_status === 'accepted'
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                  : 'bg-amber-50 text-amber-700 border-amber-100'
+                                app.application_status === "accepted"
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                                  : "bg-amber-50 text-amber-700 border-amber-100"
                               }`}>
-                                {app.application_status === 'accepted' ? '✓ Fee Paid' : '⏳ Awaiting Fee'}
+                                {app.application_status === "accepted" ? "✓ Fee Paid" : "⏳ Awaiting Fee"}
                               </span>
                             )}
                           </div>
                         </div>
-                        
+
                         <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
                           <div className="rounded-xl border border-[#eee5d8] bg-[#fbfaf7] p-3">
                             <span className="text-xs text-slate-500 font-bold">Form No.</span>
@@ -207,7 +239,7 @@ function ApplicationsContent() {
                           </div>
                         </div>
                       </div>
-                      
+
                       <div className="flex items-center justify-end lg:justify-center">
                         <div className="p-2.5 bg-[#fbfaf7] border border-[#e8dfd2] text-slate-500 rounded-xl group-hover:bg-[#ead6aa] group-hover:text-[#15110a] group-hover:border-[#d8c29a] transition-all duration-300">
                           <ChevronRight className="h-5 w-5 transform group-hover:translate-x-0.5 transition-transform" />
@@ -218,6 +250,54 @@ function ApplicationsContent() {
                 </Card>
               </Link>
             ))}
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between pt-4 pb-2">
+                <p className="text-sm font-semibold text-slate-500">
+                  Page <span className="font-black text-slate-700">{page}</span> of{" "}
+                  <span className="font-black text-slate-700">{totalPages}</span>
+                  <span className="text-slate-400 ml-2">({totalCount} total)</span>
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handlePageChange(page - 1)}
+                    disabled={page <= 1}
+                    className="px-3.5 py-2 rounded-xl border border-[#e8dfd2] bg-white text-sm font-bold text-slate-600 hover:bg-[#f7f1e8] hover:border-[#c99b45] disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 shadow-sm"
+                  >
+                    ← Prev
+                  </button>
+
+                  <div className="flex items-center gap-1">
+                    {buildPageNums().map((item, idx) =>
+                      item === "..." ? (
+                        <span key={`ellipsis-${idx}`} className="px-2 text-slate-400 font-bold text-sm">…</span>
+                      ) : (
+                        <button
+                          key={item}
+                          onClick={() => handlePageChange(item as number)}
+                          className={`w-9 h-9 rounded-xl text-sm font-black transition-all duration-200 ${
+                            item === page
+                              ? "bg-[#c99b45] text-white border border-[#b98d3d] shadow-sm"
+                              : "bg-white border border-[#e8dfd2] text-slate-600 hover:bg-[#f7f1e8] hover:border-[#c99b45]"
+                          }`}
+                        >
+                          {item}
+                        </button>
+                      )
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => handlePageChange(page + 1)}
+                    disabled={page >= totalPages}
+                    className="px-3.5 py-2 rounded-xl border border-[#e8dfd2] bg-white text-sm font-bold text-slate-600 hover:bg-[#f7f1e8] hover:border-[#c99b45] disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 shadow-sm"
+                  >
+                    Next →
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

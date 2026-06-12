@@ -53,6 +53,7 @@ const APPLICANT_NAV_ITEMS = [
 
 const STUDENT_NAV_ITEMS = [
   { label: "Dashboard", href: "/student/dashboard", icon: LayoutDashboard },
+  { label: "Profile", href: "/student/profile", icon: User },
   { label: "Transactions", href: "/student/transactions", icon: CreditCard },
   {
     label: "Course Registration",
@@ -245,32 +246,61 @@ export function GlobalNav() {
 
   return (
     <>
-      {/* Top Header - "Only the name of the authenticated user" */}
-      <header>
-        {/* Mobile Hamburger Toggle */}
-        <button
-          onClick={toggle}
-          className={cn(
-            "lg:hidden p-2 -ml-4 mr-2 rounded-lg transition-colors shrink-0",
-            isOfficialPortalSection
-              ? "text-slate-700 hover:bg-[#ead6aa] hover:text-[#15110a]"
-              : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
-          )}
-          aria-label="Toggle Sidebar"
-        >
-          <Menu size={24} />
-        </button>
+      {/* Top Header - Mobile Only (Hidden on Desktop) */}
+      <header className={cn(
+        "lg:hidden flex items-center justify-between h-16 px-4 border-b sticky top-0 z-[90] w-full",
+        isOfficialPortalSection
+          ? "bg-[#f8f3ea] border-[#e8dfd2] text-[#15110a]"
+          : "bg-white border-slate-200 text-slate-800"
+      )}>
+        <div className="flex items-center gap-3">
+          {/* Mobile Hamburger Toggle */}
+          <button
+            onClick={toggle}
+            className={cn(
+              "p-2 -ml-2 rounded-xl transition-colors shrink-0",
+              isOfficialPortalSection
+                ? "text-slate-700 hover:bg-[#ead6aa] hover:text-[#15110a]"
+                : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+            )}
+            aria-label="Toggle Sidebar"
+          >
+            <Menu size={24} />
+          </button>
 
-        {/* Left Spacer - keeps balance */}
-        <div className="flex-grow flex-1" />
+          {/* Logo and Brand */}
+          <Link href="/" className="flex items-center gap-2 shrink-0">
+            <div className="bg-white p-0.5 rounded-lg shadow-sm border border-slate-200/50">
+              <Image
+                src="/e-portal/images/logo new.png"
+                alt="University Logo"
+                width={28}
+                height={28}
+                className="object-contain mix-blend-multiply"
+              />
+            </div>
+            <span className={cn(
+              "font-black text-sm uppercase tracking-tight leading-none",
+              isOfficialPortalSection ? "text-slate-800" : "text-slate-900"
+            )}>
+              PCU Portal
+            </span>
+          </Link>
+        </div>
 
-        {/* Center Navigation - New Items with Dropdowns */}
-        <div
-          className={cn(
-            "hidden lg:flex items-center shrink-0 transition-all duration-300 ease-in-out",
-            isOpen ? "gap-4 xl:gap-6" : "gap-6 xl:gap-8",
+        {/* Right side indicator for balance */}
+        <div className="flex items-center gap-2">
+          {user?.username && (
+            <span className={cn(
+              "text-xs font-bold font-mono px-2.5 py-1 rounded-lg border",
+              isOfficialPortalSection
+                ? "text-[#5c4520] bg-[#ead6aa] border-[#d5b875]"
+                : "text-slate-600 bg-slate-100 border-slate-200"
+            )}>
+              {user.username}
+            </span>
           )}
-        ></div>
+        </div>
       </header>
 
       {/* Mobile Backdrop Overlay */}

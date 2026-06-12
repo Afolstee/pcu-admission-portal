@@ -623,6 +623,15 @@ export default function StudentDashboard() {
                   </span>
                 </div>
               </div>
+
+              <Button
+                variant="outline"
+                className="w-full gap-2 font-bold py-5 mt-4 border-[#ead2db] text-[#881337] bg-[#f8eef2]/30 hover:bg-[#f8eef2] transition-all duration-200 shadow-sm"
+                onClick={() => router.push("/student/profile")}
+              >
+                View Full Profile
+                <User className="w-4 h-4" />
+              </Button>
             </CardContent>
           </Card>
         </div>

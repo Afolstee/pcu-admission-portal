@@ -114,7 +114,7 @@ def change_password(payload):
 @AuthHandler.token_required
 @AuthHandler.require_password_change
 def get_profile(payload):
-    """Get student profile with faculty/department info"""
+    """Get student profile with faculty/department info, biodata, and documents"""
     user_id = payload['user_id']
 
     student = Database.execute_query(
@@ -122,9 +122,13 @@ def get_profile(payload):
                   l.name as current_level, acs.name as session, 
                   COALESCE(sa.is_first_login, FALSE) as is_first_login,
                   u.firstname || ' ' || COALESCE(u.middlename || ' ', '') || u.surname as name,
+                  u.firstname as first_name, u.surname as last_name, u.middlename as middle_name,
+                  u.username as username,
                   s."Email" as email, s."MobileNumber" as phone_number,
                   ps.name as program_name, pt.name as program_type,
-                  s.department as department, f.name as faculty
+                  ps.program_type_id,
+                  s.department as department, f.name as faculty,
+                  a.id as application_id
            FROM students s
            JOIN users u ON s."UserId" = u.id
            LEFT JOIN student_auth sa ON sa.userid = u.id
@@ -143,7 +147,108 @@ def get_profile(payload):
     if not student:
         return jsonify({'message': 'Student record not found'}), 404
 
-    return jsonify({'profile': student[0]}), 200
+    student_data = dict(student[0])
+    personal_info = {}
+    documents = []
+
+    # Check if they are postgraduate
+    is_pg = (student_data.get('program_type_id') == 2)
+    if not is_pg:
+        # Fallback check on pg_application table
+        pg_check = Database.execute_query('SELECT uuid FROM pg_application WHERE user_id = %s LIMIT 1', (user_id,))
+        if pg_check:
+            is_pg = True
+
+    if is_pg:
+        pg_res = Database.execute_query(
+            '''SELECT pg.* FROM pg_application pg WHERE pg.user_id = %s ORDER BY pg.created_date DESC LIMIT 1''',
+            (user_id,)
+        )
+        if pg_res:
+            row = pg_res[0]
+            personal_info = {
+                'first_name': row.get('first_name'),
+                'last_name': row.get('surname'),
+                'surname': row.get('surname'),
+                'middle_name': row.get('middle_name'),
+                'email': row.get('email'),
+                'gender': row.get('gender'),
+                'date_of_birth': row.get('date_of_birth').strftime('%Y-%m-%d') if row.get('date_of_birth') else None,
+                'phone_number': row.get('phone_number'),
+                'secondary_phone_number': row.get('secondary_phone_number'),
+                'address': row.get('address'),
+                'physically_challenged': row.get('physically_challenged'),
+                'physical_challenge_reason': row.get('physically_challenged') if row.get('physically_challenged') != 'No' else '',
+            }
+            # Fetch postgraduate documents
+            docs = Database.execute_query(
+                '''SELECT d.id AS document_id, d.document_type, d.document_type AS display_name,
+                          d.file_name AS original_filename, d.file_size, d.status
+                   FROM pg_document d
+                   WHERE d.pg_application_id = %s''',
+                (row['uuid'],)
+            )
+            documents = [dict(d) for d in (docs or [])]
+    else:
+        # Undergraduate/other - fetch from applications and biodata
+        app_id = student_data.get('application_id')
+        if not app_id:
+            # Fallback if the join didn't yield an application_id directly
+            app_res = Database.execute_query(
+                'SELECT id FROM applications WHERE user_id = %s ORDER BY updated_at DESC LIMIT 1',
+                (user_id,)
+            )
+            if app_res:
+                app_id = app_res[0]['id']
+                student_data['application_id'] = app_id
+
+        if app_id:
+            bio_res = Database.execute_query(
+                'SELECT * FROM biodata WHERE application_id = %s',
+                (app_id,)
+            )
+            if bio_res:
+                row = dict(bio_res[0])
+                dob = row.get('date_of_birth')
+                if dob and hasattr(dob, 'strftime'):
+                    row['date_of_birth'] = dob.strftime('%Y-%m-%d')
+                personal_info = row
+                if 'surname' in personal_info:
+                    personal_info['last_name'] = personal_info['surname']
+
+            # Fetch documents
+            docs = Database.execute_query(
+                '''SELECT d.id AS document_id, d.document_type, d.document_type AS display_name,
+                          d.file_name AS original_filename, d.file_size, d.status
+                   FROM documents d
+                   WHERE d.application_id = %s''',
+                (app_id,)
+            )
+            documents = [dict(d) for d in (docs or [])]
+
+    # Fill default fields from users/students tables if not found in personal_info
+    name_parts = student_data.get('name', '').split()
+    first_name = name_parts[0] if len(name_parts) > 0 else ''
+    last_name = name_parts[-1] if len(name_parts) > 1 else ''
+    middle_name = ' '.join(name_parts[1:-1]) if len(name_parts) > 2 else ''
+
+    if not personal_info.get('first_name'):
+        personal_info['first_name'] = first_name
+    if not personal_info.get('last_name'):
+        personal_info['last_name'] = last_name
+        personal_info['surname'] = last_name
+    if not personal_info.get('middle_name'):
+        personal_info['middle_name'] = middle_name
+    if not personal_info.get('email'):
+        personal_info['email'] = student_data.get('email')
+    if not personal_info.get('phone_number'):
+        personal_info['phone_number'] = student_data.get('phone_number')
+
+    return jsonify({
+        'profile': student_data,
+        'personal_info': personal_info,
+        'documents': documents
+    }), 200
 
 
 @student_bp.route('/courses', methods=['GET'])

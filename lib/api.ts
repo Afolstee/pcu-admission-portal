@@ -235,6 +235,7 @@ export interface StudentProfile {
   program_type: string;
   department: string;
   faculty: string;
+  username?: string;
 }
 
 export class ApiClient {
@@ -1377,10 +1378,16 @@ export class ApiClient {
     return data;
   }
 
-  static async getStudentProfile(): Promise<{ profile: StudentProfile }> {
-    const { data } = await this.fetch<{ profile: StudentProfile }>(
-      "/student/profile",
-    );
+  static async getStudentProfile(): Promise<{
+    profile: StudentProfile;
+    personal_info: any;
+    documents: any[];
+  }> {
+    const { data } = await this.fetch<{
+      profile: StudentProfile;
+      personal_info: any;
+      documents: any[];
+    }>("/student/profile");
     return data;
   }
 
@@ -1657,4 +1664,6 @@ export class ApiClient {
     if (!res.ok) throw new Error("Failed to download PG application PDF");
     return res.blob();
   }
+
+
 }

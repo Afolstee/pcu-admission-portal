@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ApiClient, PaymentTransaction } from "@/lib/api";
@@ -25,7 +25,7 @@ import { format } from "date-fns";
 type FeeComponent = { name: string; amount: number };
 type Tab = "pay" | "history";
 
-export default function StudentTransactionsPage() {
+function StudentTransactionsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, student, isAuthenticated, isLoading } = useAuth();
@@ -677,5 +677,19 @@ export default function StudentTransactionsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function StudentTransactionsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#f3eee6] flex items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-[#c99b45]" />
+        </div>
+      }
+    >
+      <StudentTransactionsContent />
+    </Suspense>
   );
 }

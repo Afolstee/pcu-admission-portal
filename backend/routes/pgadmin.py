@@ -873,3 +873,366 @@ def print_application(payload, application_id):
         import traceback
         traceback.print_exc()
         return jsonify({'message': f'PDF generation failed: {str(e)}'}), 500
+
+
+# ─── Letter Management ─────────────────────────────────────────────────────────
+
+@pgadmin_bp.route('/faculty-departments', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.pgadmin_required
+def get_pg_faculty_departments(payload):
+    """Return PG admitted applicants grouped by finalised/approved course."""
+    query = f'''
+        SELECT COALESCE(pg.finalised_course, pg.approved_course, 'Postgraduate') AS programme,
+               COUNT(pg.uuid) AS pending_count
+        FROM pg_application pg
+        WHERE pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+          AND (pg.admission_letter_sent IS NULL OR pg.admission_letter_sent = FALSE)
+        GROUP BY 1
+        ORDER BY 1
+    '''
+    results = Database.execute_query(query)
+
+    faculties = {}
+    if results:
+        for row in results:
+            prog = row['programme'] or 'Postgraduate'
+            if 'Postgraduate' not in faculties:
+                faculties['Postgraduate'] = []
+            faculties['Postgraduate'].append({'name': prog, 'pending_count': int(row['pending_count'])})
+
+    return jsonify({'faculties': faculties}), 200
+
+
+@pgadmin_bp.route('/department-applicants/<department_name>', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.pgadmin_required
+def get_pg_department_applicants(payload, department_name):
+    """Return PG admitted applicants for a given programme group."""
+    query = f'''
+        SELECT pg.uuid AS id,
+               {USER_NAME_EXPR} AS name,
+               u.email,
+               COALESCE(pg.finalised_course, pg.approved_course, 'Postgraduate') AS program_name
+        FROM pg_application pg
+        JOIN users u ON pg.user_id = u.id
+        WHERE pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+          AND (pg.admission_letter_sent IS NULL OR pg.admission_letter_sent = FALSE)
+          AND COALESCE(pg.finalised_course, pg.approved_course, 'Postgraduate') = %s
+        ORDER BY u.firstname ASC
+    '''
+    applicants = Database.execute_query(query, (department_name,))
+    return jsonify({'department': department_name, 'applicants': applicants or []}), 200
+
+
+@pgadmin_bp.route('/send-department-letters', methods=['POST'])
+@AuthHandler.token_required
+@AuthHandler.pgadmin_required
+def send_pg_department_letters(payload):
+    """Send admission letters to selected PG applicants."""
+    import resend as _resend
+    from config import Config
+    from utils.pdf_generator import PDFGenerator
+
+    data = request.get_json()
+    department_name    = data.get('department_name')
+    applicant_ids      = data.get('applicant_ids', [])
+    admission_date_str = data.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
+
+    if not department_name or not applicant_ids:
+        return jsonify({'message': 'department_name and applicant_ids required'}), 400
+
+    try:
+        date_obj = datetime.strptime(admission_date_str, '%Y-%m-%d')
+        admission_date_display = date_obj.strftime('%d %B, %Y')
+    except Exception:
+        admission_date_display = admission_date_str
+
+    session_res     = Database.execute_query("SELECT name AS value FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
+    default_session = session_res[0]['value'] if session_res else '2025/2026'
+
+    sent_list   = []
+    failed_list = []
+    applicants_with_pdfs = []
+
+    for applicant_id in applicant_ids:
+        try:
+            ref_no = get_pg_admission_ref(applicant_id)
+
+            applicant = Database.execute_query(
+                f'''SELECT pg.uuid AS id,
+                           {USER_NAME_EXPR} AS name,
+                           u.email,
+                           COALESCE(pg.finalised_course, pg.approved_course, 'Postgraduate') AS program_name,
+                           COALESCE(s.name, %s) AS session,
+                           pg.applicant_stage
+                    FROM pg_application pg
+                    JOIN users u ON pg.user_id = u.id
+                    LEFT JOIN academic_sessions s ON pg.academic_session_id = s.id
+                    WHERE pg.uuid = %s
+                      AND pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')''',
+                (default_session, applicant_id)
+            )
+
+            if not applicant:
+                failed_list.append({'applicant_id': applicant_id, 'error': 'PG applicant not found or not admitted'})
+                continue
+
+            applicant_data = applicant[0]
+
+            fees = Database.execute_query(
+                '''SELECT fc.name, pf.amount
+                   FROM program_fees pf
+                   JOIN fee_components fc ON pf.fee_component_id = fc.id
+                   WHERE pf.program_type = 2'''
+            )
+            acceptance_fee_str = tuition_fee_str = other_fees_str = ''
+            if fees:
+                for fee in fees:
+                    name   = (fee['name'] or '').lower()
+                    amount = fee['amount'] or 0
+                    if 'acceptance' in name:
+                        acceptance_fee_str = f"₦{amount:,.2f}"
+                    elif 'tuition' in name or 'accommodation' in name:
+                        tuition_fee_str = f"₦{amount:,.2f}"
+                    elif 'sundry' in name or 'other' in name or 'digital' in name:
+                        other_fees_str = f"₦{amount:,.2f}"
+
+            pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
+                candidate_name=applicant_data['name'],
+                email=applicant_data['email'],
+                programme=applicant_data['program_name'] or 'Postgraduate',
+                level='100 Level',
+                department='',
+                faculty='',
+                session=applicant_data.get('session') or default_session,
+                mode='Postgraduate',
+                date=admission_date_display,
+                acceptanceFee=acceptance_fee_str,
+                tuition=tuition_fee_str,
+                otherFees=other_fees_str,
+                resumptionDate='',
+                reference=ref_no,
+                body_html=''
+            )
+
+            applicants_with_pdfs.append({
+                'applicant_id': applicant_id,
+                'email':        applicant_data['email'],
+                'name':         applicant_data['name'],
+                'pdf_bytes':    pdf_bytes
+            })
+
+        except Exception as e:
+            failed_list.append({'applicant_id': applicant_id, 'error': str(e)})
+
+    if not applicants_with_pdfs:
+        return jsonify({'message': 'No valid applicants to send letters', 'sent': 0, 'failed': len(failed_list)}), 400
+
+    try:
+        if not all([Config.RESEND_API_KEY, Config.RESEND_FROM_EMAIL]):
+            raise ValueError("Resend not configured")
+
+        _resend.api_key = Config.RESEND_API_KEY
+        from_email_str  = f"{Config.RESEND_FROM_NAME} <{Config.RESEND_FROM_EMAIL}>"
+
+        for a in applicants_with_pdfs:
+            try:
+                resp = _resend.Emails.send({
+                    "from":    from_email_str,
+                    "to":      [a['email']],
+                    "subject": "Provisional Postgraduate Admission Letter",
+                    "html":    f"<p>Dear {a['name']},</p><p>Please find attached your provisional postgraduate admission letter.</p><p>Best regards,<br>Postgraduate School Administration</p>",
+                    "attachments": [{"filename": "admission_letter.pdf", "content": list(a['pdf_bytes'])}]
+                })
+                if resp and resp.get("id"):
+                    Database.execute_update(
+                        'UPDATE pg_application SET admission_letter_sent = TRUE, updated_date = NOW() WHERE uuid = %s',
+                        (a['applicant_id'],)
+                    )
+                    sent_list.append({'applicant_id': a['applicant_id'], 'name': a['name'], 'email': a['email']})
+                else:
+                    failed_list.append({'applicant_id': a['applicant_id'], 'error': f"Resend error: {resp}"})
+            except Exception as _e:
+                failed_list.append({'applicant_id': a['applicant_id'], 'error': str(_e)})
+
+    except Exception as e:
+        for a in applicants_with_pdfs:
+            failed_list.append({'applicant_id': a['applicant_id'], 'error': str(e)})
+
+    return jsonify({
+        'message':     'Batch send completed',
+        'sent':        len(sent_list),
+        'failed':      len(failed_list),
+        'sent_list':   sent_list,
+        'failed_list': failed_list
+    }), 201
+
+
+@pgadmin_bp.route('/letter-status-summary', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.pgadmin_required
+def get_pg_letter_status_summary(payload):
+    """Return sent / pending letter status for PG applicants."""
+    sent_query = f'''SELECT pg.uuid AS id,
+                            pg.form_no,
+                            {USER_NAME_EXPR} AS name,
+                            u.email,
+                            COALESCE(pg.finalised_course, pg.approved_course, 'Postgraduate') AS course,
+                            'Postgraduate' AS program_name,
+                            pg.updated_date AS sent_at
+                     FROM pg_application pg
+                     JOIN users u ON pg.user_id = u.id
+                     WHERE pg.admission_letter_sent = TRUE
+                     ORDER BY pg.updated_date DESC'''
+
+    sent_rows = Database.execute_query(sent_query) or []
+    sent = [
+        {
+            'applicant_id': r['id'],
+            'form_no':      r['form_no'],
+            'name':         r['name'],
+            'email':        r['email'],
+            'course':       r['course'] or '—',
+            'program':      r['program_name'],
+            'sent_at':      r['sent_at'].isoformat() if r['sent_at'] else None,
+        }
+        for r in sent_rows
+    ]
+
+    pending_query = f'''SELECT pg.uuid AS id,
+                               pg.form_no,
+                               {USER_NAME_EXPR} AS name,
+                               u.email,
+                               'Postgraduate' AS program_name
+                        FROM pg_application pg
+                        JOIN users u ON pg.user_id = u.id
+                        WHERE pg.applicant_stage IN ('admitted', 'accepted', 'enrolled')
+                          AND (pg.admission_letter_sent IS NULL OR pg.admission_letter_sent = FALSE)
+                        ORDER BY pg.updated_date DESC'''
+
+    pending_rows = Database.execute_query(pending_query) or []
+    pending = [
+        {
+            'applicant_id':  r['id'],
+            'form_no':       r['form_no'],
+            'name':          r['name'],
+            'email':         r['email'],
+            'program':       r['program_name'],
+            'status':        'pending',
+            'sent_at':       None,
+            'error_message': None,
+            'retry_count':   0,
+        }
+        for r in pending_rows
+    ]
+
+    return jsonify({
+        'sent':    sent,
+        'failed':  [],
+        'pending': pending,
+        'summary': {
+            'total_sent':    len(sent),
+            'total_failed':  0,
+            'total_pending': len(pending),
+        }
+    }), 200
+
+
+@pgadmin_bp.route('/resend-letter/<applicant_id>', methods=['POST'])
+@AuthHandler.token_required
+@AuthHandler.pgadmin_required
+def resend_pg_letter(payload, applicant_id):
+    """Resend admission letter to a single PG applicant."""
+    import resend as _resend
+    from config import Config
+    from utils.pdf_generator import PDFGenerator
+
+    data = request.get_json() or {}
+    admission_date_str = data.get('admission_date', datetime.now().strftime('%Y-%m-%d'))
+    try:
+        date_obj = datetime.strptime(admission_date_str, '%Y-%m-%d')
+        admission_date_display = date_obj.strftime('%d %B, %Y')
+    except Exception:
+        admission_date_display = admission_date_str
+
+    ref_no = get_pg_admission_ref(applicant_id)
+
+    session_res     = Database.execute_query("SELECT name AS value FROM academic_sessions WHERE is_active = TRUE LIMIT 1")
+    default_session = session_res[0]['value'] if session_res else '2025/2026'
+
+    applicant = Database.execute_query(
+        f'''SELECT pg.uuid AS id,
+                   {USER_NAME_EXPR} AS name,
+                   u.email,
+                   COALESCE(pg.finalised_course, pg.approved_course, 'Postgraduate') AS program_name,
+                   COALESCE(s.name, %s) AS session
+            FROM pg_application pg
+            JOIN users u ON pg.user_id = u.id
+            LEFT JOIN academic_sessions s ON pg.academic_session_id = s.id
+            WHERE pg.uuid = %s''',
+        (default_session, applicant_id)
+    )
+
+    if not applicant:
+        return jsonify({'message': 'PG applicant not found'}), 404
+
+    applicant_data = applicant[0]
+
+    fees = Database.execute_query(
+        '''SELECT fc.name, pf.amount
+           FROM program_fees pf
+           JOIN fee_components fc ON pf.fee_component_id = fc.id
+           WHERE pf.program_type = 2'''
+    )
+    acceptance_fee_str = tuition_fee_str = other_fees_str = ''
+    if fees:
+        for fee in fees:
+            name   = (fee['name'] or '').lower()
+            amount = fee['amount'] or 0
+            if 'acceptance' in name:
+                acceptance_fee_str = f"₦{amount:,.2f}"
+            elif 'tuition' in name or 'accommodation' in name:
+                tuition_fee_str = f"₦{amount:,.2f}"
+            elif 'sundry' in name or 'other' in name or 'digital' in name:
+                other_fees_str = f"₦{amount:,.2f}"
+
+    pdf_bytes = PDFGenerator.generate_admission_letter_pdf(
+        candidate_name=applicant_data['name'],
+        email=applicant_data['email'],
+        programme=applicant_data['program_name'] or 'Postgraduate',
+        level='100 Level', department='', faculty='',
+        session=applicant_data.get('session') or default_session,
+        mode='Postgraduate',
+        date=admission_date_display,
+        acceptanceFee=acceptance_fee_str, tuition=tuition_fee_str, otherFees=other_fees_str,
+        resumptionDate='', reference=ref_no, body_html=''
+    )
+
+    try:
+        if not all([Config.RESEND_API_KEY, Config.RESEND_FROM_EMAIL]):
+            raise ValueError("Resend not configured")
+
+        _resend.api_key = Config.RESEND_API_KEY
+        from_email_str  = f"{Config.RESEND_FROM_NAME} <{Config.RESEND_FROM_EMAIL}>"
+
+        resp = _resend.Emails.send({
+            "from":    from_email_str,
+            "to":      [applicant_data['email']],
+            "subject": "Provisional Postgraduate Admission Letter - Resend",
+            "html":    f"<p>Dear {applicant_data['name']},</p><p>Please find attached your provisional postgraduate admission letter.</p><p>Best regards,<br>Postgraduate School Administration</p>",
+            "attachments": [{"filename": "admission_letter.pdf", "content": list(pdf_bytes)}]
+        })
+
+        if resp and resp.get("id"):
+            Database.execute_update(
+                'UPDATE pg_application SET admission_letter_sent = TRUE, updated_date = NOW() WHERE uuid = %s',
+                (applicant_id,)
+            )
+            return jsonify({'message': 'Letter resent successfully', 'applicant_id': applicant_id}), 200
+        else:
+            return jsonify({'message': 'Failed to resend letter', 'error': str(resp)}), 500
+
+    except Exception as e:
+        return jsonify({'message': 'Error resending letter', 'error': str(e)}), 500
+

@@ -26,6 +26,7 @@ import {
   CreditCard,
   ChevronDown,
   Wallet,
+  Mail,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -106,6 +107,30 @@ const PGADMIN_NAV_ITEMS = [
     href: "/pgadmin/applications",
     icon: FileText,
   },
+  {
+    label: "Send Letters",
+    href: "/pgadmin/send-letters",
+    icon: Mail,
+  },
+  { label: "Change Password", href: "/staff/change-password", icon: Lock },
+];
+
+const PTADMIN_NAV_ITEMS = [
+  {
+    label: "Dashboard",
+    href: "/ptadmin/dashboard",
+    icon: LayoutDashboard,
+  },
+  {
+    label: "Applications",
+    href: "/ptadmin/applications",
+    icon: FileText,
+  },
+  {
+    label: "Send Letters",
+    href: "/ptadmin/send-letters",
+    icon: Mail,
+  },
   { label: "Change Password", href: "/staff/change-password", icon: Lock },
 ];
 
@@ -153,8 +178,14 @@ export function GlobalNav() {
   const isAdmissionOfficerSection = pathname?.startsWith("/admission_officer");
   const isApplicantSection = pathname?.startsWith("/applicant");
   const isStudentSection = pathname?.startsWith("/student");
+  const isPgAdminSection = pathname?.startsWith("/pgadmin");
+  const isPtAdminSection = pathname?.startsWith("/ptadmin");
   const isOfficialPortalSection =
-    isAdmissionOfficerSection || isApplicantSection || isStudentSection;
+    isAdmissionOfficerSection ||
+    isApplicantSection ||
+    isStudentSection ||
+    isPgAdminSection ||
+    isPtAdminSection;
 
   React.useEffect(() => {
     const fetchCount = () => {
@@ -206,6 +237,8 @@ export function GlobalNav() {
     if (isIctPortal) return ICT_NAV_ITEMS;
     if (user?.role === "pgadmin" || user?.role === "pgdean")
       return PGADMIN_NAV_ITEMS;
+    if (user?.role === "ptadmin")
+      return PTADMIN_NAV_ITEMS;
     if (isManagementPortal)
       return [
         {
@@ -228,6 +261,11 @@ export function GlobalNav() {
         return "/lecturer/dashboard";
       case "ictdirector":
         return "/ict/dashboard";
+      case "pgadmin":
+      case "pgdean":
+        return "/pgadmin/dashboard";
+      case "ptadmin":
+        return "/ptadmin/dashboard";
       default:
         return "/";
     }

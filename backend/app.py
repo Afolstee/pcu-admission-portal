@@ -42,6 +42,7 @@ def create_app(config_name='development'):
     from routes.settings import settings_bp
     from routes.pgdean import pgdean_bp
     from routes.pgadmin import pgadmin_bp
+    from routes.ptadmin import ptadmin_bp
 
     app.register_blueprint(auth_bp, url_prefix='/e-portal/api/auth')
     app.register_blueprint(applicant_bp, url_prefix='/e-portal/api/applicant')
@@ -55,6 +56,7 @@ def create_app(config_name='development'):
     app.register_blueprint(settings_bp, url_prefix='/e-portal/api/settings')
     app.register_blueprint(pgdean_bp, url_prefix='/e-portal/api/pgdean')
     app.register_blueprint(pgadmin_bp, url_prefix='/e-portal/api/pgadmin')
+    app.register_blueprint(ptadmin_bp, url_prefix='/e-portal/api/ptadmin')
 
     # ── Background payment-requery worker ─────────────────────────────────────
     # Guard against double-start when Flask debug mode forks a reloader child.

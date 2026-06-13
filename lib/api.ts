@@ -1060,6 +1060,83 @@ export class ApiClient {
     return this.getPgAdminDashboard(activityLimit);
   }
 
+  // =================== PT Admin Endpoints ===================
+
+  static async getPtAdminDashboard(activityLimit = 10): Promise<{
+    statistics: {
+      total_applications: number;
+      total_admitted: number;
+      pending_submission: number;
+      new_applications: number;
+      under_review: number;
+      total_rejected: number;
+      by_status: Array<{ application_status: string; count: number }>;
+      by_program: Array<{ name: string; count: number }>;
+    };
+    recent_activity: Array<{
+      type: string;
+      label: string;
+      event_time: string | null;
+    }>;
+  }> {
+    const { data } = await this.fetch<any>(
+      `/ptadmin/dashboard?limit=${activityLimit}`,
+    );
+    return data;
+  }
+
+  static async getPtApplications(
+    status?: string,
+    page?: number,
+    per_page?: number,
+    search?: string,
+  ): Promise<{
+    applications: any[];
+    count: number;
+    page: number;
+    per_page: number;
+    total_pages: number;
+  }> {
+    const params = new URLSearchParams();
+    if (status) params.append("status", status);
+    if (page) params.append("page", page.toString());
+    if (per_page) params.append("per_page", per_page.toString());
+    if (search) params.append("search", search);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    const { data } = await this.fetch<any>(`/ptadmin/applications${qs}`);
+    return data;
+  }
+
+  static async getPtApplicationDetails(
+    applicationId: string | number,
+  ): Promise<any> {
+    const { data } = await this.fetch<any>(
+      `/ptadmin/application/${applicationId}`,
+    );
+    return data;
+  }
+
+  static async ptReviewApplication(
+    applicationId: string | number,
+    decision: "admit" | "reject" | "shortlist" | "incomplete",
+    notes?: string,
+  ): Promise<any> {
+    const { data } = await this.fetch<any>(`/ptadmin/review-application`, {
+      method: "POST",
+      body: JSON.stringify({
+        applicant_id: applicationId,
+        decision,
+        notes,
+      }),
+    });
+    return data;
+  }
+
+  static getPtApplicationPrintUrl(applicationId: string | number): string {
+    const token = this.getToken();
+    return `${API_BASE_URL}/ptadmin/print-application/${applicationId}?token=${token || ""}`;
+  }
+
   static async getPgApplications(
     status?: string,
     page?: number,
@@ -1238,6 +1315,120 @@ export class ApiClient {
   ): Promise<{ message: string }> {
     const { data } = await this.fetch<{ message: string }>(
       `/admission_officer/resend-letter/${applicantId}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ admission_date: admissionDate }),
+      },
+    );
+    return data;
+  }
+
+  // PT Admin letter management endpoints
+  static async getPtFacultyDepartments(): Promise<FacultyDepartmentsResponse> {
+    const { data } = await this.fetch<FacultyDepartmentsResponse>(
+      "/ptadmin/faculty-departments",
+    );
+    return data;
+  }
+
+  static async getPtDepartmentApplicants(
+    departmentName: string,
+  ): Promise<DepartmentApplicantsResponse> {
+    const { data } = await this.fetch<DepartmentApplicantsResponse>(
+      `/ptadmin/department-applicants/${encodeURIComponent(departmentName)}`,
+    );
+    return data;
+  }
+
+  static async sendPtDepartmentLetters(
+    departmentName: string,
+    applicantIds: number[],
+    admissionDate?: string,
+  ): Promise<SendDepartmentLettersResponse> {
+    const { data } = await this.fetch<SendDepartmentLettersResponse>(
+      "/ptadmin/send-department-letters",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          department_name: departmentName,
+          applicant_ids: applicantIds,
+          admission_date: admissionDate,
+        }),
+      },
+    );
+    return data;
+  }
+
+  static async getPtLetterStatusSummary(): Promise<LetterStatusSummaryResponse> {
+    const { data } = await this.fetch<LetterStatusSummaryResponse>(
+      "/ptadmin/letter-status-summary",
+    );
+    return data;
+  }
+
+  static async resendPtLetter(
+    applicantId: number,
+    admissionDate?: string,
+  ): Promise<{ message: string }> {
+    const { data } = await this.fetch<{ message: string }>(
+      `/ptadmin/resend-letter/${applicantId}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ admission_date: admissionDate }),
+      },
+    );
+    return data;
+  }
+
+  // PG Admin letter management endpoints
+  static async getPgFacultyDepartments(): Promise<FacultyDepartmentsResponse> {
+    const { data } = await this.fetch<FacultyDepartmentsResponse>(
+      "/pgadmin/faculty-departments",
+    );
+    return data;
+  }
+
+  static async getPgDepartmentApplicants(
+    departmentName: string,
+  ): Promise<DepartmentApplicantsResponse> {
+    const { data } = await this.fetch<DepartmentApplicantsResponse>(
+      `/pgadmin/department-applicants/${encodeURIComponent(departmentName)}`,
+    );
+    return data;
+  }
+
+  static async sendPgDepartmentLetters(
+    departmentName: string,
+    applicantIds: (number | string)[],
+    admissionDate?: string,
+  ): Promise<SendDepartmentLettersResponse> {
+    const { data } = await this.fetch<SendDepartmentLettersResponse>(
+      "/pgadmin/send-department-letters",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          department_name: departmentName,
+          applicant_ids: applicantIds,
+          admission_date: admissionDate,
+        }),
+      },
+    );
+    return data;
+  }
+
+  static async getPgLetterStatusSummary(): Promise<LetterStatusSummaryResponse> {
+    const { data } = await this.fetch<LetterStatusSummaryResponse>(
+      "/pgadmin/letter-status-summary",
+    );
+    return data;
+  }
+
+  static async resendPgLetter(
+    applicantId: number | string,
+    admissionDate?: string,
+  ): Promise<{ message: string }> {
+    const { data } = await this.fetch<{ message: string }>(
+      `/pgadmin/resend-letter/${applicantId}`,
       {
         method: "POST",
         body: JSON.stringify({ admission_date: admissionDate }),

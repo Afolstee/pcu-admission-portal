@@ -15,6 +15,7 @@ const ROLE_REDIRECTS: Record<string, string> = {
   registrar: "/e-portal/registrar/dashboard",
   pgdean: "/e-portal/pgadmin/dashboard",
   pgadmin: "/e-portal/pgadmin/dashboard",
+  ptadmin: "/e-portal/ptadmin/dashboard",
 };
 
 const APPLICANT_ROLES = ["applicant", "freshapplicant"];

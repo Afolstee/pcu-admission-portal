@@ -126,17 +126,17 @@ export default function StudentDashboard() {
       try {
         const letterResponse = await ApiClient.getAdmissionLetter();
         setAdmissionLetter(letterResponse);
-      } catch (e) {}
+      } catch (e) { }
 
       try {
         const pHistory = await ApiClient.getPaymentHistory();
         setPaymentHistory(pHistory.payment_history);
-      } catch (e) {}
+      } catch (e) { }
 
       try {
         const breakdown = await ApiClient.getTuitionBreakdown();
         setFeeTotal(breakdown.total || 0);
-      } catch (e) {}
+      } catch (e) { }
 
       setFeeLoadingDone(true);
     } catch (err) {
@@ -419,19 +419,15 @@ export default function StudentDashboard() {
                   </div>
                   <div>
                     <CardTitle className="text-lg font-bold text-slate-800">
-                      Course Registration
+                      Registration
                     </CardTitle>
-                    <p className="text-[10px] text-slate-500 font-medium mt-0.5">
-                      Academic Year breakdown
-                    </p>
                   </div>
                   {regStatus && (
                     <Badge
-                      className={`ml-auto text-xs font-bold px-2.5 py-0.5 rounded-full border shadow-none capitalize ${
-                        regStatus === "submitted"
+                      className={`ml-auto text-xs font-bold px-2.5 py-0.5 rounded-full border shadow-none capitalize ${regStatus === "submitted"
                           ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
                           : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-50"
-                      }`}
+                        }`}
                     >
                       {regStatus}
                     </Badge>
@@ -497,13 +493,12 @@ export default function StudentDashboard() {
                       </CardDescription>
                     </div>
                     {feeLoadingDone && (
-                      <span className={`ml-auto text-xs font-bold px-2.5 py-1 rounded-full border ${
-                        isFullyPaid
+                      <span className={`ml-auto text-xs font-bold px-2.5 py-1 rounded-full border ${isFullyPaid
                           ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                           : feePaid > 0
-                          ? "bg-amber-50 text-amber-700 border-amber-200"
-                          : "bg-red-50 text-red-700 border-red-200"
-                      }`}>
+                            ? "bg-amber-50 text-amber-700 border-amber-200"
+                            : "bg-red-50 text-red-700 border-red-200"
+                        }`}>
                         {isFullyPaid ? "Fully Paid" : feePaid > 0 ? "Partial" : "Unpaid"}
                       </span>
                     )}
@@ -530,9 +525,8 @@ export default function StudentDashboard() {
                           </div>
                           <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                             <div
-                              className={`h-full rounded-full transition-all duration-700 ${
-                                isFullyPaid ? "bg-emerald-500" : feePaid > 0 ? "bg-amber-400" : "bg-slate-300"
-                              }`}
+                              className={`h-full rounded-full transition-all duration-700 ${isFullyPaid ? "bg-emerald-500" : feePaid > 0 ? "bg-amber-400" : "bg-slate-300"
+                                }`}
                               style={{ width: `${pct}%` }}
                             />
                           </div>
@@ -549,9 +543,8 @@ export default function StudentDashboard() {
                         </div>
                         <div className="bg-[#faf8f5] border border-amber-100 rounded-xl p-3">
                           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Remaining</p>
-                          <p className={`text-base font-black tabular-nums ${
-                            isFullyPaid ? "text-emerald-600" : "text-amber-700"
-                          }`}>
+                          <p className={`text-base font-black tabular-nums ${isFullyPaid ? "text-emerald-600" : "text-amber-700"
+                            }`}>
                             ₦{remaining.toLocaleString("en-NG", { minimumFractionDigits: 2 })}
                           </p>
                         </div>
@@ -763,10 +756,10 @@ export default function StudentDashboard() {
                   ))}
                 {paymentHistory.filter((pt) => pt.is_successful).length ===
                   0 && (
-                  <p className="text-xs text-center text-slate-400 py-4 italic bg-white rounded-xl border border-dashed">
-                    No payment records found.
-                  </p>
-                )}
+                    <p className="text-xs text-center text-slate-400 py-4 italic bg-white rounded-xl border border-dashed">
+                      No payment records found.
+                    </p>
+                  )}
               </div>
             )}
           </div>
@@ -938,10 +931,10 @@ export default function StudentDashboard() {
                     ))}
                   {paymentHistory.filter((pt) => pt.is_successful).length ===
                     0 && (
-                    <p className="text-xs text-center text-slate-400 py-2 italic bg-slate-50 rounded-lg border border-dashed">
-                      No payment records found.
-                    </p>
-                  )}
+                      <p className="text-xs text-center text-slate-400 py-2 italic bg-slate-50 rounded-lg border border-dashed">
+                        No payment records found.
+                      </p>
+                    )}
                 </div>
               </div>
             </div>

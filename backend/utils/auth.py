@@ -95,6 +95,10 @@ def token_required(f):
             except IndexError:
                 return jsonify({"message": "error"}), 401
 
+        # Fallback to token query parameter (needed for window.open/image loading)
+        if not token and "token" in request.args:
+            token = request.args.get("token")
+
         if not token:
             return jsonify({"message": "error"}), 401
 
@@ -146,6 +150,16 @@ def pgadmin_required(f):
     return decorated
 
 
+def ptadmin_required(f):
+    """Decorator: restrict to PT Admin and admin."""
+    @wraps(f)
+    def decorated(payload, *args, **kwargs):
+        if payload.get("role") not in ("ptadmin", "admin"):
+            return jsonify({"message": "Access denied"}), 403
+        return f(payload, *args, **kwargs)
+    return decorated
+
+
 def roles_required(*roles):
     """Decorator: restrict to a set of roles."""
     def decorator(f):
@@ -190,5 +204,6 @@ class AuthHandler:
     admissions_officer_required = staticmethod(admissions_officer_required)
     pgdean_required             = staticmethod(pgdean_required)
     pgadmin_required            = staticmethod(pgadmin_required)
+    ptadmin_required            = staticmethod(ptadmin_required)
     roles_required              = staticmethod(roles_required)
     require_password_change     = staticmethod(require_password_change)

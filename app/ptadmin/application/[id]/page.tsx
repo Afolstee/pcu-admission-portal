@@ -19,6 +19,8 @@ import {
   Star,
   ClipboardList,
   Printer,
+  GraduationCap,
+  BookOpen,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -26,20 +28,33 @@ import {
 interface ApplicationDetail {
   applicant: any;
   form: any;
+  olevel_results?: OLevelSitting[];
   documents: any[];
 }
+
+interface OLevelSitting {
+  exam_type: string | null;
+  exam_no: string | null;
+  exam_year: string | null;
+  exam_period: string | null;
+  subjects: { subject: string; grade: string }[];
+}
+
+// prog_type ids
+const PROG_PART_TIME = 7;
+const PROG_HND_CONV  = 4;
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
 const statusColors: Record<string, string> = {
-  pending: "bg-amber-50 text-amber-700 border border-amber-200",
-  submitted: "bg-blue-50 text-blue-700 border border-blue-200",
-  screening: "bg-violet-50 text-violet-700 border border-violet-200",
+  pending:     "bg-amber-50 text-amber-700 border border-amber-200",
+  submitted:   "bg-blue-50 text-blue-700 border border-blue-200",
+  screening:   "bg-violet-50 text-violet-700 border border-violet-200",
   shortlisted: "bg-cyan-50 text-cyan-700 border border-cyan-200",
-  admitted: "bg-emerald-50 text-emerald-700 border border-emerald-200",
-  accepted: "bg-emerald-50 text-emerald-700 border border-emerald-200",
-  rejected: "bg-rose-50 text-rose-700 border border-rose-200",
-  incomplete: "bg-slate-100 text-slate-600 border border-slate-200",
+  admitted:    "bg-emerald-50 text-emerald-700 border border-emerald-200",
+  accepted:    "bg-emerald-50 text-emerald-700 border border-emerald-200",
+  rejected:    "bg-rose-50 text-rose-700 border border-rose-200",
+  incomplete:  "bg-slate-100 text-slate-600 border border-slate-200",
   payment_pending: "bg-amber-50 text-amber-700 border border-amber-200",
 };
 
@@ -51,17 +66,26 @@ function InfoRow({ label, value }: { label: string; value?: string | null }) {
       <span className="text-xs font-bold text-slate-400 uppercase tracking-wider shrink-0 mr-4">
         {label}
       </span>
-      <span className="font-semibold text-slate-700 text-sm text-right">
+      <span className="font-semibold text-slate-700 text-sm text-right break-words max-w-[60%]">
         {value || "N/A"}
       </span>
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <div className="space-y-1">
-      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">
+      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+        {icon}
         {title}
       </p>
       <div className="bg-white border border-[#e8dfd2] rounded-xl overflow-hidden px-4">
@@ -86,7 +110,6 @@ export default function PtApplicationDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Action state
   const [actionLoading, setActionLoading] = useState(false);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -190,16 +213,26 @@ export default function PtApplicationDetailPage() {
     );
   }
 
-  const { applicant, form, documents } = application;
+  const { applicant, form, olevel_results = [], documents } = application;
   const status = applicant?.application_status || "";
+  const progType: number = applicant?.program_id ?? 0;
+  const isHndConversion = progType === PROG_HND_CONV;
+  const isPartTime      = progType === PROG_PART_TIME;
+
   const passportDoc = documents?.find(
     (d) => d.document_type === "passport_photo" || d.document_type === "passport",
   );
   const passportUrl = passportDoc
-    ? `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/e-portal/api"}/applicant/download-document/${passportDoc.id || passportDoc.document_id}?token=${localStorage.getItem("auth_token") || ""}`
+    ? `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/e-portal/api"}/applicant/download-document/${passportDoc.id || passportDoc.document_id}?token=${typeof window !== "undefined" ? localStorage.getItem("auth_token") || "" : ""}`
     : null;
 
   const isDecided = ["admitted", "accepted", "rejected", "enrolled"].includes(status);
+
+  const programLabel = isHndConversion
+    ? "HND Conversion"
+    : isPartTime
+    ? "Part-Time"
+    : "Part-Time / HND";
 
   return (
     <div className="min-h-screen bg-[#f3eee6]">
@@ -215,11 +248,19 @@ export default function PtApplicationDetailPage() {
           </Link>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h1 className="text-2xl font-black text-slate-900 capitalize">
-                {form?.full_name || applicant?.name || "Applicant"}
-              </h1>
+              <div className="flex items-center gap-2 mb-1">
+                <h1 className="text-2xl font-black text-slate-900 capitalize">
+                  {form?.full_name || applicant?.name || "Applicant"}
+                </h1>
+                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${isHndConversion ? "bg-purple-50 text-purple-700 border-purple-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
+                  {programLabel}
+                </span>
+              </div>
               <p className="text-slate-500 text-sm mt-0.5">
-                {applicant?.form_no || `Application #${id}`} · {form?.proposed_course_name || applicant?.program_name}
+                {applicant?.form_no || `Application #${id}`}
+                {(form?.proposed_course_name || applicant?.program_name) && (
+                  <> · {form?.proposed_course_name || applicant?.program_name}</>
+                )}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -241,10 +282,10 @@ export default function PtApplicationDetailPage() {
 
         <div className="grid lg:grid-cols-[1fr_340px] gap-6">
 
-          {/* Left: applicant info + documents */}
+          {/* ── Left: applicant info ─────────────────────────────────────── */}
           <div className="space-y-6">
 
-            {/* Passport + key details */}
+            {/* Passport + quick summary */}
             <Card className="border-[#e8dfd2] shadow-sm bg-white rounded-2xl overflow-hidden">
               <CardContent className="p-6">
                 <div className="flex flex-col sm:flex-row gap-6">
@@ -278,12 +319,20 @@ export default function PtApplicationDetailPage() {
                         <p className="font-semibold text-slate-700">{form?.phone_number || applicant?.phone_number || "N/A"}</p>
                       </div>
                       <div>
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Programme</span>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Programme Applied</span>
                         <p className="font-semibold text-slate-700">{form?.proposed_course_name || applicant?.program_name || "N/A"}</p>
                       </div>
                       <div>
                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Session</span>
-                        <p className="font-semibold text-slate-700">{applicant?.program_session || "N/A"}</p>
+                        <p className="font-semibold text-slate-700">{applicant?.session || "N/A"}</p>
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Form No.</span>
+                        <p className="font-semibold text-slate-700 font-mono">{applicant?.form_no || "N/A"}</p>
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Faculty</span>
+                        <p className="font-semibold text-slate-700">{form?.proposed_faculty_name || "N/A"}</p>
                       </div>
                     </div>
                   </div>
@@ -291,33 +340,128 @@ export default function PtApplicationDetailPage() {
               </CardContent>
             </Card>
 
-            {/* Personal details */}
-            <Section title="Personal Details">
+            {/* ── Personal Information (shared by both templates) ────────── */}
+            <Section title="Personal Information" icon={<User className="w-3 h-3" />}>
+              <InfoRow label="First Name"    value={form?.first_name} />
+              <InfoRow label="Middle Name"   value={form?.middle_name} />
+              <InfoRow label="Last Name"     value={form?.last_name || form?.surname} />
+              <InfoRow label="Gender"        value={form?.gender} />
               <InfoRow label="Date of Birth" value={form?.date_of_birth} />
-              <InfoRow label="Address" value={form?.address} />
-              <InfoRow label="State of Origin" value={form?.state_of_origin} />
-              <InfoRow label="Gender" value={form?.gender} />
+              <InfoRow label="Place of Birth" value={form?.place_of_birth} />
               <InfoRow label="Marital Status" value={form?.marital_status} />
+              <InfoRow label="Religion"      value={form?.religion} />
+              <InfoRow label="Blood Group"   value={form?.blood_group} />
+              <InfoRow label="Genotype"      value={form?.genotype} />
+              <InfoRow label="Nationality"   value={form?.nationality} />
+              <InfoRow label="State of Origin" value={form?.state} />
+              <InfoRow label="LGA"           value={form?.lga} />
+              <InfoRow label="Contact Address" value={form?.contact_address || form?.address} />
+              <InfoRow label="Secondary Phone" value={form?.secondary_phone_number} />
+              {isPartTime && (
+                <InfoRow label="Who Referred You?" value={form?.who_referred_you} />
+              )}
             </Section>
 
-            {/* Academic background */}
-            <Section title="Academic Background">
-              <InfoRow label="Previous Institution" value={form?.previous_institution} />
-              <InfoRow label="Department" value={form?.department} />
-              <InfoRow label="Course of Study" value={form?.previous_course} />
-              <InfoRow label="UTME Score" value={form?.utme_score?.toString()} />
-              <InfoRow label="Entry Mode" value={form?.entry_mode || form?.mode_of_entry} />
+            {/* ── HND Qualifications (HND Conversion only) ──────────────── */}
+            {isHndConversion && (
+              <Section
+                title="HND Qualifications"
+                icon={<GraduationCap className="w-3 h-3" />}
+              >
+                <InfoRow label="Qualification Type"        value={form?.qualification_type} />
+                <InfoRow label="Institution Name"          value={form?.qualification_institution} />
+                <InfoRow label="Year of Graduation"        value={form?.qualification_year?.toString()} />
+              </Section>
+            )}
+
+            {/* ── Sponsor & Next of Kin ──────────────────────────────────── */}
+            <Section title="Sponsor & Next of Kin">
+              <InfoRow label="Sponsor Name"           value={form?.sponsor_name} />
+              <InfoRow label="Sponsor Address"        value={form?.sponsor_address} />
+              <InfoRow label="Sponsor Phone"          value={form?.sponsor_phone_number} />
+              <InfoRow label="Sponsor Relationship"   value={form?.sponsor_relationship} />
+              <InfoRow label="Sponsor Email"          value={form?.sponsor_email} />
+              <InfoRow label="Next of Kin Name"       value={form?.next_of_kin_name} />
+              <InfoRow label="Next of Kin Phone"      value={form?.next_of_kin_phone_number} />
+              <InfoRow label="Next of Kin Address"    value={form?.next_of_kin_address} />
             </Section>
 
-            {/* Proposed programme */}
-            <Section title="Programme Applied For">
-              <InfoRow label="Programme" value={form?.proposed_course_name || applicant?.program_name} />
-              <InfoRow label="Faculty" value={form?.proposed_faculty_name} />
-              <InfoRow label="Mode" value={form?.mode_of_study} />
-              <InfoRow label="Form No." value={applicant?.form_no} />
-            </Section>
+            {/* ── O'Level Results ────────────────────────────────────────── */}
+            <div className="space-y-1">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                <BookOpen className="w-3 h-3" />
+                O&apos;Level Results
+              </p>
+              {olevel_results.length === 0 ? (
+                <div className="bg-white border border-[#e8dfd2] rounded-xl px-4 py-6 text-center text-sm text-slate-400 font-medium">
+                  No O&apos;Level results submitted
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {olevel_results.map((sitting, idx) => (
+                    <div key={idx} className="bg-white border border-[#e8dfd2] rounded-xl overflow-hidden">
+                      {/* Sitting header */}
+                      <div className="px-4 py-3 border-b border-[#f0e8dc] bg-[#fbfaf7]">
+                        <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
+                          <span>
+                            <span className="font-bold text-slate-400 uppercase tracking-wider">Exam: </span>
+                            <span className="font-semibold text-slate-700">{sitting.exam_type || "N/A"}</span>
+                          </span>
+                          <span>
+                            <span className="font-bold text-slate-400 uppercase tracking-wider">Reg. No: </span>
+                            <span className="font-semibold text-slate-700">{sitting.exam_no || "N/A"}</span>
+                          </span>
+                          <span>
+                            <span className="font-bold text-slate-400 uppercase tracking-wider">Year: </span>
+                            <span className="font-semibold text-slate-700">{sitting.exam_year || "N/A"}</span>
+                          </span>
+                          {sitting.exam_period && (
+                            <span>
+                              <span className="font-bold text-slate-400 uppercase tracking-wider">Period: </span>
+                              <span className="font-semibold text-slate-700">{sitting.exam_period}</span>
+                            </span>
+                          )}
+                          <span className="ml-auto">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#f3eee6] text-slate-500 border border-[#e8dfd2]">
+                              {idx === 0 ? "1st Sitting" : "2nd Sitting"}
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                      {/* Subjects table */}
+                      {sitting.subjects.length > 0 ? (
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-[#f0e8dc]">
+                              <th className="text-left px-4 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-8">#</th>
+                              <th className="text-left px-4 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Subject</th>
+                              <th className="text-right px-4 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Grade</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sitting.subjects.map((s, i) => (
+                              <tr key={i} className="border-b border-[#f0e8dc] last:border-0">
+                                <td className="px-4 py-2.5 text-slate-400 text-xs font-semibold">{i + 1}</td>
+                                <td className="px-4 py-2.5 font-semibold text-slate-700">{s.subject}</td>
+                                <td className="px-4 py-2.5 text-right">
+                                  <span className={`font-bold text-sm px-2 py-0.5 rounded ${["A1","A2","B2","B3"].includes(s.grade) ? "text-emerald-700" : ["C4","C5","C6"].includes(s.grade) ? "text-blue-700" : "text-slate-600"}`}>
+                                    {s.grade || "—"}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <p className="px-4 py-4 text-sm text-slate-400 text-center">No subjects recorded</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
-            {/* Documents */}
+            {/* ── Documents ─────────────────────────────────────────────── */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
@@ -369,7 +513,7 @@ export default function PtApplicationDetailPage() {
 
           </div>
 
-          {/* Right: actions panel */}
+          {/* ── Right: actions panel ─────────────────────────────────────── */}
           <div className="space-y-4">
             <Card className="border-[#e8dfd2] shadow-sm bg-white rounded-2xl overflow-hidden sticky top-4">
               <CardHeader className="pb-4 border-b border-[#f0e8dc] px-5 pt-5">
@@ -393,6 +537,14 @@ export default function PtApplicationDetailPage() {
                     <p className="text-rose-600 font-semibold text-sm">{actionError}</p>
                   </div>
                 )}
+
+                {/* Application type pill */}
+                <div className={`rounded-xl p-3 border ${isHndConversion ? "bg-purple-50 border-purple-100" : "bg-amber-50 border-amber-100"}`}>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Application Type</p>
+                  <p className={`font-bold text-sm ${isHndConversion ? "text-purple-700" : "text-amber-700"}`}>
+                    {isHndConversion ? "HND Direct Entry Conversion" : "Part-Time Programme"}
+                  </p>
+                </div>
 
                 {/* Current status */}
                 <div className="bg-[#fbfaf7] border border-[#eee5d8] rounded-xl p-3">

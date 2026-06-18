@@ -25,13 +25,31 @@ interface Application {
   name: string;
   email: string;
   phone_number: string;
-  program_id: number;
+  program_id: number; // prog_type: 7=Part Time, 4=HND Conversion
   program_name: string;
   application_status: string;
   admission_status: string;
   submitted_at: string;
   form_no?: string;
   session?: string;
+}
+
+const PROG_PART_TIME = 7;
+const PROG_HND_CONV  = 4;
+
+function ProgTypePill({ programId }: { programId: number }) {
+  if (programId === PROG_HND_CONV) {
+    return (
+      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 whitespace-nowrap">
+        HND Conv.
+      </span>
+    );
+  }
+  return (
+    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap">
+      Part Time
+    </span>
+  );
 }
 
 const statusColors: Record<string, string> = {
@@ -204,6 +222,7 @@ function ApplicationsContent() {
                             </h3>
                           </div>
                           <div className="flex flex-wrap gap-2 sm:justify-end lg:min-w-[250px]">
+                            <ProgTypePill programId={app.program_id} />
                             <Badge
                               className={`${statusColors[app.application_status] || "bg-slate-50 text-slate-700 border border-slate-200"} font-bold text-xs py-1.5 px-3.5 rounded-full`}
                             >

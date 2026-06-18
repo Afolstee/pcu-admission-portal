@@ -278,6 +278,9 @@ def get_application_detail(payload, application_id):
                 pass
         names = [form_data.get('first_name'), form_data.get('middle_name'), form_data.get('surname')]
         form_data['full_name'] = ' '.join(filter(None, names))
+        # Alias: some templates use 'contact_address', biodata stores 'address'
+        if not form_data.get('contact_address') and form_data.get('address'):
+            form_data['contact_address'] = form_data['address']
 
     if nok_res:
         nok_data = dict(nok_res[0])
@@ -290,15 +293,50 @@ def get_application_detail(payload, application_id):
         form_data['sponsor_name']         = sponsor_data.get('full_name')
         form_data['sponsor_address']      = sponsor_data.get('address')
         form_data['sponsor_phone_number'] = sponsor_data.get('phone_number')
+        form_data['sponsor_email']        = sponsor_data.get('email')
+        form_data['sponsor_relationship'] = sponsor_data.get('relationship')
 
+    # Build O-Level results from academic_qualification columns
+    olevel_results = []
     if aq_res:
-        aq = aq_res[0]
-        # Resolve entry details
+        aq = dict(aq_res[0])
         form_data['utme_score'] = aq.get('utme_score')
         form_data['mode_of_entry'] = aq.get('mode_of_entry')
         form_data['previous_institution'] = aq.get('previous_institution') or aq.get('institution')
         form_data['previous_course'] = aq.get('previous_course') or aq.get('course')
         form_data['department'] = aq.get('department')
+
+        # First sitting O-Level
+        first_subjects = []
+        for i in range(1, 10):
+            subj = aq.get(f'subject{i}')
+            grade = aq.get(f'grade{i}')
+            if subj:
+                first_subjects.append({'subject': subj, 'grade': grade or ''})
+        if first_subjects or aq.get('exam_type'):
+            olevel_results.append({
+                'exam_type':   aq.get('exam_type'),
+                'exam_no':     aq.get('exam_no'),
+                'exam_year':   str(aq.get('exam_year')) if aq.get('exam_year') else None,
+                'exam_period': aq.get('exam_period'),
+                'subjects':    first_subjects,
+            })
+
+        # Second sitting O-Level
+        second_subjects = []
+        for i in range(1, 10):
+            subj = aq.get(f'second_subject{i}')
+            grade = aq.get(f'second_grade{i}')
+            if subj:
+                second_subjects.append({'subject': subj, 'grade': grade or ''})
+        if second_subjects or aq.get('exam_type1'):
+            olevel_results.append({
+                'exam_type':   aq.get('exam_type1'),
+                'exam_no':     aq.get('exam_no1'),
+                'exam_year':   str(aq.get('exam_year1')) if aq.get('exam_year1') else None,
+                'exam_period': aq.get('exam_period1'),
+                'subjects':    second_subjects,
+            })
 
     # Resolve course & faculty names
     app_choice = Database.execute_query(
@@ -321,9 +359,10 @@ def get_application_detail(payload, application_id):
     )
 
     return jsonify({
-        'applicant':  dict(applicant[0]),
-        'form':       form_data or None,
-        'documents':  documents or [],
+        'applicant':      dict(applicant[0]),
+        'form':           form_data or None,
+        'olevel_results': olevel_results,
+        'documents':      documents or [],
     }), 200
 
 # ─── Review Application (Finalisation) ─────────────────────────────────────────

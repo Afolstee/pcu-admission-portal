@@ -88,17 +88,14 @@ export default function LoginPage() {
       setAccessDenied(true);
       setLocalError("Access denied.");
       setShowError(true);
-      // Sign the user out so they are not stuck in a broken state
       logout();
       return;
     }
 
-    // Full student — stay on this page to show the upgrade message
     if (role === "student") {
       return;
     }
 
-    // Applicant or admitted → applicant dashboard
     router.replace("/applicant/dashboard");
   }, [isAuthenticated, user, applicant, router]);
 
@@ -113,7 +110,6 @@ export default function LoginPage() {
     setLocalError("");
     setShowError(false);
 
-    // Basic validation: allow username (no @) or email
     if (!formData.email) {
       setLocalError("Email or Username is required");
       setShowError(true);
@@ -128,7 +124,6 @@ export default function LoginPage() {
     try {
       await login(formData.email, formData.password, "applicant");
     } catch (err) {
-      // Error is handled in the auth context
     }
   };
 

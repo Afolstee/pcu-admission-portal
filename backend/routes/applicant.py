@@ -2247,6 +2247,7 @@ def get_applicant_status(payload):
                app.approved_course,
                app.finalised_course,
                app.applicant_recommended_course,
+               app.requested_documents,
                (
                    EXISTS (
                        SELECT 1 FROM payment_transactions txn

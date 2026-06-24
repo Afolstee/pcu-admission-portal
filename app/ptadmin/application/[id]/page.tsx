@@ -9,6 +9,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
   Download,
   User,
   FileText,
@@ -21,6 +29,7 @@ import {
   Printer,
   GraduationCap,
   BookOpen,
+  Clock,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -51,6 +60,9 @@ const statusColors: Record<string, string> = {
   submitted:   "bg-blue-50 text-blue-700 border border-blue-200",
   screening:   "bg-violet-50 text-violet-700 border border-violet-200",
   shortlisted: "bg-cyan-50 text-cyan-700 border border-cyan-200",
+  recommended: "bg-cyan-50 text-cyan-700 border border-cyan-200",
+  accepted_recommendation: "bg-cyan-50 text-cyan-700 border border-cyan-200",
+  applicant_recommended: "bg-cyan-50 text-cyan-700 border border-cyan-200",
   admitted:    "bg-emerald-50 text-emerald-700 border border-emerald-200",
   accepted:    "bg-emerald-50 text-emerald-700 border border-emerald-200",
   rejected:    "bg-rose-50 text-rose-700 border border-rose-200",
@@ -109,11 +121,17 @@ export default function PtApplicationDetailPage() {
   const [application, setApplication] = useState<ApplicationDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [programmes, setProgrammes] = useState<any[]>([]);
 
   const [actionLoading, setActionLoading] = useState(false);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
+  const [recommendedProg, setRecommendedProg] = useState("");
+  const [isRecommendModalOpen, setIsRecommendModalOpen] = useState(false);
+  const [isRequestDocModalOpen, setIsRequestDocModalOpen] = useState(false);
+  const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
+  const [customDocType, setCustomDocType] = useState("");
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== "ptadmin") {
@@ -121,6 +139,7 @@ export default function PtApplicationDetailPage() {
       return;
     }
     loadApplication();
+    loadProgrammes();
   }, [isAuthenticated, user, router, id]);
 
   const loadApplication = useCallback(async () => {
@@ -136,17 +155,28 @@ export default function PtApplicationDetailPage() {
     }
   }, [id]);
 
-  const handleAction = async (decision: "admit" | "reject" | "shortlist" | "incomplete") => {
+  const loadProgrammes = async () => {
+    try {
+      // Pass application id so backend excludes the applicant's own first/second choices
+      const data = await ApiClient.getPtPrograms(id);
+      setProgrammes(data || []);
+    } catch (e) {
+      console.error("Failed to load programmes", e);
+    }
+  };
+
+  const handleAction = async (decision: "admit" | "reject" | "recommend" | "incomplete" | "request_documents", extraData?: any) => {
     setActionLoading(true);
     setActionSuccess(null);
     setActionError(null);
     try {
-      await ApiClient.ptReviewApplication(id, decision, notes || undefined);
+      await ApiClient.ptReviewApplication(id, decision, { notes: notes || undefined, ...extraData });
       const labels: Record<string, string> = {
         admit: "Applicant admitted successfully.",
         reject: "Application rejected.",
-        shortlist: "Applicant shortlisted.",
+        recommend: "Applicant recommended for admission.",
         incomplete: "Document request sent to applicant.",
+        request_documents: "Document request sent to applicant.",
       };
       setActionSuccess(labels[decision]);
       await loadApplication();
@@ -319,8 +349,18 @@ export default function PtApplicationDetailPage() {
                         <p className="font-semibold text-slate-700">{form?.phone_number || applicant?.phone_number || "N/A"}</p>
                       </div>
                       <div>
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Programme Applied</span>
-                        <p className="font-semibold text-slate-700">{form?.proposed_course_name || applicant?.program_name || "N/A"}</p>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">First Choice (Proposed)</span>
+                        <p className="font-semibold text-slate-700">{form?.first_choice_program_name || form?.proposed_course_name || applicant?.program_name || "N/A"}</p>
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Second Choice (Proposed)</span>
+                        <p className="font-semibold text-slate-700">{form?.second_choice_program_name || "N/A"}</p>
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Admitted/Finalised Course</span>
+                        <p className="font-bold text-emerald-700">
+                          {applicant?.finalised_course || applicant?.approved_course || "Awaiting decision / Not finalized"}
+                        </p>
                       </div>
                       <div>
                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Session</span>
@@ -582,8 +622,47 @@ export default function PtApplicationDetailPage() {
                       This application has already been processed.
                     </p>
                   </div>
+                ) : status === "recommended" ? (
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-center">
+                    <Clock className="w-6 h-6 text-[#2d5f9a] mx-auto mb-2" />
+                    <p className="text-sm font-bold text-[#2d5f9a]">Awaiting candidate response</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Recommended Course: <span className="font-semibold">{applicant?.approved_course}</span>
+                    </p>
+                  </div>
                 ) : (
                   <div className="space-y-2">
+                    {status === "screening" && applicant?.requested_documents && (
+                      <div className="bg-violet-50 border border-violet-100 rounded-xl p-3 mb-2 text-left">
+                        <p className="text-xs font-bold text-violet-800">
+                          Requested Documents:
+                        </p>
+                        <p className="text-sm font-semibold text-violet-950 mt-0.5">
+                          {applicant?.requested_documents}
+                        </p>
+                      </div>
+                    )}
+                    {status === "accepted_recommendation" && (
+                      <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 mb-2 text-left">
+                        <p className="text-xs font-bold text-emerald-800">
+                          Candidate accepted recommended course:
+                        </p>
+                        <p className="text-sm font-semibold text-emerald-950 mt-0.5">
+                          {applicant?.approved_course}
+                        </p>
+                      </div>
+                    )}
+                    {status === "applicant_recommended" && (
+                      <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-2 text-left">
+                        <p className="text-xs font-bold text-blue-800">
+                          Candidate recommended alternative course:
+                        </p>
+                        <p className="text-sm font-semibold text-blue-950 mt-0.5">
+                          {applicant?.applicant_recommended_course}
+                        </p>
+                      </div>
+                    )}
+
                     <button
                       onClick={() => handleAction("admit")}
                       disabled={actionLoading}
@@ -592,16 +671,20 @@ export default function PtApplicationDetailPage() {
                       <ThumbsUp className="w-4 h-4" />
                       Admit Applicant
                     </button>
+
+                     {status !== "accepted_recommendation" && status !== "applicant_recommended" && (
+                      <button
+                        onClick={() => setIsRecommendModalOpen(true)}
+                        disabled={actionLoading}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#2d5f9a] hover:bg-[#254d7e] text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Star className="w-4 h-4" />
+                        Recommend Admission
+                      </button>
+                    )}
+
                     <button
-                      onClick={() => handleAction("shortlist")}
-                      disabled={actionLoading}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#2d5f9a] hover:bg-[#254d7e] text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Star className="w-4 h-4" />
-                      Shortlist
-                    </button>
-                    <button
-                      onClick={() => handleAction("incomplete")}
+                      onClick={() => setIsRequestDocModalOpen(true)}
                       disabled={actionLoading}
                       className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-[#e8dfd2] hover:bg-[#f7f1e8] hover:border-[#c99b45] text-slate-700 rounded-xl text-sm font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     >
@@ -632,6 +715,176 @@ export default function PtApplicationDetailPage() {
 
         </div>
       </div>
+
+      <Dialog open={isRecommendModalOpen} onOpenChange={setIsRecommendModalOpen}>
+        <DialogContent className="bg-white border-[#e8dfd2] rounded-2xl max-w-md p-6">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold text-slate-800">Recommend Alternative Programme</DialogTitle>
+            <DialogDescription className="text-sm text-slate-500">
+              Select an alternative programme to recommend to this applicant. The applicant will be prompted on their dashboard to accept, reject, or suggest another choice.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4 space-y-4">
+            <div>
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">
+                Select Course to Recommend
+              </label>
+              {programmes.length === 0 ? (
+                <p className="text-xs text-slate-400 italic py-2">
+                  Loading available courses...
+                </p>
+              ) : (
+                <select
+                  value={recommendedProg}
+                  onChange={(e) => setRecommendedProg(e.target.value)}
+                  className="w-full bg-white border border-[#e8dfd2] rounded-xl px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-[#c99b45]"
+                >
+                  <option value="">Select course...</option>
+                  {programmes.map((p) => (
+                    <option key={p.id} value={p.course}>
+                      {p.course}{p.department ? ` — ${p.department}` : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter className="flex gap-2 sm:justify-end">
+            <Button
+              variant="outline"
+              onClick={() => setIsRecommendModalOpen(false)}
+              disabled={actionLoading}
+              className="border-[#e8dfd2] hover:bg-slate-50 rounded-xl"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                await handleAction("recommend", { approved_course: recommendedProg });
+                setIsRecommendModalOpen(false);
+              }}
+              disabled={actionLoading || !recommendedProg}
+              className="bg-[#2d5f9a] hover:bg-[#254d7e] text-white rounded-xl"
+            >
+              Confirm Recommendation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isRequestDocModalOpen} onOpenChange={setIsRequestDocModalOpen}>
+        <DialogContent className="bg-white border-[#e8dfd2] rounded-2xl max-w-md p-6 font-sans">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold text-slate-800">Request Documents</DialogTitle>
+            <DialogDescription className="text-sm text-slate-500">
+              Select what documents are needed from this applicant or manually type them.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              {["O'Level Result", "Birth Certificate", "Passport"].map((doc) => {
+                const checked = selectedDocs.includes(doc);
+                return (
+                  <label key={doc} className="flex items-center gap-3 px-3 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl cursor-pointer border border-slate-100 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        if (checked) {
+                          setSelectedDocs(selectedDocs.filter((d) => d !== doc));
+                        } else {
+                          setSelectedDocs([...selectedDocs, doc]);
+                        }
+                      }}
+                      className="w-4 h-4 rounded text-[#c99b45] focus:ring-[#c99b45]"
+                    />
+                    <span className="text-sm font-semibold text-slate-700">{doc}</span>
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="border-t border-[#f0e8dc] pt-3">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">
+                Manually Add Custom Document
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={customDocType}
+                  onChange={(e) => setCustomDocType(e.target.value)}
+                  placeholder="e.g. LGA Certificate"
+                  className="flex-1 bg-white border border-[#e8dfd2] rounded-xl px-3.5 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#c99b45]/40"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    const trimmed = customDocType.trim();
+                    if (trimmed && !selectedDocs.includes(trimmed)) {
+                      setSelectedDocs([...selectedDocs, trimmed]);
+                      setCustomDocType("");
+                    }
+                  }}
+                  className="border-[#e8dfd2] hover:bg-slate-50 rounded-xl text-xs font-bold shrink-0 h-10 px-4"
+                >
+                  Add
+                </Button>
+              </div>
+            </div>
+
+            {selectedDocs.length > 0 && (
+              <div className="bg-slate-50 rounded-xl p-3 border border-dashed border-slate-200">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                  Selected to Request
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedDocs.map((doc) => (
+                    <span key={doc} className="inline-flex items-center gap-1.5 bg-[#fbfaf7] border border-[#eee5d8] text-slate-600 font-semibold text-xs px-2.5 py-1 rounded-full">
+                      {doc}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDocs(selectedDocs.filter((d) => d !== doc))}
+                        className="text-[#c99b45] hover:text-[#b0873c] font-bold"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="flex gap-2 sm:justify-end border-t border-[#f0e8dc] pt-3">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsRequestDocModalOpen(false);
+                setSelectedDocs([]);
+              }}
+              disabled={actionLoading}
+              className="border-[#e8dfd2] hover:bg-slate-50 rounded-xl"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                await handleAction("request_documents", { requested_documents: selectedDocs.join(", ") });
+                setIsRequestDocModalOpen(false);
+                setSelectedDocs([]);
+              }}
+              disabled={actionLoading || selectedDocs.length === 0}
+              className="bg-[#c99b45] hover:bg-[#b0873c] text-white rounded-xl font-bold"
+            >
+              Send Request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

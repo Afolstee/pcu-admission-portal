@@ -14,7 +14,6 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 
   const toggle = () => setIsOpen((prev) => !prev);
 
-  // Initialize and update state based on screen size
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -23,14 +22,12 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
       setIsOpen(isDesktop);
     };
 
-    // Run on mount
     handleResize();
 
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Apply CSS variables and classes for layout spacing
   useEffect(() => {
     if (isOpen) {
       document.documentElement.classList.add("sidebar-open");

@@ -29,7 +29,7 @@ def dashboard(payload):
                COUNT(*) FILTER (WHERE applicant_stage IN ('admitted','accepted','enrolled')) AS total_admitted,
                COUNT(*) FILTER (WHERE applicant_stage IN ('started', 'in_progress'))        AS pending_submission,
                COUNT(*) FILTER (WHERE applicant_stage = 'submitted')                        AS new_applications,
-               COUNT(*) FILTER (WHERE applicant_stage IN ('screening', 'accepted_recommendation', 'applicant_recommended', 'shortlisted')) AS under_review,
+               COUNT(*) FILTER (WHERE applicant_stage IN ('screening', 'accepted_recommendation', 'applicant_recommended')) AS under_review,
                COUNT(*) FILTER (WHERE applicant_stage = 'rejected')                         AS total_rejected
            FROM applications
            WHERE prog_type IN (4, 7)''',
@@ -97,7 +97,7 @@ def dashboard(payload):
         'admit':      lambda r: f"{r['form_no']} admitted — {r['applicant_name']}",
         'accept':     lambda r: f"{r['form_no']} accepted — {r['applicant_name']}",
         'reject':     lambda r: f"{r['form_no']} rejected — {r['applicant_name']}",
-        'shortlist':  lambda r: f"{r['form_no']} shortlisted — {r['applicant_name']}",
+        'recommend':  lambda r: f"{r['form_no']} recommended for admission — {r['applicant_name']}",
         'incomplete': lambda r: f"{r['form_no']} marked incomplete — {r['applicant_name']}",
         'submitted':  lambda r: f"New PT application — {r['applicant_name']}",
     }
@@ -170,12 +170,13 @@ def get_applications(payload):
     if status == 'admitted':
         where_clauses.append("app.applicant_stage IN ('admitted', 'accepted', 'enrolled')")
     elif status == 'screening':
-        where_clauses.append("app.applicant_stage IN ('screening', 'accepted_recommendation', 'applicant_recommended', 'shortlisted')")
+        where_clauses.append("app.applicant_stage IN ('screening', 'accepted_recommendation', 'applicant_recommended')")
     elif status == 'all':
-        where_clauses.append("app.applicant_stage IN ('submitted', 'screening', 'accepted_recommendation', 'applicant_recommended', 'shortlisted', 'admitted', 'accepted', 'enrolled', 'recommended', 'rejected', 'incomplete')")
+        where_clauses.append("app.applicant_stage IN ('submitted', 'screening', 'recommended', 'accepted_recommendation', 'applicant_recommended', 'admitted', 'accepted', 'enrolled', 'rejected', 'incomplete')")
     elif status == 'started':
         where_clauses.append("app.applicant_stage IN ('started', 'in_progress')")
     else:
+        # handles: submitted, recommended, accepted_recommendation, applicant_recommended, rejected, incomplete
         where_clauses.append("app.applicant_stage = %s")
         params.append(status)
 
@@ -241,6 +242,7 @@ def get_application_detail(payload, application_id):
                    app.finalised_course,
                    app.applicant_recommended_course,
                    app.admission_letter_sent,
+                   app.requested_documents,
                    COALESCE(asess.name, '') AS session
             FROM applications app
             JOIN users u ON app.user_id = u.id
@@ -340,15 +342,18 @@ def get_application_detail(payload, application_id):
 
     # Resolve course & faculty names
     app_choice = Database.execute_query(
-        '''SELECT ps.name AS course_name, f.name AS faculty_name
+        '''SELECT ps1.name AS first_choice_name, ps2.name AS second_choice_name, f.name AS faculty_name
            FROM program_choice pc
-           LEFT JOIN program_setup ps ON pc.first_choice = ps.id
-           LEFT JOIN faculties f ON ps.faculty_id = f.id
+           LEFT JOIN program_setup ps1 ON pc.first_choice = ps1.id
+           LEFT JOIN program_setup ps2 ON pc.second_choice = ps2.id
+           LEFT JOIN faculties f ON ps1.faculty_id = f.id
            WHERE pc.application_id = %s''',
         (application_id,)
     )
     if app_choice:
-        form_data['proposed_course_name'] = app_choice[0]['course_name']
+        form_data['first_choice_program_name'] = app_choice[0]['first_choice_name']
+        form_data['second_choice_program_name'] = app_choice[0]['second_choice_name']
+        form_data['proposed_course_name'] = app_choice[0]['first_choice_name']
         form_data['proposed_faculty_name'] = app_choice[0]['faculty_name']
 
     # Uploaded documents
@@ -371,86 +376,179 @@ def get_application_detail(payload, application_id):
 @AuthHandler.token_required
 @AuthHandler.ptadmin_required
 def review_application(payload):
-    """Review and approve/reject/shortlist/incomplete application."""
+    """Review and approve/reject/shortlist/incomplete/recommend application."""
     data = request.get_json()
 
     if not data or 'applicant_id' not in data or 'decision' not in data:
         return jsonify({'message': 'applicant_id and decision are required'}), 400
 
-    applicant_id = data['applicant_id']
-    decision     = data['decision']        # 'admit', 'reject', 'shortlist', 'incomplete'
+    applicant_id   = data['applicant_id']
+    decision       = data['decision']        # 'admit', 'reject', 'incomplete', 'recommend', 'request_documents'
+    approved_course_param = data.get('approved_course')  # required for 'recommend'
 
-    if decision not in ['admit', 'reject', 'shortlist', 'incomplete']:
-        return jsonify({'message': 'Invalid decision. Must be admit, reject, shortlist, or incomplete'}), 400
+    if decision not in ['admit', 'reject', 'incomplete', 'recommend', 'request_documents']:
+        return jsonify({'message': 'Invalid decision. Must be admit, reject, incomplete, recommend, or request_documents'}), 400
+
+    if decision == 'recommend' and not approved_course_param:
+        return jsonify({'message': 'approved_course is required for recommend decision'}), 400
 
     admin_user_id = payload['user_id']
 
     current_app = Database.execute_query(
-        '''SELECT applicant_stage, approved_course, finalised_course, prog_type
+        '''SELECT applicant_stage, approved_course, finalised_course, prog_type, applicant_recommended_course
            FROM applications WHERE id = %s AND prog_type IN (4, 7)''',
         (applicant_id,)
     )
-    
+
     if not current_app:
         return jsonify({'message': 'Applicant not found'}), 404
 
     # Map decision to new applicant_stage status
     status_map = {
-        'admit': 'admitted',
-        'reject': 'rejected',
-        'shortlist': 'shortlisted',
-        'incomplete': 'incomplete'
+        'admit':      'admitted',
+        'reject':     'rejected',
+        'incomplete': 'incomplete',
+        'recommend':  'recommended',
+        'request_documents': 'screening',
     }
     new_status = status_map[decision]
 
-    # If admitting, we also finalize course based on the first choice
+    # If admitting, we also finalize course based on the choices and follow-up states
     finalised_course = current_app[0].get('finalised_course')
-    approved_course = current_app[0].get('approved_course')
-    app_prog_type = current_app[0].get('prog_type')
+    approved_course  = current_app[0].get('approved_course')
+    app_prog_type    = current_app[0].get('prog_type')
+    current_stage    = current_app[0].get('applicant_stage')
+    applicant_rec_course = current_app[0].get('applicant_recommended_course')
 
-    if decision == 'admit' and not finalised_course:
-        # Default to first choice from program_choice
-        choice_res = Database.execute_query(
-            '''SELECT ps.name, ps.id, ps.degree_id
-               FROM program_choice pc
-               LEFT JOIN program_setup ps ON pc.first_choice = ps.id
-               WHERE pc.application_id = %s''',
-            (applicant_id,)
-        )
-        if choice_res and choice_res[0]['name']:
-            finalised_course = choice_res[0]['name']
-            approved_course = choice_res[0]['name']
-            ps_id = choice_res[0]['id']
-            degree_id = choice_res[0]['degree_id']
-            
-            # Update program setup ID on applications row
-            Database.execute_update(
-                '''UPDATE applications
-                   SET program_setup_id = %s, degree_id = %s
-                   WHERE id = %s''',
-                (ps_id, degree_id, applicant_id)
+    if decision == 'admit':
+        if current_stage == 'accepted_recommendation':
+            finalised_course = approved_course
+        elif current_stage == 'applicant_recommended':
+            finalised_course = applicant_rec_course or approved_course
+
+        if not finalised_course:
+            # Default to first choice from program_choice
+            choice_res = Database.execute_query(
+                '''SELECT ps.name, ps.id, dp.degree_id
+                   FROM program_choice pc
+                   LEFT JOIN program_setup ps ON pc.first_choice = ps.id
+                   LEFT JOIN degree_program dp ON ps.degree_program_id = dp.id
+                   WHERE pc.application_id = %s''',
+                (applicant_id,)
             )
+            if choice_res and choice_res[0]['name']:
+                finalised_course = choice_res[0]['name']
+                approved_course  = choice_res[0]['name']
+                ps_id    = choice_res[0]['id']
+                degree_id = choice_res[0]['degree_id']
+
+                # Update program setup ID on applications row
+                Database.execute_update(
+                    '''UPDATE applications
+                       SET program_setup_id = %s, degree_id = %s
+                       WHERE id = %s''',
+                    (ps_id, degree_id, applicant_id)
+                )
+        else:
+            # Resolve the program setup ID & degree ID for the finalized course
+            ps_res = Database.execute_query(
+                '''SELECT ps.id, dp.degree_id
+                   FROM program_setup ps
+                   JOIN degree_program dp ON ps.degree_program_id = dp.id
+                   WHERE LOWER(ps.name) = LOWER(%s) AND dp.program_type_id = %s
+                   LIMIT 1''',
+                (finalised_course, app_prog_type)
+            )
+            if ps_res:
+                ps_id = ps_res[0]['id']
+                degree_id = ps_res[0]['degree_id']
+                Database.execute_update(
+                    '''UPDATE applications
+                       SET program_setup_id = %s, degree_id = %s
+                       WHERE id = %s''',
+                    (ps_id, degree_id, applicant_id)
+                )
+
+    # For recommend: store the recommended course in approved_course
+    if decision == 'recommend':
+        approved_course = approved_course_param
+
+    requested_docs = None
+    if decision == 'request_documents':
+        requested_docs = data.get('requested_documents')
+        if isinstance(requested_docs, list):
+            requested_docs = ", ".join(requested_docs)
 
     success = Database.execute_update(
         '''UPDATE applications
            SET applicant_stage         = %s,
                decision                = %s,
                decision_date           = NOW(),
-               approved_course         = COALESCE(approved_course, %s),
+               approved_course         = COALESCE(%s, approved_course),
                finalised_course        = COALESCE(finalised_course, %s),
+               requested_documents     = COALESCE(%s, requested_documents),
                decision_maker_user_id  = %s,
                updated_at              = NOW()
            WHERE id = %s AND prog_type = %s''',
-        (new_status, decision, approved_course, finalised_course, admin_user_id, applicant_id, app_prog_type)
+        (new_status, decision, approved_course, finalised_course, requested_docs, admin_user_id, applicant_id, app_prog_type)
     )
 
     if not success:
         return jsonify({'message': 'Failed to review application'}), 500
 
     return jsonify({
-        'message': f'PT Application {decision}ed successfully',
+        'message': f'PT Application {decision}d successfully',
         'new_status': new_status
     }), 200
+
+
+# ─── PT Programmes list (for recommendation) ──────────────────────────────────
+
+@ptadmin_bp.route('/programs', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.ptadmin_required
+def get_pt_programs(payload):
+    """Return all active PT/HND courses for course recommendation — same source as applicant form.
+
+    Optionally accepts ?application_id=<id> to exclude the applicant's own
+    first and second choices from the list.
+    """
+    application_id = request.args.get('application_id')
+
+    # Collect the applicant's existing first/second choice IDs to exclude them
+    exclude_ids = []
+    if application_id:
+        choice_res = Database.execute_query(
+            'SELECT first_choice, second_choice FROM program_choice WHERE application_id = %s',
+            (application_id,)
+        )
+        if choice_res:
+            row = choice_res[0]
+            if row.get('first_choice'):
+                exclude_ids.append(row['first_choice'])
+            if row.get('second_choice'):
+                exclude_ids.append(row['second_choice'])
+
+    # Same join as applicant form's available_courses query (line ~2956 in applicant.py)
+    # prog_type 4 = HND Conversion, 7 = Part Time
+    exclude_clause = ''
+    params: tuple = (4, 7)
+    if exclude_ids:
+        placeholders = ', '.join(['%s'] * len(exclude_ids))
+        exclude_clause = f'AND ps.id NOT IN ({placeholders})'
+        params = (4, 7) + tuple(exclude_ids)
+
+    programs = Database.execute_query(
+        f'''SELECT DISTINCT ps.id, ps.name AS course, d.id AS department_id, d.name AS department
+           FROM degree_program dp
+           JOIN program_setup ps ON ps.degree_id = dp.degree_id
+           JOIN departments d ON d.id = ps.department_id
+           WHERE dp.program_type_id IN (%s, %s)
+             {exclude_clause}
+           ORDER BY d.name, ps.name''',
+        params
+    )
+    return jsonify({'programs': programs or []}), 200
 
 # ─── Print Application (PDF) ──────────────────────────────────────────────────
 
@@ -509,14 +607,49 @@ def print_application(payload, application_id):
         form_data['sponsor_name']         = sponsor_data.get('full_name')
         form_data['sponsor_address']      = sponsor_data.get('address')
         form_data['sponsor_phone_number'] = sponsor_data.get('phone_number')
+        form_data['sponsor_email']        = sponsor_data.get('email')
+        form_data['sponsor_relationship'] = sponsor_data.get('relationship')
 
+    olevel_results = []
     if aq_res:
-        aq = aq_res[0]
+        aq = dict(aq_res[0])
         form_data['utme_score'] = aq.get('utme_score')
         form_data['mode_of_entry'] = aq.get('mode_of_entry')
         form_data['previous_institution'] = aq.get('previous_institution') or aq.get('institution')
         form_data['previous_course'] = aq.get('previous_course') or aq.get('course')
         form_data['department'] = aq.get('department')
+
+        # First sitting O-Level
+        first_subjects = []
+        for i in range(1, 10):
+            subj = aq.get(f'subject{i}')
+            grade = aq.get(f'grade{i}')
+            if subj:
+                first_subjects.append({'subject': subj, 'grade': grade or ''})
+        if first_subjects or aq.get('exam_type'):
+            olevel_results.append({
+                'exam_type':   aq.get('exam_type'),
+                'exam_no':     aq.get('exam_no'),
+                'exam_year':   str(aq.get('exam_year')) if aq.get('exam_year') else None,
+                'exam_period': aq.get('exam_period'),
+                'subjects':    first_subjects,
+            })
+
+        # Second sitting O-Level
+        second_subjects = []
+        for i in range(1, 10):
+            subj = aq.get(f'second_subject{i}')
+            grade = aq.get(f'second_grade{i}')
+            if subj:
+                second_subjects.append({'subject': subj, 'grade': grade or ''})
+        if second_subjects or aq.get('exam_type1'):
+            olevel_results.append({
+                'exam_type':   aq.get('exam_type1'),
+                'exam_no':     aq.get('exam_no1'),
+                'exam_year':   str(aq.get('exam_year1')) if aq.get('exam_year1') else None,
+                'exam_period': aq.get('exam_period1'),
+                'subjects':    second_subjects,
+            })
 
     app_choice = Database.execute_query(
         '''SELECT ps.name AS course_name, f.name AS faculty_name, dg.name AS degree_name, dg.code AS degree_code
@@ -564,7 +697,8 @@ def print_application(payload, application_id):
             degree_code=degree_code,
             course_name=course_name,
             faculty_name=faculty_name,
-            signature_b64=signature_b64
+            signature_b64=signature_b64,
+            olevel_results=olevel_results
         )
         filename = f"pt_application_{app_data.get('form_no') or application_id}.pdf"
         return Response(

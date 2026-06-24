@@ -18,7 +18,20 @@ import {
   Fingerprint,
   Globe,
   Map,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
+  GraduationCap,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ApiClient } from "@/lib/api";
 import {
   getProfileTemplate,
   ProfileSection,
@@ -61,14 +74,86 @@ export default function ApplicantProfile({
   template,
 }: ApplicantProfileProps) {
   const router = useRouter();
+  const apiBaseUrl =
+    process.env.NEXT_PUBLIC_API_URL ||
+    "http://localhost:5000/e-portal/api";
   const [passportUrl, setPassportUrl] = React.useState<string | null>(null);
   const [isProcessingRecommendation, setIsProcessingRecommendation] =
     React.useState(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = React.useState(false);
+  const [uploadDocType, setUploadDocType] = React.useState("");
+  const [customUploadDocType, setCustomUploadDocType] = React.useState("");
+  const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
+  const [uploadLoading, setUploadLoading] = React.useState(false);
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
+
+  const requestedDocsList = React.useMemo(() => {
+    if (!applicant?.requested_documents) return [];
+    return applicant.requested_documents
+      .split(",")
+      .map((d: string) => d.trim())
+      .filter(Boolean);
+  }, [applicant?.requested_documents]);
+
+  const missingRequestedDocs = React.useMemo(() => {
+    const uploadedTypes = new Set(
+      documents.map((d) => (d.document_type || "").toLowerCase().replace(/_/g, " "))
+    );
+    return requestedDocsList.filter(
+      (doc: string) => !uploadedTypes.has(doc.toLowerCase())
+    );
+  }, [requestedDocsList, documents]);
+
+  React.useEffect(() => {
+    if (isUploadModalOpen) {
+      if (missingRequestedDocs.length > 0) {
+        setUploadDocType(missingRequestedDocs[0]);
+      } else {
+        setUploadDocType("Others");
+      }
+      setCustomUploadDocType("");
+      setSelectedFile(null);
+      setUploadError(null);
+    }
+  }, [isUploadModalOpen, missingRequestedDocs]);
+  // PT programmes for course recommendation alternative picker
+  const [ptProgrammes, setPtProgrammes] = React.useState<Array<{ id: number; name: string; course: string; department: string }>>([]);
 
   const profileTemplate = React.useMemo(
     () => getProfileTemplate(program_type_id),
     [program_type_id],
   );
+
+  // Fetch PT programmes when applicable (prog_type 4=HND Conversion, 7=Part Time)
+  const isPtApplicant = program_type_id === 4 || program_type_id === 7;
+  React.useEffect(() => {
+    if (!isPtApplicant) return;
+    const recStatus = applicant?.admission_status === "recommend"
+      ? "recommend"
+      : applicant?.application_status || applicant?.admission_status || "";
+    if (!["recommended", "recommend"].includes(recStatus)) return;
+    const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+    if (!token) return;
+    // Pass application id so backend excludes the applicant's own first/second choices
+    const appId = applicant?.id || applicant?.uuid || "";
+    const qs = appId ? `?application_id=${appId}` : "";
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/e-portal/api"}/ptadmin/programs${qs}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        const list = (data?.programs || data || []).map((p: any, idx: number) => ({
+          id: p.id || idx,
+          // backend now returns ps.name AS course (same as applicant form)
+          name: p.course || p.name || "",
+          course: p.course || p.name || "",
+          department: p.department || "",
+        }));
+        setPtProgrammes(list);
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPtApplicant, applicant?.id]);
 
   const templateDrivenSections = React.useMemo<ProfileSection[]>(() => {
     if (program_type_id === 2 || !template?.steps?.length) return [];
@@ -125,8 +210,34 @@ export default function ApplicantProfile({
       ? "recommend"
       : applicant?.application_status || applicant?.admission_status || "";
 
-  const apiBaseUrl =
-    process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/e-portal/api";
+  const handleUpload = async () => {
+    if (!selectedFile) {
+      setUploadError("Please select a file to upload.");
+      return;
+    }
+    const finalDocType = uploadDocType === "Others" ? customUploadDocType.trim() : uploadDocType;
+    if (!finalDocType) {
+      setUploadError("Please specify the document type.");
+      return;
+    }
+
+    setUploadLoading(true);
+    setUploadError(null);
+    try {
+      const appId = applicant?.id || applicant?.uuid;
+      if (!appId) throw new Error("Application ID not found");
+
+      await ApiClient.uploadDocument(selectedFile, appId, finalDocType, finalDocType);
+      setIsUploadModalOpen(false);
+      alert("Document uploaded successfully.");
+      window.location.reload();
+    } catch (err) {
+      console.error("Upload failed", err);
+      setUploadError(err instanceof Error ? err.message : "Failed to upload document");
+    } finally {
+      setUploadLoading(false);
+    }
+  };
 
   /**
    * Handle accepting the recommended course
@@ -267,7 +378,34 @@ export default function ApplicantProfile({
     }
   };
 
-  // Find passport document
+  /**
+   * Upload an additional document
+   */
+  const handleUploadDocument = async () => {
+    const docType = uploadDocType === "Others" ? customUploadDocType.trim() : uploadDocType;
+    if (!docType) {
+      setUploadError("Please specify a document type.");
+      return;
+    }
+    if (!selectedFile) {
+      setUploadError("Please select a file to upload.");
+      return;
+    }
+    setUploadLoading(true);
+    setUploadError(null);
+    try {
+      const { ApiClient } = await import("@/lib/api");
+      const formId = applicant?.id || applicant?.uuid;
+      await ApiClient.uploadDocument(selectedFile, formId, docType.toLowerCase().replace(/\s+/g, "_"), docType);
+      setIsUploadModalOpen(false);
+      window.location.reload();
+    } catch (err: any) {
+      setUploadError(err?.message || "Upload failed. Please try again.");
+    } finally {
+      setUploadLoading(false);
+    }
+  };
+
   const passportDoc = documents.find(
     (d) =>
       d.document_type?.toLowerCase().includes("passport") ||
@@ -507,7 +645,8 @@ export default function ApplicantProfile({
   };
 
   return (
-    <div className="w-full space-y-5 bg-slate-50/50 p-3 sm:p-4 md:p-5">
+    <>
+      <div className="w-full space-y-5 bg-slate-50/50 p-3 sm:p-4 md:p-5">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Application Form</h1>
       </div>
@@ -581,12 +720,62 @@ export default function ApplicantProfile({
                   {applicant?.admission_status?.replace("_", " ") || "Pending"}
                 </Badge>
               </div>
+              {/* Admitted/Finalised Course info, if available */}
+              {(applicant?.finalised_course || applicant?.approved_course) && (
+                <div className="mt-4 pt-4 border-t border-slate-100 w-full text-center">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                    Admitted Course
+                  </span>
+                  <p className="text-sm font-bold text-[#6b357d] break-words [overflow-wrap:anywhere]">
+                    {applicant?.finalised_course || applicant?.approved_course}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
         {/* Right Column: Main Form Data */}
         <div className="min-w-0 space-y-5">
+          {/* Admission & Course Choice Status Card */}
+          <div className="bg-white border border-slate-200 p-4 sm:p-5 lg:p-6 shadow-sm space-y-4">
+            <h3 className="text-base font-bold text-slate-800 border-b border-slate-100 pb-3 flex items-center gap-2">
+              <GraduationCap className="h-5 w-5 text-[#6b357d]" />
+              Admission & Course Choice Status
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 text-sm">
+              <div>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                  First Choice (Proposed)
+                </span>
+                <p className="font-semibold text-slate-700">
+                  {form?.first_choice_program_name || form?.proposed_course_name || applicant?.program_name || "N/A"}
+                </p>
+              </div>
+              <div>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                  Second Choice (Proposed)
+                </span>
+                <p className="font-semibold text-slate-700">
+                  {form?.second_choice_program_name || "N/A"}
+                </p>
+              </div>
+              <div className="md:col-span-2 pt-2 border-t border-slate-100">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                  Admitted / Finalised Course
+                </span>
+                {applicant?.finalised_course || applicant?.approved_course ? (
+                  <p className="font-bold text-emerald-700 text-base">
+                    {applicant?.finalised_course || applicant?.approved_course}
+                  </p>
+                ) : (
+                  <p className="font-medium text-slate-500 italic">
+                    Awaiting decision / Not yet finalized
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
           <div className="bg-white border border-slate-100 p-4 sm:p-5 lg:p-6 shadow-sm">
             {/* Registration Date Header */}
             <div className="mb-6">
@@ -620,12 +809,14 @@ export default function ApplicantProfile({
               )}
 
               {/* COURSE RECOMMENDATION SECTION */}
-              {[
+              {([
                 "recommended",
                 "recommend",
                 "accepted_recommendation",
                 "applicant_recommended",
-              ].includes(recommendationStatus) && (
+              ].includes(recommendationStatus) ||
+                applicant?.approved_course ||
+                applicant?.applicant_recommended_course) && (
                 <CourseRecommendationSection
                   applicantId={applicant?.id || applicant?.uuid || ""}
                   applicationStatus={recommendationStatus}
@@ -633,7 +824,11 @@ export default function ApplicantProfile({
                   applicantRecommendedCourse={
                     applicant?.applicant_recommended_course
                   }
-                  availableCourses={form?.available_courses || []}
+                  availableCourses={
+                    isPtApplicant
+                      ? ptProgrammes
+                      : form?.available_courses || []
+                  }
                   onAcceptRecommendation={handleAcceptRecommendation}
                   onRejectRecommendation={handleRejectRecommendation}
                   onRecommendAlternative={handleRecommendAlternativeCourse}
@@ -662,9 +857,62 @@ export default function ApplicantProfile({
 
             {/* Documents Column */}
             <div className="min-w-0 bg-white border border-slate-100 p-4 sm:p-5 lg:p-6 shadow-sm space-y-5">
+              {requestedDocsList.length > 0 && (
+                <div className="bg-amber-50/50 border border-amber-200 rounded-lg p-4 space-y-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="h-6 w-6 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <h3 className="text-base font-bold text-amber-900 mb-1">
+                        Additional Documents Requested
+                      </h3>
+                      <p className="text-sm text-amber-800 mb-3">
+                        The admissions office has requested that you upload the following additional documents to complete your screening process:
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {requestedDocsList.map((doc: string) => {
+                          const isUploaded = !missingRequestedDocs.includes(doc);
+                          return (
+                            <div
+                              key={doc}
+                              className={`flex items-center gap-2 rounded px-3 py-2 border text-xs font-semibold ${
+                                isUploaded
+                                  ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                                  : "bg-amber-100 border-amber-200 text-amber-800"
+                              }`}
+                            >
+                              <span
+                                className={`h-2.5 w-2.5 rounded-full ${
+                                  isUploaded ? "bg-emerald-500" : "bg-amber-500"
+                                }`}
+                              />
+                              <span className="capitalize">{doc.replace(/_/g, " ")}</span>
+                              <span className="ml-auto text-[10px] uppercase font-bold text-slate-500">
+                                {isUploaded ? "Uploaded" : "Pending"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {missingRequestedDocs.length > 0 ? (
+                        <p className="text-xs text-amber-700 mt-4">
+                          Click the <span className="font-semibold text-amber-900">&quot;Upload Additional Documents&quot;</span> button below to upload the pending documents.
+                        </p>
+                      ) : (
+                        <p className="text-xs text-emerald-700 mt-4 flex items-center gap-1.5 font-semibold">
+                          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                          All requested documents have been uploaded successfully.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-100 pb-4 gap-3">
                 <span className="text-slate-600 font-medium">Documents</span>
-                <Button className="w-full sm:w-auto bg-[#6b357d] hover:bg-[#5a2d69] text-white rounded px-4 min-h-10 h-auto text-sm font-medium whitespace-normal text-center leading-snug">
+                <Button
+                  className="w-full sm:w-auto bg-[#6b357d] hover:bg-[#5a2d69] text-white rounded px-4 min-h-10 h-auto text-sm font-medium whitespace-normal text-center leading-snug"
+                  onClick={() => setIsUploadModalOpen(true)}
+                >
                   Upload Additional Documents
                 </Button>
               </div>
@@ -745,5 +993,112 @@ export default function ApplicantProfile({
         </div>
       </div>
     </div>
+
+    {/* ── Upload Additional Documents Dialog ── */}
+    <Dialog open={isUploadModalOpen} onOpenChange={setIsUploadModalOpen}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Upload Additional Document</DialogTitle>
+          <DialogDescription>
+            Select the document type and upload the file requested by the
+            admissions office.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* Requested but not yet uploaded — alert */}
+          {missingRequestedDocs.length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              <p className="font-semibold mb-1">Still required:</p>
+              <ul className="list-disc list-inside space-y-0.5">
+                {missingRequestedDocs.map((d: string) => (
+                  <li key={d} className="capitalize">{d}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Document type dropdown */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-slate-700">
+              Document Type
+            </label>
+            <select
+              className="w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#6b357d]/40"
+              value={uploadDocType}
+              onChange={(e) => setUploadDocType(e.target.value)}
+            >
+              {missingRequestedDocs.map((d: string) => (
+                <option key={d} value={d}>
+                  {d.charAt(0).toUpperCase() + d.slice(1)}
+                </option>
+              ))}
+              {["O'Level Result", "Birth Certificate", "Passport", "Others"].filter(
+                (opt: string) => !missingRequestedDocs.map((d: string) => d.toLowerCase()).includes(opt.toLowerCase())
+              ).map((opt: string) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Custom type input when "Others" selected */}
+          {uploadDocType === "Others" && (
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-slate-700">
+                Specify Document Name
+              </label>
+              <input
+                type="text"
+                className="w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#6b357d]/40"
+                placeholder="e.g. Medical Certificate"
+                value={customUploadDocType}
+                onChange={(e) => setCustomUploadDocType(e.target.value)}
+              />
+            </div>
+          )}
+
+          {/* File picker */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-slate-700">File</label>
+            <input
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png"
+              className="w-full text-sm text-slate-600 file:mr-3 file:rounded file:border-0 file:bg-[#6b357d] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-[#5a2d69]"
+              onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
+            />
+            <p className="text-xs text-slate-400">PDF, JPG or PNG — max 10 MB</p>
+          </div>
+
+          {uploadError && (
+            <p className="text-sm text-red-600 font-medium">{uploadError}</p>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setIsUploadModalOpen(false)}
+            disabled={uploadLoading}
+          >
+            Cancel
+          </Button>
+          <Button
+            className="bg-[#6b357d] hover:bg-[#5a2d69] text-white"
+            onClick={handleUploadDocument}
+            disabled={uploadLoading || !selectedFile}
+          >
+            {uploadLoading ? (
+              <span className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Uploading...
+              </span>
+            ) : (
+              "Upload"
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

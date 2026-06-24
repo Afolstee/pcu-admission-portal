@@ -44,18 +44,23 @@ export default function CourseRecommendation({
   const [showCourseModal, setShowCourseModal] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<number | null>(null);
   const [selectedCourseName, setSelectedCourseName] = useState("");
-  const normalizedStatus =
+  let normalizedStatus =
     applicationStatus === "recommend" ? "recommended" : applicationStatus;
 
-  // Only show for PG-specific statuses
-  if (
-    ![
-      "recommended",
-      "accepted_recommendation",
-      "applicant_recommended",
-    ].includes(normalizedStatus)
-  ) {
-    return null;
+  const isReadOnlyHistorical = ![
+    "recommended",
+    "accepted_recommendation",
+    "applicant_recommended",
+  ].includes(normalizedStatus);
+
+  if (isReadOnlyHistorical) {
+    if (approvedCourse || applicantRecommendedCourse) {
+      normalizedStatus = applicantRecommendedCourse
+        ? "applicant_recommended"
+        : "accepted_recommendation";
+    } else {
+      return null;
+    }
   }
 
   const handleSelectAlternativeCourse = (

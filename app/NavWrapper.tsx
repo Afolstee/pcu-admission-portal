@@ -59,7 +59,6 @@ export function NavWrapper({ children }: { children: React.ReactNode }) {
     pathname &&
     PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
 
-  // Always render the public layout for public pages
   if (isPublicPage) {
     return (
       <>
@@ -72,7 +71,6 @@ export function NavWrapper({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Don't render either sidebar until auth state is known
   if (isLoading) {
     return (
       <main className="min-h-screen flex flex-col">
@@ -81,7 +79,6 @@ export function NavWrapper({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Unauthenticated on a protected page
   if (!isAuthenticated) {
     return (
       <>
@@ -94,7 +91,6 @@ export function NavWrapper({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Authenticated
   return (
     <>
       <GlobalNav />

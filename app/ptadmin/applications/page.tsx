@@ -57,6 +57,8 @@ const statusColors: Record<string, string> = {
   submitted: "bg-blue-50 text-blue-700 border border-blue-200/60 shadow-sm shadow-blue-500/5",
   screening: "bg-purple-50 text-purple-700 border border-purple-200/60 shadow-sm shadow-purple-500/5",
   recommended: "bg-cyan-50 text-cyan-700 border border-cyan-200/60 shadow-sm shadow-cyan-500/5",
+  accepted_recommendation: "bg-teal-50 text-teal-700 border border-teal-200/60 shadow-sm shadow-teal-500/5",
+  applicant_recommended: "bg-indigo-50 text-indigo-700 border border-indigo-200/60 shadow-sm shadow-indigo-500/5",
   admitted: "bg-emerald-50 text-emerald-700 border border-emerald-200/60 shadow-sm shadow-emerald-500/5",
   accepted: "bg-emerald-50 text-emerald-700 border border-emerald-200/60 shadow-sm shadow-emerald-500/5",
   rejected: "bg-rose-50 text-rose-700 border border-rose-200/60 shadow-sm shadow-rose-500/5",
@@ -78,6 +80,9 @@ function ApplicationsContent() {
       "all",
       "submitted",
       "screening",
+      "recommended",
+      "accepted_recommendation",
+      "applicant_recommended",
       "admitted",
       "rejected",
       "started",
@@ -174,6 +179,9 @@ function ApplicationsContent() {
               <SelectItem value="started" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Started Applications</SelectItem>
               <SelectItem value="submitted" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Submitted</SelectItem>
               <SelectItem value="screening" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Under Review</SelectItem>
+              <SelectItem value="recommended" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Recommended</SelectItem>
+              <SelectItem value="accepted_recommendation" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Accepted Recommendation</SelectItem>
+              <SelectItem value="applicant_recommended" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Applicant Counter-Recommended</SelectItem>
               <SelectItem value="admitted" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Admitted</SelectItem>
               <SelectItem value="rejected" className="font-semibold text-slate-600 focus:text-[#c99b45] focus:bg-[#fdf8f0] cursor-pointer">Rejected</SelectItem>
             </SelectContent>
@@ -228,7 +236,11 @@ function ApplicationsContent() {
                             >
                               {app.application_status === "accepted"
                                 ? "Admitted"
-                                : app.application_status.replace(/_/g, " ")}
+                                : app.application_status === "accepted_recommendation"
+                                ? "Accepted Recommendation"
+                                : app.application_status === "applicant_recommended"
+                                ? "Counter-Recommended"
+                                : app.application_status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
                             </Badge>
                           </div>
                         </div>

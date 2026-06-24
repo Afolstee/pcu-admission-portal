@@ -38,11 +38,9 @@ export default function SignupPage() {
   const [localError, setLocalError] = useState("");
   const [showError, setShowError] = useState(false);
 
-  // TEMPORARILY DISABLED — set back to `portalStatus?.locked` to re-enable
-  const isPortalLocked = false; // portalStatus?.locked;
-  const loadingConfig = isPortalLoading && false; // disabled alongside lock check
+  const isPortalLocked = false;
+  const loadingConfig = isPortalLoading && false;
 
-  // Valid email providers
   const validEmailProviders = [
     "gmail.com",
     "yahoo.com",
@@ -72,7 +70,6 @@ export default function SignupPage() {
     }
   }, [showError]);
 
-  // Redirect if already authenticated
   if (isAuthenticated) {
     router.replace("/applicant/dashboard");
   }
@@ -107,7 +104,6 @@ export default function SignupPage() {
     setLocalError("");
     setShowError(false);
 
-    // Validation
     if (!formData.first_name.trim()) {
       setLocalError("First name is required");
       setShowError(true);
@@ -156,7 +152,6 @@ export default function SignupPage() {
       );
       router.replace("/applicant/dashboard");
     } catch (err) {
-      // Error is already set in the auth context
     }
   };
 

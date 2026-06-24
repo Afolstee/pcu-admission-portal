@@ -17,6 +17,7 @@ export interface ApplicantStatus {
   approved_course?: string | null;
   finalised_course?: string | null;
   applicant_recommended_course?: string | null;
+  requested_documents?: string | null;
   form_no: string | null;
   matric_no: string | null;
   application_status: string;
@@ -1118,18 +1119,30 @@ export class ApiClient {
 
   static async ptReviewApplication(
     applicationId: string | number,
-    decision: "admit" | "reject" | "shortlist" | "incomplete",
-    notes?: string,
+    decision: "admit" | "reject" | "incomplete" | "recommend" | "request_documents",
+    payload?: {
+      notes?: string;
+      approved_course?: string;
+      requested_documents?: string;
+    },
   ): Promise<any> {
     const { data } = await this.fetch<any>(`/ptadmin/review-application`, {
       method: "POST",
       body: JSON.stringify({
         applicant_id: applicationId,
         decision,
-        notes,
+        notes: payload?.notes,
+        approved_course: payload?.approved_course,
+        requested_documents: payload?.requested_documents,
       }),
     });
     return data;
+  }
+
+  static async getPtPrograms(applicationId?: string | number): Promise<any[]> {
+    const qs = applicationId ? `?application_id=${applicationId}` : '';
+    const { data } = await this.fetch<any>(`/ptadmin/programs${qs}`);
+    return Array.isArray(data) ? data : data?.programs || [];
   }
 
   static getPtApplicationPrintUrl(applicationId: string | number): string {

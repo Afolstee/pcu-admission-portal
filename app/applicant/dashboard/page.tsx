@@ -100,6 +100,9 @@ function ApplicantDashboardInner() {
   const [showLetter, setShowLetter] = useState(false);
   const [showAdmissionModal, setShowAdmissionModal] = useState(false);
   const [showRecommendationModal, setShowRecommendationModal] = useState(false);
+  const [showScreeningModal, setShowScreeningModal] = useState(false);
+  const [screeningModalApp, setScreeningModalApp] =
+    useState<ApplicantStatus | null>(null);
   const [recommendationModalApp, setRecommendationModalApp] =
     useState<ApplicantStatus | null>(null);
 
@@ -172,6 +175,10 @@ function ApplicantDashboardInner() {
     `pcu-applicant-login:${user?.id ?? user?.username ?? user?.email ?? "applicant"}`;
   const getRecommendationModalSessionKey = (applicant?: any) =>
     `pcu-course-recommendation-modal:${
+      applicant?.id ?? "application"
+    }:${user?.id ?? user?.username ?? user?.email ?? "applicant"}`;
+  const getScreeningModalSessionKey = (applicant?: any) =>
+    `pcu-screening-docs-modal:${
       applicant?.id ?? "application"
     }:${user?.id ?? user?.username ?? user?.email ?? "applicant"}`;
   const markRecommendationModalHandled = (applicant?: ApplicantStatus | null) => {
@@ -314,6 +321,23 @@ function ApplicantDashboardInner() {
     }, 250);
   };
 
+  const openScreeningProfile = async () => {
+    const app = screeningModalApp;
+    if (!app) {
+      setShowScreeningModal(false);
+      return;
+    }
+    // Mark as handled for this login session
+    if (typeof window !== "undefined") {
+      const loginMarker = sessionStorage.getItem(getApplicantLoginSessionKey());
+      if (loginMarker) {
+        sessionStorage.setItem(getScreeningModalSessionKey(app), loginMarker);
+      }
+    }
+    setShowScreeningModal(false);
+    await openApplicantProfile(app);
+  };
+
   const loadStatus = async () => {
     try {
       const response = await ApiClient.getApplicantStatus();
@@ -357,6 +381,27 @@ function ApplicantDashboardInner() {
       } else {
         setShowRecommendationModal(false);
         setRecommendationModalApp(null);
+      }
+
+      // Screening modal — show once per login if application is in screening with requested docs
+      const screeningApp = apps.find(
+        (app: ApplicantStatus) =>
+          app.has_paid_application_fee &&
+          app.application_status === "screening" &&
+          !!app.requested_documents,
+      );
+      if (screeningApp) {
+        setScreeningModalApp(screeningApp);
+        const shouldShowScreeningModal =
+          typeof window !== "undefined" &&
+          !!sessionStorage.getItem(getApplicantLoginSessionKey()) &&
+          sessionStorage.getItem(
+            getScreeningModalSessionKey(screeningApp),
+          ) !== sessionStorage.getItem(getApplicantLoginSessionKey());
+        setShowScreeningModal(shouldShowScreeningModal);
+      } else {
+        setShowScreeningModal(false);
+        setScreeningModalApp(null);
       }
 
       // For admitted users, also fetch payment history
@@ -1727,6 +1772,85 @@ function ApplicantDashboardInner() {
                   onClick={() => {
                     markRecommendationModalHandled(recommendationModalApp);
                     setShowRecommendationModal(false);
+                  }}
+                  className="h-9 w-full text-sm text-slate-500 hover:text-slate-800 sm:h-10"
+                >
+                  Later
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Screening modal — additional documents requested ── */}
+        {showScreeningModal && screeningModalApp && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-slate-950/40 p-3 backdrop-blur-md animate-in fade-in duration-300 sm:p-4">
+            <div className="my-auto w-full max-w-[20rem] rounded-xl border border-[#e8dfd2] bg-[#fffefa] p-4 text-center shadow-2xl animate-in zoom-in-95 duration-200 sm:max-w-md sm:rounded-2xl sm:p-8">
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-600 shadow-sm sm:mb-4 sm:h-20 sm:w-20">
+                <FileText className="h-7 w-7 sm:h-11 sm:w-11" />
+              </div>
+              <div className="space-y-2 sm:space-y-3">
+                <span className="px-3 py-1 bg-amber-50 text-amber-700 text-xs font-semibold rounded-full border border-amber-200">
+                  Action Required
+                </span>
+                <h3 className="text-lg font-semibold leading-tight text-slate-900 sm:text-2xl">
+                  Additional Documents Needed
+                </h3>
+                <p className="px-2 text-sm font-medium leading-relaxed text-slate-500 sm:text-base">
+                  The admissions office has requested additional documents for
+                  your application. Please upload them via your profile to
+                  continue your screening.
+                </p>
+                {screeningModalApp.requested_documents && (
+                  <div className="mx-auto my-3 max-w-xs rounded-lg border border-amber-200 bg-amber-50/50 p-3 text-left">
+                    <p className="text-xs font-semibold text-amber-800 uppercase tracking-wider mb-1">
+                      Requested Documents:
+                    </p>
+                    <ul className="list-disc list-inside space-y-0.5 text-xs font-semibold text-slate-700">
+                      {screeningModalApp.requested_documents
+                        .split(",")
+                        .map((d: string) => d.trim())
+                        .filter(Boolean)
+                        .map((doc: string) => (
+                          <li key={doc} className="capitalize">
+                            {doc.replace(/_/g, " ")}
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                )}
+                <p className="text-xs text-slate-400">
+                  Open your profile and click{" "}
+                  <span className="font-semibold text-slate-600">
+                    &quot;Upload Additional Documents&quot;
+                  </span>{" "}
+                  to get started.
+                </p>
+              </div>
+              <div className="mt-4 space-y-2 sm:mt-6 sm:space-y-3">
+                <Button
+                  onClick={openScreeningProfile}
+                  disabled={profileLoading}
+                  className="h-10 w-full rounded-lg bg-[#151515] text-sm font-bold text-white shadow-sm transition-all duration-300 hover:bg-[#2a2a2a] sm:h-12 sm:rounded-xl sm:text-base"
+                >
+                  {profileLoading ? "Opening Profile..." : "Go to My Profile"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    if (typeof window !== "undefined") {
+                      const loginMarker = sessionStorage.getItem(
+                        getApplicantLoginSessionKey(),
+                      );
+                      if (loginMarker && screeningModalApp) {
+                        sessionStorage.setItem(
+                          getScreeningModalSessionKey(screeningModalApp),
+                          loginMarker,
+                        );
+                      }
+                    }
+                    setShowScreeningModal(false);
                   }}
                   className="h-9 w-full text-sm text-slate-500 hover:text-slate-800 sm:h-10"
                 >

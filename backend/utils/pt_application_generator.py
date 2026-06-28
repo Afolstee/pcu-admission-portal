@@ -8,9 +8,50 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm, inch
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT, TA_JUSTIFY
 from reportlab.lib import colors
+from reportlab.lib.utils import ImageReader
 
 class PTApplicationPDFGenerator:
     """Generate professional PT / HND-Conversion Application forms as PDFs using ReportLab."""
+
+    @staticmethod
+    def _resolve_file_path(file_path: str):
+        if not file_path:
+            return None
+
+        resolved_path = file_path
+        if not os.path.exists(resolved_path):
+            normalized_path = file_path.replace('\\', '/')
+            parts = normalized_path.split('/uploads/')
+            if len(parts) > 1:
+                resolved_path = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    'uploads',
+                    parts[1].replace('/', os.sep)
+                )
+            elif normalized_path.startswith('uploads/'):
+                resolved_path = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    normalized_path.replace('/', os.sep)
+                )
+
+        return resolved_path if os.path.exists(resolved_path) else None
+
+    @staticmethod
+    def _fit_image(file_path: str, max_width, max_height, h_align='CENTER'):
+        resolved_path = PTApplicationPDFGenerator._resolve_file_path(file_path)
+        if not resolved_path:
+            return None
+
+        try:
+            reader = ImageReader(resolved_path)
+            img_w, img_h = reader.getSize()
+            scale = min(max_width / img_w, max_height / img_h)
+            image = Image(resolved_path, width=img_w * scale, height=img_h * scale)
+            image.hAlign = h_align
+            return image
+        except Exception as e:
+            print(f"Error loading image for PDF: {e}")
+            return None
 
     @staticmethod
     def generate_pdf(
@@ -21,7 +62,8 @@ class PTApplicationPDFGenerator:
         course_name: str,
         faculty_name: str,
         signature_b64: str = "",
-        olevel_results: list = None
+        olevel_results: list = None,
+        passport_path: str = ""
     ) -> bytes:
         if olevel_results is None:
             olevel_results = []
@@ -133,8 +175,15 @@ class PTApplicationPDFGenerator:
         if os.path.exists(logo_path):
             try:
                 logo_img = Image(logo_path, width=1.6 * cm, height=1.6 * cm)
+                logo_img.hAlign = 'LEFT'
             except Exception as e:
                 print(f"Error loading header logo: {e}")
+        passport_img = PTApplicationPDFGenerator._fit_image(
+            passport_path,
+            max_width=2.2 * cm,
+            max_height=2.6 * cm,
+            h_align='RIGHT'
+        )
 
         title_text = "PRECIOUS CORNERSTONE UNIVERSITY"
         address_text = (
@@ -147,21 +196,22 @@ class PTApplicationPDFGenerator:
         address_para = Paragraph(address_text, address_style)
 
         usable_w = A4[0] - 3.0 * cm
-        if logo_img:
-            logo_w = 1.8 * cm
-            text_w = usable_w - logo_w
-            header_table = Table([[logo_img, [title_para, address_para]]], colWidths=[logo_w, text_w])
-            header_table.setStyle(TableStyle([
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('LEFTPADDING', (0, 0), (-1, -1), 0),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-                ('TOPPADDING', (0, 0), (-1, -1), 0),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-            ]))
-            story.append(header_table)
-        else:
-            story.append(title_para)
-            story.append(address_para)
+        side_w = 2.8 * cm
+        text_w = usable_w - (side_w * 2)
+        header_table = Table(
+            [[logo_img or '', [title_para, address_para], passport_img or '']],
+            colWidths=[side_w, text_w, side_w]
+        )
+        header_table.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+            ('ALIGN', (2, 0), (2, 0), 'RIGHT'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+            ('TOPPADDING', (0, 0), (-1, -1), 0),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        story.append(header_table)
 
         story.append(Spacer(1, 0.1 * cm))
 

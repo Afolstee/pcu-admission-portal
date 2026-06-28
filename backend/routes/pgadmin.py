@@ -922,6 +922,12 @@ def print_application(payload, application_id):
     )
     transcript_file = trans_res[0]['file_url'] if trans_res else None
 
+    passport_res = Database.execute_query(
+        "SELECT file_url FROM pg_document WHERE pg_application_id = %s AND document_type = 'passport'",
+        (application_id,)
+    )
+    passport_file = passport_res[0]['file_url'] if passport_res else None
+
     form['document_signature'] = signature_file
     form['document_transcript'] = transcript_file
 
@@ -979,7 +985,8 @@ def print_application(payload, application_id):
             faculty_name=faculty_name,
             referees=referees,
             evaluation=evaluation,
-            signature_b64=signature_b64
+            signature_b64=signature_b64,
+            passport_path=passport_file or ''
         )
         filename = f"pg_application_{app_data.get('form_no') or application_id}.pdf"
         return Response(

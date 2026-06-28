@@ -7,6 +7,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib import colors
+from reportlab.lib.utils import ImageReader
 
 
 def _int_to_words(n: int) -> str:
@@ -59,6 +60,46 @@ class PaymentReceiptGenerator:
     """Generate payment receipts as PDFs using ReportLab."""
 
     @staticmethod
+    def _resolve_file_path(file_path: str):
+        if not file_path:
+            return None
+
+        resolved_path = file_path
+        if not os.path.exists(resolved_path):
+            normalized_path = file_path.replace('\\', '/')
+            parts = normalized_path.split('/uploads/')
+            if len(parts) > 1:
+                resolved_path = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    'uploads',
+                    parts[1].replace('/', os.sep)
+                )
+            elif normalized_path.startswith('uploads/'):
+                resolved_path = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    normalized_path.replace('/', os.sep)
+                )
+
+        return resolved_path if os.path.exists(resolved_path) else None
+
+    @staticmethod
+    def _fit_image(file_path: str, max_width, max_height, h_align='CENTER'):
+        resolved_path = PaymentReceiptGenerator._resolve_file_path(file_path)
+        if not resolved_path:
+            return None
+
+        try:
+            reader = ImageReader(resolved_path)
+            img_w, img_h = reader.getSize()
+            scale = min(max_width / img_w, max_height / img_h)
+            image = Image(resolved_path, width=img_w * scale, height=img_h * scale)
+            image.hAlign = h_align
+            return image
+        except Exception as e:
+            print(f"Error loading receipt passport image: {e}")
+            return None
+
+    @staticmethod
     def generate_payment_receipt_pdf(
         receipt_id: str,
         applicant_name: str,
@@ -76,7 +117,8 @@ class PaymentReceiptGenerator:
         form_no: str = "",
         session: str = "",
         is_pg: bool = False,
-        breakdown: list = None
+        breakdown: list = None,
+        passport_path: str = ""
     ) -> bytes:
         """
         Generate a payment receipt PDF using Precious Cornerstone University branding and styling.
@@ -128,8 +170,15 @@ class PaymentReceiptGenerator:
         logo_path = os.path.join(os.path.dirname(__file__), 'logo.png')
         if os.path.exists(logo_path):
             logo_img = Image(logo_path, width=72, height=72)
+            logo_img.hAlign = 'LEFT'
         else:
             logo_img = Paragraph("<b>PCU</b>", ParagraphStyle('LogoFallback', fontName='Times-Bold', fontSize=18, alignment=TA_CENTER))
+        passport_img = PaymentReceiptGenerator._fit_image(
+            passport_path,
+            max_width=58,
+            max_height=72,
+            h_align='RIGHT'
+        )
             
         uni_name_para = Paragraph("PRECIOUS CORNERSTONE UNIVERSITY,", uni_name_style)
         uni_city_para = Paragraph("IBADAN, OYO STATE.", uni_city_style)
@@ -140,13 +189,16 @@ class PaymentReceiptGenerator:
             header_text_elements.append(school_name_para)
         
         header_data = [
-            [logo_img, "", header_text_elements]
+            [logo_img, header_text_elements, passport_img or ""]
         ]
-        
-        header_table = Table(header_data, colWidths=[72, 14, usable_width - 86])
+
+        side_width = 72
+        header_table = Table(header_data, colWidths=[side_width, usable_width - (side_width * 2), side_width])
         header_table.setStyle(TableStyle([
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('ALIGN', (2, 0), (2, 0), 'CENTER'),
+            ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+            ('ALIGN', (1, 0), (1, 0), 'CENTER'),
+            ('ALIGN', (2, 0), (2, 0), 'RIGHT'),
             ('LEFTPADDING', (0, 0), (-1, -1), 0),
             ('RIGHTPADDING', (0, 0), (-1, -1), 0),
             ('TOPPADDING', (0, 0), (-1, -1), 0),

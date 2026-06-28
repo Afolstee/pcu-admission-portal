@@ -757,6 +757,12 @@ def print_application(payload, application_id):
     )
     signature_file = sig_res[0]['file_url'] if sig_res else None
 
+    passport_res = Database.execute_query(
+        "SELECT file_url FROM documents WHERE application_id = %s AND document_type = 'passport'",
+        (application_id,)
+    )
+    passport_file = passport_res[0]['file_url'] if passport_res else None
+
     signature_b64 = ''
     if signature_file:
         if not os.path.exists(signature_file):
@@ -781,7 +787,8 @@ def print_application(payload, application_id):
             course_name=course_name,
             faculty_name=faculty_name,
             signature_b64=signature_b64,
-            olevel_results=olevel_results
+            olevel_results=olevel_results,
+            passport_path=passport_file or ''
         )
         filename = f"pt_application_{app_data.get('form_no') or application_id}.pdf"
         return Response(

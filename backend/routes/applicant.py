@@ -3287,12 +3287,14 @@ def get_payment_receipt(payload, receipt_no):
 
     # ── Fetch matric number, application number, and session ──
     matric_no  = u.get('matric_no') or ''   # already fetched from users above
-    form_no    = ''
-    session    = ''
+    form_no       = ''
+    session       = ''
+    application_id = None
 
     if is_pg:
         pg_app = Database.execute_query(
-            '''SELECT pg.form_no,
+            '''SELECT pg.uuid AS application_id,
+                      pg.form_no,
                       COALESCE(asess.name, CAST(pg.academic_session_id AS TEXT)) AS session_name
                FROM pg_application pg
                LEFT JOIN academic_sessions asess ON asess.id = pg.academic_session_id
@@ -3301,11 +3303,13 @@ def get_payment_receipt(payload, receipt_no):
             (user_id,)
         )
         if pg_app:
+            application_id = pg_app[0].get('application_id')
             form_no = pg_app[0].get('form_no') or ''
             session = pg_app[0].get('session_name') or ''
     else:
         app_row = Database.execute_query(
-            '''SELECT a.form_no,
+            '''SELECT a.id AS application_id,
+                      a.form_no,
                       COALESCE(asess.name, CAST(a.academic_session_id AS TEXT)) AS session_name
                FROM applications a
                LEFT JOIN academic_sessions asess ON asess.id = a.academic_session_id
@@ -3314,8 +3318,23 @@ def get_payment_receipt(payload, receipt_no):
             (user_id,)
         )
         if app_row:
+            application_id = app_row[0].get('application_id')
             form_no = app_row[0].get('form_no') or ''
             session = app_row[0].get('session_name') or ''
+
+    passport_path = ''
+    if tran_type in ('acceptance_fee', 'tuition') and application_id:
+        if is_pg:
+            passport_res = Database.execute_query(
+                "SELECT file_url FROM pg_document WHERE pg_application_id = %s AND document_type = 'passport' ORDER BY id DESC LIMIT 1",
+                (application_id,)
+            )
+        else:
+            passport_res = Database.execute_query(
+                "SELECT file_url FROM documents WHERE application_id = %s AND document_type = 'passport' ORDER BY id DESC LIMIT 1",
+                (application_id,)
+            )
+        passport_path = passport_res[0]['file_url'] if passport_res else ''
 
     # ── Resolve fee breakdown ──
     processing_fee = 0.0
@@ -3415,6 +3434,7 @@ def get_payment_receipt(payload, receipt_no):
         session=session,
         is_pg=is_pg,
         breakdown=breakdown,
+        passport_path=passport_path,
     )
     return Response(
         pdf_bytes,

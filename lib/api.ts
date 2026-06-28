@@ -1119,7 +1119,7 @@ export class ApiClient {
 
   static async ptReviewApplication(
     applicationId: string | number,
-    decision: "admit" | "reject" | "incomplete" | "recommend" | "request_documents",
+    decision: "accept" | "reject" | "incomplete" | "recommend" | "request_documents",
     payload?: {
       notes?: string;
       approved_course?: string;

@@ -2,7 +2,7 @@
 import os
 import math
 from datetime import datetime
-from flask import Blueprint, request, jsonify, Response
+from flask import Blueprint, request, jsonify, Response, send_file
 from database import Database
 from utils.auth import AuthHandler
 from utils.pt_application_generator import PTApplicationPDFGenerator
@@ -358,7 +358,7 @@ def get_application_detail(payload, application_id):
 
     # Uploaded documents
     documents = Database.execute_query(
-        '''SELECT id, document_type, file_type, file_name AS original_filename, file_size
+        '''SELECT id, id AS document_id, document_type, file_type, file_name AS original_filename, file_size
            FROM documents WHERE application_id = %s''',
         (application_id,)
     )
@@ -372,6 +372,47 @@ def get_application_detail(payload, application_id):
 
 # ─── Review Application (Finalisation) ─────────────────────────────────────────
 
+@ptadmin_bp.route('/download-document/<document_id>', methods=['GET'])
+@AuthHandler.token_required
+@AuthHandler.ptadmin_required
+def download_document(payload, document_id):
+    """Download a document for a PT/HND application only."""
+    doc = Database.execute_query(
+        '''SELECT d.file_url AS file_path,
+                  d.file_type AS mime_type,
+                  d.file_name AS original_filename
+           FROM documents d
+           JOIN applications a ON d.application_id = a.id
+           WHERE d.id = %s
+             AND a.prog_type IN (4, 7)''',
+        (document_id,)
+    )
+
+    if not doc:
+        return jsonify({'message': 'Document not found or access denied'}), 404
+
+    file_path = doc[0]['file_path']
+    if not os.path.exists(file_path):
+        parts = file_path.replace('\\', '/').split('/uploads/')
+        if len(parts) > 1:
+            local_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                'uploads',
+                parts[1].replace('/', os.sep),
+            )
+            if os.path.exists(local_path):
+                file_path = local_path
+
+    if not os.path.exists(file_path):
+        return jsonify({'message': 'File not found on server'}), 404
+
+    return send_file(
+        file_path,
+        mimetype=doc[0]['mime_type'],
+        download_name=doc[0].get('original_filename'),
+    )
+
+
 @ptadmin_bp.route('/review-application', methods=['POST'])
 @AuthHandler.token_required
 @AuthHandler.ptadmin_required
@@ -383,11 +424,11 @@ def review_application(payload):
         return jsonify({'message': 'applicant_id and decision are required'}), 400
 
     applicant_id   = data['applicant_id']
-    decision       = data['decision']        # 'admit', 'reject', 'incomplete', 'recommend', 'request_documents'
+    decision       = data['decision']        # 'accept', 'reject', 'incomplete', 'recommend', 'request_documents'
     approved_course_param = data.get('approved_course')  # required for 'recommend'
 
-    if decision not in ['admit', 'reject', 'incomplete', 'recommend', 'request_documents']:
-        return jsonify({'message': 'Invalid decision. Must be admit, reject, incomplete, recommend, or request_documents'}), 400
+    if decision not in ['accept', 'reject', 'incomplete', 'recommend', 'request_documents']:
+        return jsonify({'message': 'Invalid decision. Must be accept, reject, incomplete, recommend, or request_documents'}), 400
 
     if decision == 'recommend' and not approved_course_param:
         return jsonify({'message': 'approved_course is required for recommend decision'}), 400
@@ -395,7 +436,13 @@ def review_application(payload):
     admin_user_id = payload['user_id']
 
     current_app = Database.execute_query(
-        '''SELECT applicant_stage, approved_course, finalised_course, prog_type, applicant_recommended_course
+        '''SELECT applicant_stage,
+                  approved_course,
+                  finalised_course,
+                  prog_type,
+                  applicant_recommended_course,
+                  program_setup_id,
+                  degree_id
            FROM applications WHERE id = %s AND prog_type IN (4, 7)''',
         (applicant_id,)
     )
@@ -405,7 +452,7 @@ def review_application(payload):
 
     # Map decision to new applicant_stage status
     status_map = {
-        'admit':      'admitted',
+        'accept':     'accepted',
         'reject':     'rejected',
         'incomplete': 'incomplete',
         'recommend':  'recommended',
@@ -413,14 +460,16 @@ def review_application(payload):
     }
     new_status = status_map[decision]
 
-    # If admitting, we also finalize course based on the choices and follow-up states
+    # If admitting/accepting, we also finalize course based on the choices and follow-up states
     finalised_course = current_app[0].get('finalised_course')
     approved_course  = current_app[0].get('approved_course')
     app_prog_type    = current_app[0].get('prog_type')
     current_stage    = current_app[0].get('applicant_stage')
     applicant_rec_course = current_app[0].get('applicant_recommended_course')
+    current_program_setup_id = current_app[0].get('program_setup_id')
+    current_degree_id = current_app[0].get('degree_id')
 
-    if decision == 'admit':
+    if decision == 'accept':
         if current_stage == 'accepted_recommendation':
             finalised_course = approved_course
         elif current_stage == 'applicant_recommended':
@@ -429,12 +478,17 @@ def review_application(payload):
         if not finalised_course:
             # Default to first choice from program_choice
             choice_res = Database.execute_query(
-                '''SELECT ps.name, ps.id, dp.degree_id
+                '''SELECT ps.name,
+                          ps.id,
+                          COALESCE(dp.degree_id, ps.degree_id) AS degree_id
                    FROM program_choice pc
                    LEFT JOIN program_setup ps ON pc.first_choice = ps.id
-                   LEFT JOIN degree_program dp ON ps.degree_program_id = dp.id
-                   WHERE pc.application_id = %s''',
-                (applicant_id,)
+                   LEFT JOIN degree_program dp
+                     ON dp.degree_id = ps.degree_id
+                    AND dp.program_type_id = %s
+                   WHERE pc.application_id = %s
+                   LIMIT 1''',
+                (app_prog_type, applicant_id)
             )
             if choice_res and choice_res[0]['name']:
                 finalised_course = choice_res[0]['name']
@@ -449,15 +503,40 @@ def review_application(payload):
                        WHERE id = %s''',
                     (ps_id, degree_id, applicant_id)
                 )
-        else:
+
+        if not finalised_course and current_program_setup_id:
+            ps_res = Database.execute_query(
+                '''SELECT ps.name,
+                          COALESCE(dp.degree_id, ps.degree_id, %s) AS degree_id
+                   FROM program_setup ps
+                   LEFT JOIN degree_program dp
+                     ON dp.degree_id = ps.degree_id
+                    AND dp.program_type_id = %s
+                   WHERE ps.id = %s
+                   LIMIT 1''',
+                (current_degree_id, app_prog_type, current_program_setup_id)
+            )
+            if ps_res and ps_res[0].get('name'):
+                finalised_course = ps_res[0]['name']
+                approved_course = ps_res[0]['name']
+                Database.execute_update(
+                    '''UPDATE applications
+                       SET degree_id = COALESCE(%s, degree_id)
+                       WHERE id = %s''',
+                    (ps_res[0].get('degree_id'), applicant_id)
+                )
+        if finalised_course:
             # Resolve the program setup ID & degree ID for the finalized course
             ps_res = Database.execute_query(
-                '''SELECT ps.id, dp.degree_id
+                '''SELECT ps.id,
+                          COALESCE(dp.degree_id, ps.degree_id) AS degree_id
                    FROM program_setup ps
-                   JOIN degree_program dp ON ps.degree_program_id = dp.id
-                   WHERE LOWER(ps.name) = LOWER(%s) AND dp.program_type_id = %s
+                   LEFT JOIN degree_program dp
+                     ON dp.degree_id = ps.degree_id
+                    AND dp.program_type_id = %s
+                   WHERE LOWER(ps.name) = LOWER(%s)
                    LIMIT 1''',
-                (finalised_course, app_prog_type)
+                (app_prog_type, finalised_course)
             )
             if ps_res:
                 ps_id = ps_res[0]['id']
@@ -468,6 +547,9 @@ def review_application(payload):
                        WHERE id = %s''',
                     (ps_id, degree_id, applicant_id)
                 )
+
+        if finalised_course and not approved_course:
+            approved_course = finalised_course
 
     # For recommend: store the recommended course in approved_course
     if decision == 'recommend':
@@ -485,7 +567,7 @@ def review_application(payload):
                decision                = %s,
                decision_date           = NOW(),
                approved_course         = COALESCE(%s, approved_course),
-               finalised_course        = COALESCE(finalised_course, %s),
+               finalised_course        = COALESCE(%s, finalised_course),
                requested_documents     = COALESCE(%s, requested_documents),
                decision_maker_user_id  = %s,
                updated_at              = NOW()
@@ -496,8 +578,9 @@ def review_application(payload):
     if not success:
         return jsonify({'message': 'Failed to review application'}), 500
 
+    action_msg = "accepted" if decision == "accept" else f"{decision}ed" if decision in ["reject", "recommend"] else f"{decision}d"
     return jsonify({
-        'message': f'PT Application {decision}d successfully',
+        'message': f'PT Application {action_msg} successfully',
         'new_status': new_status
     }), 200
 

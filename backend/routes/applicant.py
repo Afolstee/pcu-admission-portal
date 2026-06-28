@@ -57,6 +57,13 @@ def _ensure_application_recommendation_columns():
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _ensure_pt_biodata_columns():
+    Database.execute_update(
+        '''ALTER TABLE biodata
+           ADD COLUMN IF NOT EXISTS who_referred_you TEXT'''
+    )
+
+
 def generate_reference_no() -> str:
     """REF-{YYYYMMDD}-{16 hex chars uppercase}"""
     return f"REF-{date.today().strftime('%Y%m%d')}-{secrets.token_hex(8).upper()}"
@@ -944,6 +951,10 @@ def submit_form(payload):
         return jsonify({'message': 'Postgraduate form saved successfully', 'form_id': application_id}), 200
 
     # ── Biodata ───────────────────────────────────────────────────────────────
+    is_part_time = str(program_type_id) == '7'
+    if is_part_time:
+        _ensure_pt_biodata_columns()
+
     pi_fields = {
         'application_id': application_id,
         'surname': clean_val('last_name'),
@@ -959,7 +970,7 @@ def submit_form(payload):
         'nationality': clean_val('nationality'),
         'state': clean_val('state'),
         'lga': clean_val('lga'),
-        'address': clean_val('address'),
+        'address': clean_val('contact_address') if is_part_time else clean_val('address'),
         'phone_number': clean_val('phone_number'),
         'secondary_phone_number': clean_val('secondary_phone_number'),
         'email': clean_val('email'),
@@ -971,6 +982,9 @@ def submit_form(payload):
         # additional_info only when additional_info is not explicitly provided.
         'additional_info': clean_val('additional_info') or clean_val('work_experience'),
     }
+    if is_part_time:
+        pi_fields['who_referred_you'] = clean_val('who_referred_you')
+
     pi_cols = [k for k, v in pi_fields.items() if v is not None]
     pi_vals = [pi_fields[k] for k in pi_cols]
     if len(pi_cols) > 1:
@@ -2270,7 +2284,10 @@ def get_applicant_status(payload):
                    WHERE txn_p.reference_no = app.application_payment_reference
                      AND txn_p.tran_status IN ('pending', 'requery_error')
                ) AS has_pending_application_payment,
-               (app.applicant_stage IN ('accepted','enrolled')) AS has_paid_acceptance_fee,
+               CASE
+                   WHEN app.prog_type IN (4, 7) THEN app.applicant_stage IN ('admitted','enrolled')
+                   ELSE app.applicant_stage IN ('accepted','enrolled')
+               END AS has_paid_acceptance_fee,
                COALESCE(app.admission_letter_sent, FALSE) AS admission_letter_sent,
                EXISTS (
                    SELECT 1 FROM payment_transactions txn2
@@ -2439,7 +2456,9 @@ def get_admission_letter(payload):
         )
     if not applicant:
         return jsonify({'message': 'Admission letter not available'}), 404
-    if applicant[0]['applicant_stage'] not in ('accepted', 'enrolled'):
+    program_id = applicant[0].get('program_id')
+    paid_acceptance_stages = ('admitted', 'enrolled') if not is_pg and str(program_id) in ('4', '7') else ('accepted', 'enrolled')
+    if applicant[0]['applicant_stage'] not in paid_acceptance_stages:
         return jsonify({'message': 'Admission letter is only available after paying the acceptance fee'}), 403
 
     applicant_data = applicant[0]
@@ -2567,7 +2586,9 @@ def print_admission_letter(payload):
         )
     if not applicant:
         return jsonify({'message': 'Admission letter not available'}), 404
-    if applicant[0]['applicant_stage'] not in ('accepted', 'enrolled'):
+    program_id = applicant[0].get('program_id')
+    paid_acceptance_stages = ('admitted', 'enrolled') if not is_pg and str(program_id) in ('4', '7') else ('accepted', 'enrolled')
+    if applicant[0]['applicant_stage'] not in paid_acceptance_stages:
         return jsonify({'message': 'Admission letter is only available after paying the acceptance fee'}), 403
 
     applicant_data = applicant[0]
@@ -2889,6 +2910,8 @@ def get_form(payload, applicant_id):
             if dob and hasattr(dob, 'strftime'):
                 form_data['date_of_birth'] = dob.strftime('%Y-%m-%d')
             form_data['full_name'] = ' '.join(filter(None, [form_data.get('first_name'), form_data.get('middle_name'), form_data.get('surname')]))
+            if str(prog_type) == '7' and not form_data.get('contact_address') and form_data.get('address'):
+                form_data['contact_address'] = form_data['address']
 
         if nok_res:
             n = dict(nok_res[0])

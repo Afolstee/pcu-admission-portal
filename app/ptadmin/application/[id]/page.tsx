@@ -165,14 +165,14 @@ export default function PtApplicationDetailPage() {
     }
   };
 
-  const handleAction = async (decision: "admit" | "reject" | "recommend" | "incomplete" | "request_documents", extraData?: any) => {
+  const handleAction = async (decision: "accept" | "reject" | "recommend" | "incomplete" | "request_documents", extraData?: any) => {
     setActionLoading(true);
     setActionSuccess(null);
     setActionError(null);
     try {
       await ApiClient.ptReviewApplication(id, decision, { notes: notes || undefined, ...extraData });
       const labels: Record<string, string> = {
-        admit: "Applicant admitted successfully.",
+        accept: "Application accepted successfully.",
         reject: "Application rejected.",
         recommend: "Applicant recommended for admission.",
         incomplete: "Document request sent to applicant.",
@@ -191,8 +191,9 @@ export default function PtApplicationDetailPage() {
     try {
       const token = localStorage.getItem("auth_token");
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/e-portal/api";
+      const documentId = doc.document_id || doc.id;
       const res = await fetch(
-        `${baseUrl}/applicant/download-document/${doc.id || doc.document_id}`,
+        `${baseUrl}/ptadmin/download-document/${documentId}`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
       if (!res.ok) throw new Error("Download failed");
@@ -249,11 +250,12 @@ export default function PtApplicationDetailPage() {
   const isHndConversion = progType === PROG_HND_CONV;
   const isPartTime      = progType === PROG_PART_TIME;
 
-  const passportDoc = documents?.find(
-    (d) => d.document_type === "passport_photo" || d.document_type === "passport",
-  );
+  const passportDoc = documents?.find((d) => {
+    const label = `${d.document_type || ""} ${d.display_name || ""}`.toLowerCase();
+    return label.includes("passport");
+  });
   const passportUrl = passportDoc
-    ? `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/e-portal/api"}/applicant/download-document/${passportDoc.id || passportDoc.document_id}?token=${typeof window !== "undefined" ? localStorage.getItem("auth_token") || "" : ""}`
+    ? `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/e-portal/api"}/ptadmin/download-document/${passportDoc.document_id || passportDoc.id}?token=${typeof window !== "undefined" ? encodeURIComponent(localStorage.getItem("auth_token") || "") : ""}`
     : null;
 
   const isDecided = ["admitted", "accepted", "rejected", "enrolled"].includes(status);
@@ -664,12 +666,12 @@ export default function PtApplicationDetailPage() {
                     )}
 
                     <button
-                      onClick={() => handleAction("admit")}
+                      onClick={() => handleAction("accept")}
                       disabled={actionLoading}
                       className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#23704d] hover:bg-[#1d5c40] text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <ThumbsUp className="w-4 h-4" />
-                      Admit Applicant
+                      Accept Applicant
                     </button>
 
                      {status !== "accepted_recommendation" && status !== "applicant_recommended" && (

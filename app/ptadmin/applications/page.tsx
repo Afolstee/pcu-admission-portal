@@ -232,9 +232,7 @@ function ApplicationsContent() {
                             <Badge
                               className={`${statusColors[app.application_status] || "bg-slate-50 text-slate-700 border border-slate-200"} font-bold text-xs py-1.5 px-3.5 rounded-full`}
                             >
-                              {app.application_status === "accepted"
-                                ? "Admitted"
-                                : app.application_status === "accepted_recommendation"
+                              {app.application_status === "accepted_recommendation"
                                   ? "Accepted Recommendation"
                                   : app.application_status === "applicant_recommended"
                                     ? "Counter-Recommended"

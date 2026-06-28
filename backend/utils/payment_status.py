@@ -335,7 +335,7 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
 
     Role-promotion rules:
       application_fee  → create application row + form_no, promote user_type_id = 2 (applicant)
-      acceptance_fee   → applicant_stage = 'accepted'
+      acceptance_fee   → applicant_stage advances past admin acceptance
                          user_type_id = 13 (admitted — limited student portal)
       tuition          → applicant_stage = 'enrolled'
                          user_type_id = student role (looked up from DB)
@@ -366,8 +366,18 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
         else:
             Database.execute_update(
                 """UPDATE applications
+                   SET applicant_stage = 'admitted', updated_at = NOW()
+                   WHERE user_id = %s
+                     AND prog_type IN (4, 7)
+                     AND applicant_stage = 'accepted'""",
+                (user_id,)
+            )
+            Database.execute_update(
+                """UPDATE applications
                    SET applicant_stage = 'accepted', updated_at = NOW()
-                   WHERE user_id = %s AND applicant_stage = 'admitted'""",
+                   WHERE user_id = %s
+                     AND (prog_type NOT IN (4, 7) OR prog_type IS NULL)
+                     AND applicant_stage = 'admitted'""",
                 (user_id,)
             )
         # Promote user to 'admitted' role (id=13) — stays on applicant portal
@@ -389,7 +399,17 @@ def apply_downstream_success(user_id: int, payment_type: str, reference_no: str 
             Database.execute_update(
                 """UPDATE applications
                    SET applicant_stage = 'enrolled', updated_at = NOW()
-                   WHERE user_id = %s AND applicant_stage = 'accepted'""",
+                   WHERE user_id = %s
+                     AND prog_type IN (4, 7)
+                     AND applicant_stage IN ('admitted', 'accepted')""",
+                (user_id,)
+            )
+            Database.execute_update(
+                """UPDATE applications
+                   SET applicant_stage = 'enrolled', updated_at = NOW()
+                   WHERE user_id = %s
+                     AND (prog_type NOT IN (4, 7) OR prog_type IS NULL)
+                     AND applicant_stage = 'accepted'""",
                 (user_id,)
             )
         # Promote to full student role (user_type_id = 7)

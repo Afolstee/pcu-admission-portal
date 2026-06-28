@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   FileText,
   UserCheck,
@@ -64,6 +65,36 @@ function friendlyTime(iso: string | null): string {
   return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
+function DashboardNumberSkeleton() {
+  return <Skeleton className="h-8 w-14 bg-slate-200" />;
+}
+
+function DashboardListSkeleton() {
+  return (
+    <div className="space-y-3">
+      {[0, 1, 2].map((item) => (
+        <div key={item} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+          <Skeleton className="h-4 w-3/4 bg-slate-200" />
+          <Skeleton className="mt-2 h-3 w-1/3 bg-slate-200" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DashboardBreakdownSkeleton() {
+  return (
+    <div className="space-y-2">
+      {[0, 1, 2, 3].map((item) => (
+        <div key={item} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+          <Skeleton className="h-4 w-32 bg-slate-200" />
+          <Skeleton className="h-6 w-10 bg-slate-200" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function PgAdminDashboard() {
   const router = useRouter();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -90,16 +121,9 @@ export default function PgAdminDashboard() {
     })();
   }, [isAuthenticated, user, router, authLoading]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="w-10 h-10 border-4 border-slate-200 border-t-slate-500 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-slate-500 text-sm font-medium">Loading...</p>
-        </div>
-      </div>
-    );
-  }
+  if (!authLoading && (!isAuthenticated || (user?.role !== "pgadmin" && user?.role !== "pgdean"))) return null;
+
+  const dashboardLoading = authLoading || loading;
 
   const statCards = [
     {
@@ -175,7 +199,11 @@ export default function PgAdminDashboard() {
             <div className="flex-1 min-w-0">
               <p className="text-slate-800 font-semibold text-sm">Review New Applications</p>
               <p className="text-slate-400 text-xs mt-0.5">
-                {stats?.new_applications ?? 0} awaiting Section B evaluation
+                {dashboardLoading ? (
+                  <Skeleton className="h-3 w-40 bg-slate-200" />
+                ) : (
+                  `${stats?.new_applications ?? 0} awaiting Section B evaluation`
+                )}
               </p>
             </div>
             <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
@@ -191,7 +219,11 @@ export default function PgAdminDashboard() {
             <div className="flex-1 min-w-0">
               <p className="text-slate-800 font-semibold text-sm">Awaiting Admission Decision</p>
               <p className="text-slate-400 text-xs mt-0.5">
-                {stats?.under_review ?? 0} awaiting final review
+                {dashboardLoading ? (
+                  <Skeleton className="h-3 w-32 bg-slate-200" />
+                ) : (
+                  `${stats?.under_review ?? 0} awaiting final review`
+                )}
               </p>
             </div>
             <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
@@ -206,7 +238,9 @@ export default function PgAdminDashboard() {
                 <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center mb-3 group-hover:scale-105 transition-transform duration-300`}>
                   <Icon className={`w-4 h-4 ${accent}`} />
                 </div>
-                <p className={`text-2xl font-bold ${accent}`}>{value}</p>
+                <p className={`text-2xl font-bold ${accent}`}>
+                  {dashboardLoading ? <DashboardNumberSkeleton /> : value}
+                </p>
                 <p className="text-xs text-slate-500 font-medium mt-0.5 leading-tight">{label}</p>
               </CardContent>
             );
@@ -241,7 +275,9 @@ export default function PgAdminDashboard() {
               <CardTitle className="text-sm font-semibold text-slate-700">Recent Activity</CardTitle>
             </CardHeader>
             <CardContent className="p-5">
-              {activity.length === 0 ? (
+              {dashboardLoading ? (
+                <DashboardListSkeleton />
+              ) : activity.length === 0 ? (
                 <div className="text-center py-10 text-slate-400">
                   <FileText className="w-8 h-8 mx-auto mb-2 opacity-30" />
                   <p className="text-sm">No recent activity.</p>
@@ -269,7 +305,9 @@ export default function PgAdminDashboard() {
                 <CardTitle className="text-sm font-semibold text-slate-700">By Status</CardTitle>
               </CardHeader>
               <CardContent className="p-5 space-y-2">
-                {stats?.by_status?.map((s) => (
+                {dashboardLoading ? (
+                  <DashboardBreakdownSkeleton />
+                ) : stats?.by_status?.map((s) => (
                   <div key={s.application_status} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
                     <span className="text-sm text-slate-600 capitalize">
                       {s.application_status.replace("_", " ")}
@@ -279,7 +317,7 @@ export default function PgAdminDashboard() {
                     </Badge>
                   </div>
                 ))}
-                {(!stats?.by_status || stats.by_status.length === 0) && (
+                {!dashboardLoading && (!stats?.by_status || stats.by_status.length === 0) && (
                   <p className="text-sm text-slate-400 italic text-center py-4">No data yet.</p>
                 )}
               </CardContent>
@@ -290,7 +328,9 @@ export default function PgAdminDashboard() {
                 <CardTitle className="text-sm font-semibold text-slate-700">By Programme</CardTitle>
               </CardHeader>
               <CardContent className="p-5 space-y-2">
-                {stats?.by_program?.slice(0, 6).map((p) => (
+                {dashboardLoading ? (
+                  <DashboardBreakdownSkeleton />
+                ) : stats?.by_program?.slice(0, 6).map((p) => (
                   <div key={p.name} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
                     <span className="text-xs text-slate-600 truncate max-w-[200px]">{p.name || "Unknown"}</span>
                     <Badge className="bg-slate-100 text-slate-600 hover:bg-slate-100 border-none font-semibold text-xs px-2.5 py-0.5 rounded-md ml-2 shrink-0">
@@ -298,7 +338,7 @@ export default function PgAdminDashboard() {
                     </Badge>
                   </div>
                 ))}
-                {(!stats?.by_program || stats.by_program.length === 0) && (
+                {!dashboardLoading && (!stats?.by_program || stats.by_program.length === 0) && (
                   <p className="text-sm text-slate-400 italic text-center py-4">No data yet.</p>
                 )}
               </CardContent>

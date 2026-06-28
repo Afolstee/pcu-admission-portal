@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   FileText,
   UserCheck,
@@ -66,6 +67,31 @@ function friendlyTime(iso: string | null): string {
   return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
+function DashboardNumberSkeleton({ light = false }: { light?: boolean }) {
+  return <Skeleton className={`h-9 w-16 ${light ? "bg-white/60" : "bg-slate-200"}`} />;
+}
+
+function DashboardListSkeleton({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className="space-y-3">
+      {[0, 1, 2].map((item) => (
+        <div
+          key={item}
+          className={`flex items-center justify-between rounded-xl border border-[#eee5d8] bg-[#fbfaf7] ${
+            compact ? "p-3" : "p-4"
+          }`}
+        >
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-40 bg-slate-200" />
+            {!compact && <Skeleton className="h-3 w-24 bg-slate-200" />}
+          </div>
+          <Skeleton className="h-6 w-10 bg-slate-200" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function PtAdminDashboard() {
   const router = useRouter();
   const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth();
@@ -92,16 +118,9 @@ export default function PtAdminDashboard() {
     })();
   }, [isAuthenticated, user, router, authLoading]);
 
-  if (loading || authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f3eee6]">
-        <div className="text-center">
-          <div className="w-10 h-10 border-4 border-[#e8dfd2] border-t-[#c99b45] rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-slate-500 text-sm font-medium">Loading...</p>
-        </div>
-      </div>
-    );
-  }
+  if (!authLoading && (!isAuthenticated || user?.role !== "ptadmin")) return null;
+
+  const dashboardLoading = authLoading || loading;
 
   const statCards = [
     {
@@ -192,13 +211,13 @@ export default function PtAdminDashboard() {
               <div className="rounded-2xl bg-white/80 border border-white/70 px-4 py-3 text-center shadow-sm">
                 <p className="text-xs font-bold text-[#5c4520]">New</p>
                 <p className="text-2xl font-black text-[#15110a]">
-                  {stats?.new_applications ?? 0}
+                  {dashboardLoading ? <DashboardNumberSkeleton light /> : (stats?.new_applications ?? 0)}
                 </p>
               </div>
               <div className="rounded-2xl bg-white/80 border border-white/70 px-4 py-3 text-center shadow-sm">
                 <p className="text-xs font-bold text-[#5c4520]">Admitted</p>
                 <p className="text-2xl font-black text-[#15110a]">
-                  {stats?.total_admitted ?? 0}
+                  {dashboardLoading ? <DashboardNumberSkeleton light /> : (stats?.total_admitted ?? 0)}
                 </p>
               </div>
             </div>
@@ -219,7 +238,11 @@ export default function PtAdminDashboard() {
                 Review New Applications
               </p>
               <p className="text-slate-400 text-xs mt-0.5">
-                {stats?.new_applications ?? 0} awaiting review
+                {dashboardLoading ? (
+                  <Skeleton className="h-3 w-28 bg-slate-200" />
+                ) : (
+                  `${stats?.new_applications ?? 0} awaiting review`
+                )}
               </p>
             </div>
             <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
@@ -237,7 +260,11 @@ export default function PtAdminDashboard() {
                 Awaiting Admission Decision
               </p>
               <p className="text-slate-400 text-xs mt-0.5">
-                {stats?.under_review ?? 0} awaiting final review
+                {dashboardLoading ? (
+                  <Skeleton className="h-3 w-36 bg-slate-200" />
+                ) : (
+                  `${stats?.under_review ?? 0} awaiting final review`
+                )}
               </p>
             </div>
             <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
@@ -251,7 +278,9 @@ export default function PtAdminDashboard() {
               <CardContent className="min-h-[104px] p-5 flex items-center justify-between gap-4">
                 <div className="min-w-0 space-y-1">
                   <p className="text-xs font-bold text-slate-500 leading-snug">{label}</p>
-                  <p className={`text-3xl font-black ${accent}`}>{value}</p>
+                  <p className={`text-3xl font-black ${accent}`}>
+                    {dashboardLoading ? <DashboardNumberSkeleton /> : value}
+                  </p>
                 </div>
                 <div className={`shrink-0 p-3 rounded-2xl ${iconBg} ${accent} border ${iconBorder} group-hover:scale-105 transition-transform duration-300`}>
                   <Icon className="w-6 h-6 shrink-0" />
@@ -288,7 +317,9 @@ export default function PtAdminDashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-6">
-              {activity.length === 0 ? (
+              {dashboardLoading ? (
+                <DashboardListSkeleton />
+              ) : activity.length === 0 ? (
                 <div className="text-center py-12 text-slate-500 font-medium">
                   <FileText className="w-10 h-10 mx-auto mb-2 text-slate-300" />
                   <p className="text-sm">No recent activity to display.</p>
@@ -325,7 +356,9 @@ export default function PtAdminDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-6 space-y-4">
-                {[...(stats?.by_status ?? [])]
+                {dashboardLoading ? (
+                  <DashboardListSkeleton compact />
+                ) : [...(stats?.by_status ?? [])]
                   .sort((a, b) => {
                     const ORDER = [
                       "enrolled",
@@ -357,7 +390,7 @@ export default function PtAdminDashboard() {
                       </Badge>
                     </div>
                   ))}
-                {(!stats?.by_status || stats.by_status.length === 0) && (
+                {!dashboardLoading && (!stats?.by_status || stats.by_status.length === 0) && (
                   <p className="text-sm text-muted-foreground italic text-center py-4">
                     No data yet.
                   </p>
@@ -372,7 +405,9 @@ export default function PtAdminDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-6 space-y-4">
-                {stats?.by_program?.map((p) => (
+                {dashboardLoading ? (
+                  <DashboardListSkeleton compact />
+                ) : stats?.by_program?.map((p) => (
                   <div
                     key={p.name}
                     className="flex items-center justify-between p-3 bg-[#fbfaf7] border border-[#eee5d8] rounded-xl"
@@ -385,7 +420,7 @@ export default function PtAdminDashboard() {
                     </Badge>
                   </div>
                 ))}
-                {(!stats?.by_program || stats.by_program.length === 0) && (
+                {!dashboardLoading && (!stats?.by_program || stats.by_program.length === 0) && (
                   <p className="text-sm text-muted-foreground italic text-center py-4">
                     No data yet.
                   </p>

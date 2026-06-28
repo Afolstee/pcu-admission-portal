@@ -179,13 +179,21 @@ export function GlobalNav() {
   const isApplicantSection = pathname?.startsWith("/applicant");
   const isStudentSection = pathname?.startsWith("/student");
   const isPgAdminSection = pathname?.startsWith("/pgadmin");
+  const isPgDeanSection = pathname?.startsWith("/pgdean");
   const isPtAdminSection = pathname?.startsWith("/ptadmin");
+  const isRegistrarSection = pathname?.startsWith("/registrar");
+  const isLecturerSection = pathname?.startsWith("/lecturer");
+  const isIctSection = pathname?.startsWith("/ict");
   const isOfficialPortalSection =
     isAdmissionOfficerSection ||
     isApplicantSection ||
     isStudentSection ||
     isPgAdminSection ||
-    isPtAdminSection;
+    isPgDeanSection ||
+    isPtAdminSection ||
+    isRegistrarSection ||
+    isLecturerSection ||
+    isIctSection;
 
   React.useEffect(() => {
     const fetchCount = async () => {
@@ -240,8 +248,17 @@ export function GlobalNav() {
 
   // Determine nav items based on role
   const getNavItems = () => {
-    // While verifying the token, always show public nav to avoid sidebar flash
-    if (isLoading) return LANDING_NAV_ITEMS;
+    if (isLoading) {
+      if (isAdmissionOfficerSection) return ADMIN_NAV_ITEMS;
+      if (isPgAdminSection || isPgDeanSection) return PGADMIN_NAV_ITEMS;
+      if (isPtAdminSection) return PTADMIN_NAV_ITEMS;
+      if (isRegistrarSection) return REGISTRAR_NAV_ITEMS;
+      if (isLecturerSection) return LECTURER_NAV_ITEMS;
+      if (isIctSection) return ICT_NAV_ITEMS;
+      if (isStudentSection) return STUDENT_NAV_ITEMS;
+      if (isApplicantSection) return APPLICANT_NAV_ITEMS;
+      return LANDING_NAV_ITEMS;
+    }
     if (!isAuthenticated) return LANDING_NAV_ITEMS;
     if (pathname?.startsWith("/applicant")) {
       if (user?.role === "admitted") return ADMITTED_NAV_ITEMS;
@@ -292,6 +309,12 @@ export function GlobalNav() {
       case "ptadmin":
         return "/ptadmin/dashboard";
       default:
+        if (isAdmissionOfficerSection) return "/admission_officer/dashboard";
+        if (isPgAdminSection || isPgDeanSection) return "/pgadmin/dashboard";
+        if (isPtAdminSection) return "/ptadmin/dashboard";
+        if (isRegistrarSection) return "/registrar/dashboard";
+        if (isLecturerSection) return "/lecturer/dashboard";
+        if (isIctSection) return "/ict/dashboard";
         return "/";
     }
   };

@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { FileText, UserCheck, Eye, AlertCircle } from "lucide-react";
 
 interface Statistics {
@@ -56,6 +57,35 @@ function friendlyTime(iso: string | null): string {
   return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
+function DashboardNumberSkeleton({ light = false }: { light?: boolean }) {
+  return (
+    <Skeleton
+      className={`h-9 w-16 ${light ? "bg-white/60" : "bg-slate-200"}`}
+    />
+  );
+}
+
+function DashboardListSkeleton({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className="space-y-3">
+      {[0, 1, 2].map((item) => (
+        <div
+          key={item}
+          className={`flex items-center justify-between rounded-xl border ${
+            compact ? "border-[#eee5d8] bg-[#fbfaf7] p-3" : "border-[#eee5d8] bg-[#fbfaf7] p-4"
+          }`}
+        >
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-40 bg-slate-200" />
+            {!compact && <Skeleton className="h-3 w-24 bg-slate-200" />}
+          </div>
+          <Skeleton className="h-6 w-10 bg-slate-200" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const router = useRouter();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -85,16 +115,9 @@ export default function AdminDashboard() {
     load();
   }, [isAuthenticated, user, router, authLoading]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading dashboard...</p>
-        </div>
-      </div>
-    );
-  }
+  if (!authLoading && (!isAuthenticated || user?.role !== "admissionofficer")) return null;
+
+  const dashboardLoading = authLoading || loading;
 
   return (
     <div className="min-h-screen bg-[#f3eee6]">
@@ -119,11 +142,15 @@ export default function AdminDashboard() {
             <div className="flex items-center gap-3">
               <div className="rounded-2xl bg-white/80 border border-white/70 px-4 py-3 text-center shadow-sm">
                 <p className="text-xs font-bold text-[#5c4520]">Review</p>
-                <p className="text-2xl font-black text-[#15110a]">{stats?.review_applications ?? 0}</p>
+                <p className="text-2xl font-black text-[#15110a]">
+                  {dashboardLoading ? <DashboardNumberSkeleton light /> : (stats?.review_applications ?? 0)}
+                </p>
               </div>
               <div className="rounded-2xl bg-white/80 border border-white/70 px-4 py-3 text-center shadow-sm">
                 <p className="text-xs font-bold text-[#5c4520]">Admitted</p>
-                <p className="text-2xl font-black text-[#15110a]">{stats?.total_admitted ?? 0}</p>
+                <p className="text-2xl font-black text-[#15110a]">
+                  {dashboardLoading ? <DashboardNumberSkeleton light /> : (stats?.total_admitted ?? 0)}
+                </p>
               </div>
             </div>
           </div>
@@ -137,7 +164,9 @@ export default function AdminDashboard() {
               <CardContent className="min-h-[104px] p-5 flex items-center justify-between gap-4">
                 <div className="min-w-0 space-y-1">
                   <p className="text-xs font-bold text-slate-500 leading-snug">Total Applications</p>
-                  <p className="text-3xl font-black text-slate-900">{stats?.total_applications ?? 0}</p>
+                  <p className="text-3xl font-black text-slate-900">
+                    {dashboardLoading ? <DashboardNumberSkeleton /> : (stats?.total_applications ?? 0)}
+                  </p>
                 </div>
                 <div className="shrink-0 p-3 rounded-2xl bg-[#f3eee6] text-slate-700 border border-[#e2d6c3] group-hover:scale-105 transition-transform duration-300">
                   <FileText className="w-6 h-6 shrink-0" />
@@ -152,7 +181,9 @@ export default function AdminDashboard() {
               <CardContent className="min-h-[104px] p-5 flex items-center justify-between gap-4">
                 <div className="min-w-0 space-y-1">
                   <p className="text-xs font-bold text-slate-500 leading-snug">Admitted Candidates</p>
-                  <p className="text-3xl font-black text-[#23704d]">{stats?.total_admitted ?? 0}</p>
+                  <p className="text-3xl font-black text-[#23704d]">
+                    {dashboardLoading ? <DashboardNumberSkeleton /> : (stats?.total_admitted ?? 0)}
+                  </p>
                 </div>
                 <div className="shrink-0 p-3 rounded-2xl bg-[#eef7f1] text-[#23704d] border border-[#cfe6d8] group-hover:scale-105 transition-transform duration-300">
                   <UserCheck className="w-6 h-6 shrink-0" />
@@ -167,7 +198,9 @@ export default function AdminDashboard() {
               <CardContent className="min-h-[104px] p-5 flex items-center justify-between gap-4">
                 <div className="min-w-0 space-y-1">
                   <p className="text-xs font-bold text-slate-500 leading-snug">Under Review</p>
-                  <p className="text-3xl font-black text-[#2d5f9a]">{stats?.under_review ?? 0}</p>
+                  <p className="text-3xl font-black text-[#2d5f9a]">
+                    {dashboardLoading ? <DashboardNumberSkeleton /> : (stats?.under_review ?? 0)}
+                  </p>
                 </div>
                 <div className="shrink-0 p-3 rounded-2xl bg-[#eef4fb] text-[#2d5f9a] border border-[#ccdded] group-hover:scale-105 transition-transform duration-300">
                   <Eye className="w-6 h-6 shrink-0" />
@@ -182,7 +215,9 @@ export default function AdminDashboard() {
               <CardContent className="min-h-[104px] p-5 flex items-center justify-between gap-4">
                 <div className="min-w-0 space-y-1">
                   <p className="text-xs font-bold text-slate-500 leading-snug">Pending Submission</p>
-                  <p className="text-3xl font-black text-[#9a6614]">{stats?.pending_submission ?? 0}</p>
+                  <p className="text-3xl font-black text-[#9a6614]">
+                    {dashboardLoading ? <DashboardNumberSkeleton /> : (stats?.pending_submission ?? 0)}
+                  </p>
                 </div>
                 <div className="shrink-0 p-3 rounded-2xl bg-[#fff7e8] text-[#9a6614] border border-[#efd9a8] group-hover:scale-105 transition-transform duration-300">
                   <AlertCircle className="w-6 h-6 shrink-0" />
@@ -201,7 +236,9 @@ export default function AdminDashboard() {
               <CardTitle className="text-lg font-bold text-slate-900">Recent Activity Log</CardTitle>
             </CardHeader>
             <CardContent className="p-6">
-              {activity.length === 0 ? (
+              {dashboardLoading ? (
+                <DashboardListSkeleton />
+              ) : activity.length === 0 ? (
                 <div className="text-center py-12 text-slate-500 font-medium">
                   <FileText className="w-10 h-10 mx-auto mb-2 text-slate-300" />
                   <p className="text-sm">No recent activity to display.</p>
@@ -235,7 +272,9 @@ export default function AdminDashboard() {
                 <CardTitle className="text-base font-bold text-slate-900">Applications by Status</CardTitle>
               </CardHeader>
               <CardContent className="p-6 space-y-4">
-                {[...(stats?.by_status ?? [])]
+                {dashboardLoading ? (
+                  <DashboardListSkeleton compact />
+                ) : [...(stats?.by_status ?? [])]
                   .sort((a, b) => {
                     const ORDER = ["enrolled", "admitted", "accepted", "screening", "in progress", "started"];
                     const normA = a.application_status.toLowerCase().replace("_", " ");
@@ -256,7 +295,7 @@ export default function AdminDashboard() {
                       <Badge className="bg-[#ead6aa] text-[#4b3411] hover:bg-[#ead6aa] border-none font-bold px-3 py-1 text-xs rounded-lg">{s.count}</Badge>
                     </div>
                   ))}
-                {(!stats?.by_status || stats.by_status.length === 0) && (
+                {!dashboardLoading && (!stats?.by_status || stats.by_status.length === 0) && (
                   <p className="text-sm text-muted-foreground italic text-center py-4">No data yet.</p>
                 )}
               </CardContent>
@@ -267,13 +306,15 @@ export default function AdminDashboard() {
                 <CardTitle className="text-base font-bold text-slate-900">Applications by Program</CardTitle>
               </CardHeader>
               <CardContent className="p-6 space-y-4">
-                {stats?.by_program?.map((p) => (
+                {dashboardLoading ? (
+                  <DashboardListSkeleton compact />
+                ) : stats?.by_program?.map((p) => (
                   <div key={p.name} className="flex items-center justify-between p-3 bg-[#fbfaf7] border border-[#eee5d8] rounded-xl">
                     <span className="text-sm font-bold text-slate-600">{p.name}</span>
                     <Badge className="bg-[#dce7f1] text-[#234766] hover:bg-[#dce7f1] border-none font-bold px-3 py-1 text-xs rounded-lg">{p.count}</Badge>
                   </div>
                 ))}
-                {(!stats?.by_program || stats.by_program.length === 0) && (
+                {!dashboardLoading && (!stats?.by_program || stats.by_program.length === 0) && (
                   <p className="text-sm text-muted-foreground italic text-center py-4">No data yet.</p>
                 )}
               </CardContent>

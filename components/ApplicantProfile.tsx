@@ -855,7 +855,13 @@ export default function ApplicantProfile({
           </div>
 
           {/* Bottom Grid: O'Level and Documents */}
-          <div className="grid grid-cols-1 gap-5 items-start xl:grid-cols-[minmax(260px,0.9fr)_minmax(320px,1fr)]">
+          <div
+            className={`grid grid-cols-1 gap-5 items-start ${
+              showOLevel
+                ? "xl:grid-cols-[minmax(260px,0.9fr)_minmax(320px,1fr)]"
+                : ""
+            }`}
+          >
             {/* O'Level Column - Only show if the applicant's program template requires it */}
             {showOLevel && (
               <div className="min-w-0 space-y-4">
@@ -923,8 +929,8 @@ export default function ApplicantProfile({
                   </div>
                 </div>
               )}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-100 pb-4 gap-3">
-                <span className="text-slate-600 font-medium">Documents</span>
+              <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
+                <span className="text-xl font-semibold text-slate-700">Documents</span>
                 <Button
                   className="w-full sm:w-auto bg-[#6b357d] hover:bg-[#5a2d69] text-white rounded px-4 min-h-10 h-auto text-sm font-medium whitespace-normal text-center leading-snug"
                   onClick={() => setIsUploadModalOpen(true)}
@@ -933,19 +939,19 @@ export default function ApplicantProfile({
                 </Button>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[280px] table-fixed text-left">
+              <div className="w-full overflow-x-auto">
+                <table className="w-full min-w-[360px] table-auto text-left">
                   <thead>
                     <tr className="text-slate-500 font-medium text-sm">
-                      <th className="pb-4 pr-4">Name</th>
-                      <th className="w-24 pb-4 text-center">Download</th>
+                      <th className="pb-4 pr-6">Name</th>
+                      <th className="w-32 pb-4 text-center">Download</th>
                     </tr>
                   </thead>
                   <tbody>
                     {documents.length > 0 ? (
                       documents.map((doc, idx) => (
                         <tr key={idx} className="border-t border-slate-50">
-                          <td className="py-4 pr-4 text-sm text-slate-600 font-medium capitalize break-words [overflow-wrap:anywhere]">
+                          <td className="py-4 pr-6 text-sm text-slate-600 font-medium capitalize break-words [overflow-wrap:anywhere]">
                             {doc.display_name ||
                               doc.document_type?.replace("_", " ")}
                           </td>

@@ -71,15 +71,7 @@ export function NavWrapper({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (isLoading) {
-    return (
-      <main className="min-h-screen flex flex-col">
-        <div className="flex-grow">{children}</div>
-      </main>
-    );
-  }
-
-  if (!isAuthenticated) {
+  if (!isLoading && !isAuthenticated) {
     return (
       <>
         <NavBar />

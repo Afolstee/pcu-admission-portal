@@ -15,6 +15,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { LogOut, Users, Lock, Unlock, Settings, ShieldCheck, UserCog, FileSpreadsheet } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -28,14 +29,14 @@ export default function ICTDashboard() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!isAuthenticated || (user?.role !== "admin" && user?.role !== "ict_director")) {
+    if (!isAuthenticated || !["admin", "ict_director", "ictdirector"].includes(user?.role || "")) {
       router.replace("/staff/login");
       return;
     }
 
     loadSettings();
     loadPendingCount();
-  }, [isAuthenticated, user, router]);
+  }, [isAuthenticated, user, router, authLoading]);
 
   const loadPendingCount = async () => {
     try {
@@ -61,16 +62,9 @@ export default function ICTDashboard() {
     router.replace("/staff/login");
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading ICT Portal...</p>
-        </div>
-      </div>
-    );
-  }
+  if (!authLoading && (!isAuthenticated || !["admin", "ict_director", "ictdirector"].includes(user?.role || ""))) return null;
+
+  const dashboardLoading = authLoading || loading;
 
 
   return (
@@ -193,27 +187,33 @@ export default function ICTDashboard() {
               <CardContent className="space-y-4">
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-slate-400">Database:</span>
-                  <span className={`${systemStatus?.db_status === "Connected" ? "text-green-400" : "text-red-400"} font-medium`}>{systemStatus?.db_status || "Checking..."}</span>
+                  <span className={`${systemStatus?.db_status === "Connected" ? "text-green-400" : "text-red-400"} font-medium`}>
+                    {dashboardLoading ? <Skeleton className="h-4 w-20 bg-slate-700" /> : (systemStatus?.db_status || "Checking...")}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-slate-400">API Gateway:</span>
-                  <span className="text-green-400 font-medium">{systemStatus?.api_status || "Checking..."}</span>
+                  <span className="text-green-400 font-medium">
+                    {dashboardLoading ? <Skeleton className="h-4 w-20 bg-slate-700" /> : (systemStatus?.api_status || "Checking...")}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center text-sm border-t border-slate-800 pt-3">
                   <span className="text-slate-400">Internal 500 Errors:</span>
                   <span className={`${(systemStatus?.counts?.errors_500 || 0) > 0 ? "text-red-400 font-bold" : "text-green-400"} font-medium`}>
-                    {systemStatus?.counts?.errors_500 || 0} recent
+                    {dashboardLoading ? <Skeleton className="h-4 w-16 bg-slate-700" /> : `${systemStatus?.counts?.errors_500 || 0} recent`}
                   </span>
                 </div>
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-slate-400">404 Errors:</span>
                   <span className={`${(systemStatus?.counts?.errors_404 || 0) > 0 ? "text-yellow-400" : "text-green-400"} font-medium`}>
-                    {systemStatus?.counts?.errors_404 || 0} recent
+                    {dashboardLoading ? <Skeleton className="h-4 w-16 bg-slate-700" /> : `${systemStatus?.counts?.errors_404 || 0} recent`}
                   </span>
                 </div>
                 <div className="flex justify-between items-center text-sm border-t border-slate-800 pt-3">
                   <span className="text-slate-400">Locked Programs:</span>
-                  <span className="text-orange-400 font-medium">{systemStatus?.locks?.programs_locked || 0} program(s)</span>
+                  <span className="text-orange-400 font-medium">
+                    {dashboardLoading ? <Skeleton className="h-4 w-20 bg-slate-700" /> : `${systemStatus?.locks?.programs_locked || 0} program(s)`}
+                  </span>
                 </div>
                 {(systemStatus?.locks?.admission || systemStatus?.locks?.course || systemStatus?.locks?.result || systemStatus?.locks?.undergraduate || systemStatus?.locks?.postgraduate || systemStatus?.locks?.part_time || systemStatus?.locks?.jupeb) && (
                    <div className="pt-2">
@@ -297,8 +297,6 @@ function AcademicSessionManager() {
     }
   };
 
-  if (loading) return null;
-
   return (
     <Card className="border-primary/20 bg-primary/5">
       <CardHeader>
@@ -311,6 +309,19 @@ function AcademicSessionManager() {
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {loading ? (
+          <div className="grid md:grid-cols-3 gap-6 items-end">
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+            <Skeleton className="h-10 w-full md:w-32" />
+          </div>
+        ) : (
         <form onSubmit={handleUpdate} className="grid md:grid-cols-3 gap-6 items-end">
           <div className="space-y-2">
             <label className="text-sm font-medium">Active Academic Session</label>
@@ -336,6 +347,7 @@ function AcademicSessionManager() {
             {saving ? "Updating..." : "Activate Now"}
           </Button>
         </form>
+        )}
       </CardContent>
     </Card>
   );
